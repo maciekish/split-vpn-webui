@@ -56,5 +56,7 @@ The codebase is organised for hot-reload friendly tools such as [`air`](https://
 
 - All CSS/JS dependencies are vendored locally to remain operational during WAN outages.
 - Bootstrap Icons webfonts are not bundled. Download the latest release from [twbs/icons](https://github.com/twbs/icons/releases), copy the `.woff`/`.woff2` files into `ui/web/static/vendor/bootstrap-icons/fonts/`, and rebuild to embed them.
-- Planned control features will rely on the upstream `run-vpn.sh` / `stop-vpn.sh` scripts once they return.
 
+## Licensing
+
+- Split VPN Web UI is released under the MIT License. Third-party licenses for bundled dependencies are listed in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
