@@ -1,0 +1,15 @@
+[Unit]
+Description=Split VPN Web UI
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/split-vpn-webui --addr :8091 --split-vpn-dir /mnt/data/split-vpn
+Restart=on-failure
+RestartSec=5s
+AmbientCapabilities=CAP_NET_ADMIN
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

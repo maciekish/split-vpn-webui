@@ -1,0 +1,152 @@
+body {
+  background: radial-gradient(circle at top, #1d2b64, #090a0f);
+  min-height: 100vh;
+  color: var(--bs-body-color);
+}
+
+.card {
+  backdrop-filter: blur(6px);
+  background: rgba(17, 24, 39, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.card-header {
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.table {
+  color: inherit;
+}
+
+#interface-grid .card {
+  min-height: 100%;
+}
+
+.throughput-gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1.5rem;
+  align-items: center;
+  justify-items: center;
+}
+
+.throughput-gauges .gauge-block {
+  width: 100%;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.gauge-block-label {
+  font-size: 0.8rem;
+  text-align: center;
+  color: var(--bs-body-tertiary-color);
+  margin-bottom: 0.5rem;
+  white-space: nowrap;
+}
+
+.throughput-gauges canvas {
+  width: 100% !important;
+  aspect-ratio: 1 / 1;
+}
+
+.gauge-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.gauge-legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.gauge-legend-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gauge-legend-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.gauge-legend-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gauge-legend-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-body-color);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.interface-card .chart-wrapper {
+  position: relative;
+  height: 180px;
+  width: 100%;
+}
+
+.interface-card .chart-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.interface-card .stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.badge-operstate {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.wan-card .card {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.vpn-card .card {
+  border-color: rgba(167, 139, 250, 0.25);
+}
+
+textarea#config-editor {
+  min-height: 400px;
+}
+
+textarea#config-editor[readonly] {
+  background-color: rgba(148, 163, 184, 0.08);
+  cursor: default;
+}
+
+@media (max-width: 768px) {
+  body {
+    background: #090a0f;
+  }
+  .throughput-gauges {
+    gap: 1rem;
+  }
+  .interface-card .chart-wrapper {
+    height: 160px;
+  }
+}
