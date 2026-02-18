@@ -68,33 +68,80 @@ split-vpn-webui/
 
 **Device:** UniFi Dream Machine SE (and UDM Pro, UDR, etc.)
 **OS:** Debian-based, systemd init, BusyBox utilities available alongside standard GNU tools.
-**Persistence layer:** [unifi-utilities/unifios-utilities](https://github.com/unifi-utilities/unifios-utilities) — scripts in `/data/on_boot.d/` are re-executed on every boot to restore configuration that UniFi firmware resets on upgrade.
-**Persistent data directory:** `/data/split-vpn-webui/` (symlink to `/mnt/data/split-vpn-webui/`; survives firmware updates). **Everything — binary, config, stats DB, logs — lives here. Do not use `/mnt/data/split-vpn/` — that is peacey/split-vpn's directory.**
+**Persistence layer:** [unifi-utilities/unifios-utilities](https://github.com/unifi-utilities/unifios-utilities) `on-boot-script-2.x` package (`udm-boot-2x`).
 **Web UI port:** 8091 (configurable via `--addr` flag).
+
+### Filesystem Persistence Model (Modern Firmware 2.x+)
+
+On **UniFi OS 2.x and above** (the target; non-podman, non-container firmware):
+
+- **`/data/`** is the real persistent partition (ext4, directly mounted). It survives both reboots and firmware updates. This is **not** a symlink — it is the actual mount point.
+- **`/mnt/data/`** is relevant on legacy 1.x firmware only. **Do not use `/mnt/data/` anywhere in this project.**
+- **`/etc/systemd/system/`**, `/usr/local/bin/`, and everything outside `/data/` lives on the rootfs which is **completely replaced by every firmware update**. No file outside `/data/` should be treated as durable.
+
+**Consequence:** The binary, all config, all VPN unit files, the stats DB, and logs must all live under `/data/split-vpn-webui/`. The only things that go outside `/data/` are transient symlinks that the boot script re-creates on every boot.
 
 **Directory layout on device:**
 ```
 /data/split-vpn-webui/
-├── split-vpn-webui          # the binary itself
-├── settings.json            # app settings
-├── stats.db                 # SQLite stats & history database
+├── split-vpn-webui             # the binary itself
+├── settings.json               # app settings
+├── stats.db                    # SQLite stats & history database
 ├── logs/
-│   └── split-vpn-webui.log  # application log (rotated)
+│   └── split-vpn-webui.log     # application log (rotated)
+├── units/
+│   ├── split-vpn-webui.service # this app's systemd unit (canonical copy)
+│   └── svpn-<vpn-name>.service # VPN systemd units (canonical copies)
 └── vpns/
     └── <vpn-name>/
-        ├── vpn.conf          # routing metadata
-        ├── <name>.wg         # WireGuard config (or .ovpn for OpenVPN)
-        └── ...               # certs, credentials, etc.
+        ├── vpn.conf             # routing metadata
+        ├── <name>.wg            # WireGuard config (or .ovpn for OpenVPN)
+        └── ...                  # certs, credentials, etc.
 ```
+
+### How unifios-utilities Boot Persistence Works
+
+The `udm-boot-2x` package installs a **systemd unit** (`udm-boot.service`, `Type=oneshot`) that runs after `network-online.target` on every boot. It executes every file in `/data/on_boot.d/` in sorted alphabetical order using this exact logic:
+
+- If the file **has the executable bit set**: it is run directly (`"$0"`)
+- If the file is **not executable but ends in `.sh`**: it is sourced (`. "$0"`)
+- All other files are ignored
+
+**Boot scripts must be `chmod +x` and have a `.sh` extension and a `#!/bin/bash` shebang.** Numeric prefixes control execution order (e.g. `10-split-vpn-webui.sh`).
+
+### The Boot Script Pattern for Custom Systemd Services
+
+Because `/etc/systemd/system/` is wiped on firmware updates, the `on_boot.d` script **must re-create symlinks and reload systemd on every boot** — not just on first install. This is the standard pattern:
+
+```bash
+#!/bin/bash
+# /data/on_boot.d/10-split-vpn-webui.sh
+
+# Re-link this app's service unit (wiped by firmware updates)
+ln -sf /data/split-vpn-webui/units/split-vpn-webui.service \
+    /etc/systemd/system/split-vpn-webui.service
+
+# Re-link all managed VPN units
+for unit in /data/split-vpn-webui/units/svpn-*.service; do
+    [ -f "$unit" ] && ln -sf "$unit" "/etc/systemd/system/$(basename "$unit")"
+done
+
+systemctl daemon-reload
+systemctl enable split-vpn-webui
+systemctl restart split-vpn-webui
+```
+
+This script runs after every boot (and after every firmware update), making the service fully self-healing.
 
 ### Coexistence with peacey/split-vpn and UniFi VPN Manager
 
 This app must coexist peacefully with **both** peacey/split-vpn (if installed) and UniFi's native VPN manager. Treat both as strictly read-only neighbours — never write to, delete, or modify any resource owned by either.
 
 **peacey/split-vpn owns:**
-- `/mnt/data/split-vpn/` and everything inside it — **never write here**.
+- `/data/split-vpn/` and everything inside it — **never write here**. (On 1.x legacy firmware this was `/mnt/data/split-vpn/`, but on the target 2.x firmware it is `/data/split-vpn/`.)
 - Its own ipset names, dnsmasq config entries, iptables rules, and route tables.
 - Its own systemd unit files (e.g. `wg0-sgp.swic.name.service`, `wg-quick@*.service`).
+- Its own `on_boot.d` scripts in `/data/on_boot.d/`.
 
 **UniFi VPN Manager owns:**
 - Interface names `wg0`, `wg1`, … used by its own tunnels.
@@ -102,14 +149,15 @@ This app must coexist peacefully with **both** peacey/split-vpn (if installed) a
 - Route tables and fwmarks in a low numeric range.
 
 **This app's exclusive namespace:**
-- Data directory: `/data/split-vpn-webui/` — all app state (binary, config, DB, logs) lives here.
+- Data directory: `/data/split-vpn-webui/` — all app state (binary, config, DB, logs, unit files) lives here.
+- Boot script: `/data/on_boot.d/10-split-vpn-webui.sh`.
 - systemd unit names: `svpn-<vpn-name>.service` (prefix `svpn-` avoids all known conflicts).
 - ipset names: `svpn_<group>_v4` / `svpn_<group>_v6` (prefix `svpn_`).
 - dnsmasq drop-in: `/run/dnsmasq.d/split-vpn-webui.conf`.
 - Route table IDs and fwmarks: allocated from `200` upward; scan `/etc/iproute2/rt_tables` and live `ip rule` output before allocating to guarantee no collision.
-- WireGuard interface names for managed VPNs: user-supplied, but validated against existing interfaces before use; warn in UI if a conflict is detected.
+- WireGuard interface names for managed VPNs: user-supplied, but validated against all existing interfaces before use; warn in UI if a conflict is detected.
 
-**Optional read-only discovery:** The app may optionally scan `/mnt/data/split-vpn/` to display peacey-managed VPNs in a read-only "existing VPNs" panel, but must never write to that directory or attempt to manage those VPNs.
+**Optional read-only discovery:** The app may optionally scan `/data/split-vpn/` to display peacey-managed VPNs in a read-only "existing VPNs" panel, but must never write to that directory or attempt to manage those VPNs.
 
 ---
 
@@ -178,25 +226,31 @@ A background worker (exposed via UI) that pre-fetches DNS records for all config
 ### 6. systemd Unit Management
 
 - The app creates, writes, enables, and manages systemd unit files for each VPN.
-- Unit file path: `/etc/systemd/system/svpn-<vpn-name>.service`.
-- After writing a unit file: run `systemctl daemon-reload`.
+- **Canonical unit file location: `/data/split-vpn-webui/units/svpn-<vpn-name>.service`** — this is the durable copy that survives firmware updates.
+- The app also creates a symlink at `/etc/systemd/system/svpn-<vpn-name>.service` → the canonical path, then runs `systemctl daemon-reload`. Because `/etc/systemd/system/` is wiped on firmware updates, the boot script (see Target Platform Details) re-creates all such symlinks on every boot.
+- When a VPN is removed, delete both the canonical file and the symlink, then `daemon-reload`.
 - Start/stop/restart via `systemctl` subprocess calls (not D-Bus).
-- The app itself runs as a separate systemd unit (`split-vpn-webui.service`) — VPN units are independent so a VPN crash does not affect the web UI.
+- The app itself runs as a separate systemd unit — VPN unit crashes do not affect the web UI.
 
 ### 7. Installation
+
+**Prerequisite:** The user must have already installed `udm-boot-2x` from unifios-utilities. The installer should check for it and print a clear error with install instructions if it is absent. Do not attempt to install `udm-boot-2x` automatically — that is the user's responsibility.
+
+Check: `systemctl is-active udm-boot` (exit 0 = installed and active).
 
 Installer must work as: `curl -fsSL https://raw.githubusercontent.com/maciekish/split-vpn-webui/main/install.sh | bash`
 
 `install.sh` must:
-1. Detect architecture (amd64 / arm64) and download the appropriate pre-built binary from GitHub Releases.
-2. Create `/data/split-vpn-webui/` and subdirectories (`logs/`, `vpns/`) if absent. **Do not touch `/data/split-vpn/` or `/mnt/data/split-vpn/`.**
-3. Place the binary at `/data/split-vpn-webui/split-vpn-webui` and `chmod +x` it. The binary is **not** placed in `/usr/local/bin/` or any rootfs path — those do not survive firmware updates.
-4. Write the systemd unit file to `/etc/systemd/system/split-vpn-webui.service` with `ExecStart=/data/split-vpn-webui/split-vpn-webui`.
-5. Write the boot hook to `/data/on_boot.d/10-split-vpn-webui.sh`. This hook must: re-copy the systemd unit (in case firmware wiped `/etc/systemd/system/`), run `systemctl daemon-reload`, and start the service. This ensures full persistence across firmware updates via unifios-utilities.
-6. Run `systemctl daemon-reload && systemctl enable --now split-vpn-webui`.
-7. Print the access URL at the end.
+1. Verify `udm-boot` is active; abort with clear instructions if not.
+2. Detect architecture (amd64 / arm64) and download the appropriate pre-built binary from GitHub Releases.
+3. Create `/data/split-vpn-webui/` and subdirectories (`logs/`, `vpns/`, `units/`) if absent. **Do not touch `/data/split-vpn/`.**
+4. Place the binary at `/data/split-vpn-webui/split-vpn-webui` and `chmod +x` it. **Never place it in `/usr/local/bin/` or any rootfs path — those are wiped by firmware updates.**
+5. Write the canonical systemd unit file to `/data/split-vpn-webui/units/split-vpn-webui.service`.
+6. Write the boot hook to `/data/on_boot.d/10-split-vpn-webui.sh` and `chmod +x` it. This script is the persistence mechanism — it runs after every boot (including post-firmware-update) and re-creates all `/etc/systemd/system/` symlinks, runs `systemctl daemon-reload`, enables and starts the service.
+7. Run the boot hook immediately to activate the service for the current session: `bash /data/on_boot.d/10-split-vpn-webui.sh`.
+8. Print the access URL at the end.
 
-> **Why:** `/data/` (symlink to `/mnt/data/`) is on the persistent partition and survives UniFi firmware updates. `/usr/local/bin/`, `/etc/systemd/system/`, and other rootfs paths are reset on every firmware update — this is why the boot hook must restore the systemd unit on each boot.
+> **Why this works:** `/data/` is the real persistent partition on UniFi OS 2.x+ (not a symlink — the actual mount point). It survives firmware updates. `/etc/systemd/system/` is on the rootfs and is wiped on every firmware update. The boot hook lives safely in `/data/on_boot.d/` and re-creates all ephemeral symlinks on every boot, making the service fully self-healing.
 
 ---
 
