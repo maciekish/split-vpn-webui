@@ -6,6 +6,16 @@ A standalone web UI for managing split-tunnel VPN on UniFi Dream Machine SE (and
 
 ---
 
+##
+
+## Important notes
+
+* Always reference this file when working, and any files in docs/
+* Do proper research against peacey/split-vpn, unifi-utilities/unifios-utilities, and /Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/ while working and replan if necessary.
+* Always work on the claude-code branch and commit work as appropriate.
+
+--
+
 ## Current Tech Stack
 
 | Layer | Technology |
