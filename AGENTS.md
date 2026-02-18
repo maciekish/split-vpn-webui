@@ -2,7 +2,7 @@
 
 ## Project Goal
 
-A standalone web UI for managing split-tunnel VPN on UniFi Dream Machine SE (and compatible Debian-based UniFi gateways). It replaces the shell-script-based [peacey/split-vpn](https://github.com/peacey/split-vpn) setup with a fully self-contained web application — every feature must be controllable through the UI without SSH or manual file editing.
+A standalone web UI for managing split-tunnel VPN on UniFi Dream Machine SE (and compatible Debian-based UniFi gateways). It replaces the shell-script-based [peacey/split-vpn](https://github.com/peacey/split-vpn) setup with a fully self-contained web application — every feature must be controllable through the UI without SSH or manual file editing. The project must have full IPv4 and IPv6 support of all features. The webui should have simple configurable password authentication with the default password being "split-vpn", but also support simple token auth to allow reverse-proxies to "auto-login".
 
 ---
 
@@ -244,7 +244,7 @@ ip rule add fwmark <fwmark> table <route_table>
 
 ### DNS Pre-Warm (`90-ipset-prewarm.sh` equivalent)
 
-For each domain, bound to each VPN interface:
+For each domain, for each VPN interface regardless of its configured egress:
 ```bash
 # DoH query via specific interface
 curl --interface <vpn_dev> -s \
@@ -284,4 +284,3 @@ VPN_BOUND_IFACE=br0
 
 - OpenConnect, L2TP, or other VPN types beyond WireGuard and OpenVPN.
 - Multi-user authentication for the web UI (single-admin assumed for now).
-- IPv6 WAN support (IPv6 LAN traffic through VPN is in scope; IPv6 WAN is not).
