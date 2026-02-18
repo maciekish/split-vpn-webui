@@ -1,15 +1,20 @@
 [Unit]
 Description=Split VPN Web UI
-After=network.target
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/split-vpn-webui --addr :8091 --split-vpn-dir /mnt/data/split-vpn
+ExecStart=/data/split-vpn-webui/split-vpn-webui --systemd
+WorkingDirectory=/data/split-vpn-webui
 Restart=on-failure
 RestartSec=5s
-AmbientCapabilities=CAP_NET_ADMIN
+# CAP_NET_ADMIN is required for ipset, iptables, and interface operations.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=true
+# Redirect stdout/stderr to the persistent log directory.
+StandardOutput=append:/data/split-vpn-webui/logs/split-vpn-webui.log
+StandardError=append:/data/split-vpn-webui/logs/split-vpn-webui.log
 
 [Install]
 WantedBy=multi-user.target

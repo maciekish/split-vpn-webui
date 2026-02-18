@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>split-vpn-webui — Login</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap/css/bootstrap.min.css">
+  <style>
+    html, body {
+      height: 100%;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bs-body-bg);
+    }
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h5 class="card-title mb-4 text-center">
+          <i class="bi bi-shield-lock me-2"></i>split-vpn-webui
+        </h5>
+
+        {{if .Error}}
+        <div class="alert alert-danger py-2 small" role="alert">
+          {{.Error}}
+        </div>
+        {{end}}
+
+        <form method="POST" action="/login" autocomplete="on">
+          <div class="mb-3">
+            <label for="password" class="form-label">Password</label>
+            <input
+              type="password"
+              class="form-control"
+              id="password"
+              name="password"
+              autocomplete="current-password"
+              autofocus
+              required
+            >
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary">Sign in</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <p class="text-center text-muted mt-3 small">
+      Default password: <code>split-vpn</code>
+    </p>
+  </div>
+
+  <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.min.css">
+</body>
+</html>

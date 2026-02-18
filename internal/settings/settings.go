@@ -8,10 +8,17 @@ import (
 	"sync"
 )
 
-// Settings captures user preferences persisted across restarts.
+// Settings captures user preferences and auth credentials persisted across restarts.
 type Settings struct {
+	// Network
 	ListenInterface string `json:"listenInterface"`
 	WANInterface    string `json:"wanInterface"`
+
+	// Auth — stored as bcrypt hash and random token.
+	// These fields are omitted from JSON output on API responses;
+	// only the settings Manager reads/writes them directly.
+	AuthPasswordHash string `json:"authPasswordHash,omitempty"`
+	AuthToken        string `json:"authToken,omitempty"`
 }
 
 // Manager handles persistence of Settings on disk.
@@ -22,9 +29,10 @@ type Manager struct {
 	loaded bool
 }
 
-// NewManager creates a settings manager rooted at the provided base directory.
-func NewManager(basePath string) *Manager {
-	return &Manager{path: filepath.Join(basePath, ".split-vpn-webui-settings.json")}
+// NewManager creates a settings manager whose file is at settingsPath.
+// Pass the full file path (e.g. "/data/split-vpn-webui/settings.json").
+func NewManager(settingsPath string) *Manager {
+	return &Manager{path: settingsPath}
 }
 
 // Get returns the cached settings, loading from disk if necessary.

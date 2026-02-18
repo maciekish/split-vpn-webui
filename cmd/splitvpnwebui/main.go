@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"split-vpn-webui/internal/auth"
 	"split-vpn-webui/internal/config"
+	"split-vpn-webui/internal/database"
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/server"
 	"split-vpn-webui/internal/settings"
@@ -20,17 +23,48 @@ import (
 	"split-vpn-webui/internal/util"
 )
 
+const defaultDataDir = "/data/split-vpn-webui"
+
 func main() {
-	addr := flag.String("addr", ":8091", "listen address")
-	baseDir := flag.String("split-vpn-dir", "/mnt/data/split-vpn", "path to split-vpn directory")
+	addr := flag.String("addr", ":8091", "listen address (host:port)")
+	dataDir := flag.String("data-dir", defaultDataDir, "persistent data directory")
+	dbPath := flag.String("db", "", "SQLite database path (defaults to <data-dir>/stats.db)")
 	poll := flag.Duration("poll", 2*time.Second, "statistics poll interval")
 	history := flag.Int("history", 120, "number of samples to retain for charts")
 	latencyInterval := flag.Duration("latency-interval", 10*time.Second, "latency refresh interval")
 	systemdMode := flag.Bool("systemd", false, "indicate the process is managed by systemd")
 	flag.Parse()
 
-	cfgManager := config.NewManager(*baseDir)
-	settingsManager := settings.NewManager(*baseDir)
+	// Ensure the data directory tree exists.
+	for _, sub := range []string{"", "vpns", "units", "logs"} {
+		dir := filepath.Join(*dataDir, sub)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Fatalf("failed to create directory %s: %v", dir, err)
+		}
+	}
+
+	resolvedDB := *dbPath
+	if resolvedDB == "" {
+		resolvedDB = filepath.Join(*dataDir, "stats.db")
+	}
+
+	db, err := database.Open(resolvedDB)
+	if err != nil {
+		log.Fatalf("failed to open database %s: %v", resolvedDB, err)
+	}
+	defer db.Close()
+
+	settingsPath := filepath.Join(*dataDir, "settings.json")
+	settingsManager := settings.NewManager(settingsPath)
+
+	authManager := auth.NewManager(settingsManager)
+	if err := authManager.EnsureDefaults(); err != nil {
+		log.Fatalf("failed to initialise auth: %v", err)
+	}
+
+	// VPN config discovery scans the vpns/ subdirectory.
+	vpnsDir := filepath.Join(*dataDir, "vpns")
+	cfgManager := config.NewManager(vpnsDir)
 
 	storedSettings, err := settingsManager.Get()
 	if err != nil {
@@ -45,7 +79,7 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, collector, latencyMonitor, settingsManager, *systemdMode)
+	srv, err := server.New(cfgManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}
@@ -60,15 +94,17 @@ func main() {
 	go srv.StartBackground(stop)
 
 	httpServer := &http.Server{
-		Addr:         listenAddr,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        listenAddr,
+		Handler:     router,
+		ReadTimeout: 15 * time.Second,
+		// WriteTimeout is intentionally not set (or set long) because SSE
+		// connections are long-lived; a strict timeout would drop them.
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {
-		log.Printf("split-vpn web ui listening on %s", listenAddr)
+		log.Printf("split-vpn-webui listening on %s (data: %s)", listenAddr, *dataDir)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("http server error: %v", err)
 		}

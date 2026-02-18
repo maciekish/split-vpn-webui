@@ -13,6 +13,7 @@ A standalone web UI for managing split-tunnel VPN on UniFi Dream Machine SE (and
 * Always reference this file when working, and any files in docs/
 * Do proper research against peacey/split-vpn, unifi-utilities/unifios-utilities, and /Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/ while working and replan if necessary.
 * Always work on the claude-code branch and commit work as appropriate.
+* Always consider any and all relevant edge cases to make the app robust and bug free.
 
 --
 
@@ -280,7 +281,7 @@ Installer must work as: `curl -fsSL https://raw.githubusercontent.com/maciekish/
 - Bug-free on first run — test with the real kernel where possible; mock kernel interfaces in unit tests.
 - No 500+ line source files; split into subpackages/modules etc before hitting the limit.
 - No shortcuts that create future pain (e.g., shelling out to `wg` for parsing when the Go `wireguard-go` libraries exist).
-- Handle all reasonable edge cases: interface not found, ipset already exists, systemd unavailable, partial write failures, concurrent API requests.
+- **Always consider any and all relevant edge cases** to make the app robust and bug-free. This is a hard requirement. Examples: interface not found, ipset already exists, systemd unavailable, partial write failures, concurrent API requests, empty directories on first boot, malformed user input, disk full, permission errors, races between goroutines.
 - Return structured JSON errors from all API endpoints with a consistent `{"error": "..."}` envelope.
 
 ### Testing
