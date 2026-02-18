@@ -15,10 +15,12 @@ A standalone web UI for managing split-tunnel VPN on UniFi Dream Machine SE (and
 | Frontend | Bootstrap 5, Chart.js, Bootstrap Icons, vanilla JS |
 | Asset delivery | Go `embed.FS` (all static assets compiled into the binary) |
 | VPN runtime | systemd units managed by this app |
-| Persistence | JSON files under `/mnt/data/split-vpn/` |
+| App data | JSON config files under `/data/split-vpn-webui/` |
+| Stats database | SQLite at `/data/split-vpn-webui/stats.db` |
+| Logs | `/data/split-vpn-webui/logs/` |
 | Live updates | Server-Sent Events (SSE) at `/api/stream` |
 
-There are **no other runtime dependencies** — the binary must be fully self-contained. Do not add databases, container runtimes, or additional system daemons.
+There are **no runtime dependencies beyond the binary and SQLite** (CGo with `mattn/go-sqlite3`, or a pure-Go SQLite driver). Do not add other databases, container runtimes, or additional system daemons.
 
 ---
 
@@ -56,7 +58,7 @@ split-vpn-webui/
 - **Statistics collection** — per-interface RX/TX throughput sampled every 2 s, up to 120-point history for Chart.js graphs, WAN throughput corrected by subtracting VPN traffic.
 - **Latency monitoring** — ICMP ping to each VPN gateway every 10 s (paused when browser tab is hidden).
 - **Config discovery** — recursive scan for `vpn.conf` files, extracts interface name (`DEV=`), VPN type, gateway, autostart marker (`.split-vpn-webui-autostart`).
-- **Settings persistence** — WAN interface override and listen interface, stored at `/mnt/data/split-vpn/.split-vpn-webui-settings.json`.
+- **Settings persistence** — WAN interface override and listen interface, stored at `/data/split-vpn-webui/settings.json`.
 - **HTTP API** — REST endpoints for config, settings, reload; SSE stream at `/api/stream`.
 - **Auto-detect WAN interface** — with manual config fallback via settings UI.
 
@@ -67,22 +69,47 @@ split-vpn-webui/
 **Device:** UniFi Dream Machine SE (and UDM Pro, UDR, etc.)
 **OS:** Debian-based, systemd init, BusyBox utilities available alongside standard GNU tools.
 **Persistence layer:** [unifi-utilities/unifios-utilities](https://github.com/unifi-utilities/unifios-utilities) — scripts in `/data/on_boot.d/` are re-executed on every boot to restore configuration that UniFi firmware resets on upgrade.
-**Data directory:** `/mnt/data/split-vpn/` (survives firmware updates; symlinked to `/data/split-vpn/`).
-**Install location:** `/data/split-vpn-webui/` with binary at `/usr/local/bin/split-vpn-webui`.
+**Persistent data directory:** `/data/split-vpn-webui/` (symlink to `/mnt/data/split-vpn-webui/`; survives firmware updates). **Everything — binary, config, stats DB, logs — lives here. Do not use `/mnt/data/split-vpn/` — that is peacey/split-vpn's directory.**
 **Web UI port:** 8091 (configurable via `--addr` flag).
 
-### UniFi VPN Manager Coexistence
+**Directory layout on device:**
+```
+/data/split-vpn-webui/
+├── split-vpn-webui          # the binary itself
+├── settings.json            # app settings
+├── stats.db                 # SQLite stats & history database
+├── logs/
+│   └── split-vpn-webui.log  # application log (rotated)
+└── vpns/
+    └── <vpn-name>/
+        ├── vpn.conf          # routing metadata
+        ├── <name>.wg         # WireGuard config (or .ovpn for OpenVPN)
+        └── ...               # certs, credentials, etc.
+```
 
-UniFi's own VPN manager uses:
-- Interface names prefixed with `wg` for its WireGuard tunnels (e.g., `wg0`, `wg1`).
-- systemd service names following the pattern `wg-quick@<name>.service`.
-- Route tables and marks allocated from a low range.
+### Coexistence with peacey/split-vpn and UniFi VPN Manager
 
-**This app must NOT clash with UniFi's namespace.** Use the following conventions for managed VPNs:
-- systemd unit names: `svpn-<vpn-name>.service` (prefix `svpn-` to avoid collision).
-- WireGuard interface names: use the name from the user-supplied `.wg` config file, but validate it does not collide with any interface already managed by UniFi.
-- Route table IDs and fwmarks: start allocation from `200` upward (UniFi uses low values).
-- Before creating any resource (interface, route table, mark), check for conflicts and warn the user in the UI.
+This app must coexist peacefully with **both** peacey/split-vpn (if installed) and UniFi's native VPN manager. Treat both as strictly read-only neighbours — never write to, delete, or modify any resource owned by either.
+
+**peacey/split-vpn owns:**
+- `/mnt/data/split-vpn/` and everything inside it — **never write here**.
+- Its own ipset names, dnsmasq config entries, iptables rules, and route tables.
+- Its own systemd unit files (e.g. `wg0-sgp.swic.name.service`, `wg-quick@*.service`).
+
+**UniFi VPN Manager owns:**
+- Interface names `wg0`, `wg1`, … used by its own tunnels.
+- systemd service names matching `wg-quick@<name>.service`.
+- Route tables and fwmarks in a low numeric range.
+
+**This app's exclusive namespace:**
+- Data directory: `/data/split-vpn-webui/` — all app state (binary, config, DB, logs) lives here.
+- systemd unit names: `svpn-<vpn-name>.service` (prefix `svpn-` avoids all known conflicts).
+- ipset names: `svpn_<group>_v4` / `svpn_<group>_v6` (prefix `svpn_`).
+- dnsmasq drop-in: `/run/dnsmasq.d/split-vpn-webui.conf`.
+- Route table IDs and fwmarks: allocated from `200` upward; scan `/etc/iproute2/rt_tables` and live `ip rule` output before allocating to guarantee no collision.
+- WireGuard interface names for managed VPNs: user-supplied, but validated against existing interfaces before use; warn in UI if a conflict is detected.
+
+**Optional read-only discovery:** The app may optionally scan `/mnt/data/split-vpn/` to display peacey-managed VPNs in a read-only "existing VPNs" panel, but must never write to that directory or attempt to manage those VPNs.
 
 ---
 
@@ -97,13 +124,13 @@ Remove any runtime dependency on the `peacey/split-vpn` shell scripts. The Go ap
 Other VPN types (OpenConnect, OpenVPN over TCP, etc.) may be deferred. The architecture must be extensible — use a VPN-type interface/strategy pattern so additional types can be added later without refactoring the core.
 
 **WireGuard:**
-- Config file format: standard `<vpn-name>.wg` (identical to wg-quick `.conf` format). See `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/sgp.swic.name/wg0.conf` for a real example.
+- Config file format: standard `<vpn-name>.wg` (identical to wg-quick `.conf` format). See `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/sgp.swic.name/wg0.conf` for a real example. It should also be "uploadable" via a file and large edit-box and also editable after being uploaded regardless of whether a file was uploaded or the contents were pasted.
 - Required fields the UI must expose: `[Interface]` — `PrivateKey`, `Address` (comma-separated CIDR list, IPv4 and/or IPv6), `DNS` (optional), `Table` (route table ID); `[Peer]` — `PublicKey`, `AllowedIPs`, `Endpoint`, `PersistentKeepalive`.
 - systemd unit generated by this app wraps `wg-quick up/down`.
 
 **OpenVPN:**
 - Config file format: standard `.ovpn` client config. See `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/web.appulize.com/DreamMachine.ovpn` for a real example.
-- The UI must allow uploading the `.ovpn` file and any associated credentials/certificates as separate files; the app stores them under `/mnt/data/split-vpn/<vpn-name>/`.
+- The UI must allow uploading the `.ovpn` file and any associated credentials/certificates as separate files; the app stores them under `/data/split-vpn-webui/vpns/<vpn-name>/`. It should also be "uploadable" via a large edit-box and also editable after being uploaded regardless of whether a file was uploaded or the contents were pasted.
 - systemd unit wraps `openvpn --config <file>`.
 
 **vpn.conf** (split-VPN routing metadata, one per VPN, stored alongside the VPN config):
@@ -162,12 +189,14 @@ Installer must work as: `curl -fsSL https://raw.githubusercontent.com/maciekish/
 
 `install.sh` must:
 1. Detect architecture (amd64 / arm64) and download the appropriate pre-built binary from GitHub Releases.
-2. Place binary at `/usr/local/bin/split-vpn-webui`.
-3. Create `/mnt/data/split-vpn/` if absent.
-4. Write the systemd unit file to `/etc/systemd/system/split-vpn-webui.service`.
-5. Write the boot hook to `/data/on_boot.d/10-split-vpn-webui.sh` (makes the app restart-persistent across UniFi firmware upgrades via unifios-utilities).
+2. Create `/data/split-vpn-webui/` and subdirectories (`logs/`, `vpns/`) if absent. **Do not touch `/data/split-vpn/` or `/mnt/data/split-vpn/`.**
+3. Place the binary at `/data/split-vpn-webui/split-vpn-webui` and `chmod +x` it. The binary is **not** placed in `/usr/local/bin/` or any rootfs path — those do not survive firmware updates.
+4. Write the systemd unit file to `/etc/systemd/system/split-vpn-webui.service` with `ExecStart=/data/split-vpn-webui/split-vpn-webui`.
+5. Write the boot hook to `/data/on_boot.d/10-split-vpn-webui.sh`. This hook must: re-copy the systemd unit (in case firmware wiped `/etc/systemd/system/`), run `systemctl daemon-reload`, and start the service. This ensures full persistence across firmware updates via unifios-utilities.
 6. Run `systemctl daemon-reload && systemctl enable --now split-vpn-webui`.
 7. Print the access URL at the end.
+
+> **Why:** `/data/` (symlink to `/mnt/data/`) is on the persistent partition and survives UniFi firmware updates. `/usr/local/bin/`, `/etc/systemd/system/`, and other rootfs paths are reset on every firmware update — this is why the boot hook must restore the systemd unit on each boot.
 
 ---
 
