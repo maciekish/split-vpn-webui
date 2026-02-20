@@ -6,13 +6,21 @@
   const errorIndicator = document.getElementById('error-indicator');
   const refreshButton = document.getElementById('refresh-configs');
   const settingsButton = document.getElementById('open-settings');
-  const configModalElement = document.getElementById('configModal');
-  const configModal = new bootstrap.Modal(configModalElement);
-  const configEditor = document.getElementById('config-editor');
-  const configModalName = document.getElementById('config-modal-name');
-  const configModalPath = document.getElementById('config-modal-path');
-  const configModalStatus = document.getElementById('config-modal-status');
-  const saveConfigButton = document.getElementById('save-config');
+  const addVPNButton = document.getElementById('open-add-vpn');
+  const vpnEditorModalElement = document.getElementById('vpnEditorModal');
+  const vpnEditorModal = new bootstrap.Modal(vpnEditorModalElement);
+  const vpnEditorTitle = document.getElementById('vpn-editor-title');
+  const vpnTypeSelect = document.getElementById('vpn-type');
+  const vpnNameInput = document.getElementById('vpn-name');
+  const vpnConfigFileInput = document.getElementById('vpn-config-file');
+  const vpnConfigEditor = document.getElementById('vpn-config-editor');
+  const vpnEditorMeta = document.getElementById('vpn-editor-meta');
+  const saveVPNButton = document.getElementById('save-vpn');
+  const saveVPNLabel = document.getElementById('save-vpn-label');
+  const deleteVPNModalElement = document.getElementById('deleteVpnModal');
+  const deleteVPNModal = new bootstrap.Modal(deleteVPNModalElement);
+  const deleteVPNName = document.getElementById('delete-vpn-name');
+  const confirmDeleteVPNButton = document.getElementById('confirm-delete-vpn');
   const settingsModalElement = document.getElementById('settingsModal');
   const settingsModal = new bootstrap.Modal(settingsModalElement);
   const listenSelect = document.getElementById('listen-interface');
@@ -24,28 +32,25 @@
   const downloadFill = 'rgba(96, 165, 250, 0.15)';
   const uploadColor = '#f87171';
   const uploadFill = 'rgba(248, 113, 113, 0.15)';
-  const controlsEnabled = false;
-  const CONTROL_DISABLED_MESSAGE = 'VPN control is coming in a future release. This build is monitoring only.';
-  const controlDisabledAttributes = controlsEnabled ? '' : ` disabled title="${CONTROL_DISABLED_MESSAGE}"`;
+  const statusSuccessClasses = ['bg-success-subtle', 'text-success', 'border', 'border-success-subtle'];
+  const statusErrorClasses = ['bg-danger-subtle', 'text-danger', 'border', 'border-danger-subtle'];
   let stream;
   let reconnectTimer;
   const state = {
     interfaceCharts: new Map(),
     throughputGauge: null,
     totalGauge: null,
-    currentConfig: null,
     availableInterfaces: [],
     settings: null,
     gaugeColors: new Map(),
+    statusLockUntil: 0,
+    vpnEditor: {
+      mode: 'create',
+      originalName: '',
+      configFileName: '',
+    },
+    pendingDeleteVPN: '',
   };
-
-  if (!controlsEnabled) {
-    configEditor.setAttribute('readonly', 'readonly');
-    configEditor.readOnly = true;
-    configEditor.title = CONTROL_DISABLED_MESSAGE;
-    saveConfigButton.disabled = true;
-    saveConfigButton.title = CONTROL_DISABLED_MESSAGE;
-  }
 
   function connectStream() {
     if (document.hidden) {
@@ -101,6 +106,9 @@
     const payload = {
       listenInterface: listenSelect.value || '',
       wanInterface: wanSelect.value || '',
+      prewarmParallelism: Number(state.settings?.prewarmParallelism || 0),
+      prewarmDoHTimeoutSeconds: Number(state.settings?.prewarmDoHTimeoutSeconds || 0),
+      prewarmIntervalSeconds: Number(state.settings?.prewarmIntervalSeconds || 0),
     };
     saveSettingsButton.disabled = true;
     try {
@@ -119,27 +127,57 @@
     }
   });
 
-  saveConfigButton.addEventListener('click', async () => {
-    if (!controlsEnabled) {
-      setStatus(CONTROL_DISABLED_MESSAGE, false);
+  addVPNButton.addEventListener('click', () => {
+    openAddVPNModal();
+  });
+
+  saveVPNButton.addEventListener('click', async () => {
+    if (!state.vpnEditor) {
       return;
     }
-    if (!state.currentConfig) {
-      return;
-    }
-    saveConfigButton.disabled = true;
+    saveVPNButton.disabled = true;
     try {
-      await fetchJSON(`/api/configs/${encodeURIComponent(state.currentConfig)}/file`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: configEditor.value }),
-      });
-      setStatus('Configuration saved.', false);
-      configModal.hide();
+      await saveVPN();
     } catch (err) {
       setStatus(err.message, true);
     } finally {
-      saveConfigButton.disabled = false;
+      saveVPNButton.disabled = false;
+    }
+  });
+
+  vpnConfigFileInput.addEventListener('change', async () => {
+    const file = vpnConfigFileInput.files && vpnConfigFileInput.files[0];
+    if (!file) {
+      return;
+    }
+    try {
+      const content = await file.text();
+      vpnConfigEditor.value = content;
+      state.vpnEditor.configFileName = file.name || '';
+      const detected = detectVPNType(file.name, content);
+      if (detected) {
+        vpnTypeSelect.value = detected;
+      }
+      vpnEditorMeta.textContent = `Loaded file: ${file.name}`;
+    } catch (err) {
+      setStatus('Failed to read uploaded file.', true);
+    }
+  });
+
+  confirmDeleteVPNButton.addEventListener('click', async () => {
+    const name = state.pendingDeleteVPN;
+    if (!name) {
+      return;
+    }
+    confirmDeleteVPNButton.disabled = true;
+    try {
+      await deleteVPN(name);
+      deleteVPNModal.hide();
+      state.pendingDeleteVPN = '';
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      confirmDeleteVPNButton.disabled = false;
     }
   });
 
@@ -153,15 +191,16 @@
       return;
     }
     const action = target.getAttribute('data-action');
-    if (action === 'start' || action === 'stop') {
-      if (!controlsEnabled) {
-        setStatus(CONTROL_DISABLED_MESSAGE, false);
-        return;
-      }
+    if (action === 'start' || action === 'stop' || action === 'restart') {
       target.disabled = true;
       try {
-        await fetchJSON(`/api/configs/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
-        setStatus(`${action === 'start' ? 'Starting' : 'Stopping'} ${name}...`, false);
+        if (action === 'start') {
+          await startVPN(name);
+        } else if (action === 'stop') {
+          await stopVPN(name);
+        } else {
+          await restartVPN(name);
+        }
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -170,18 +209,17 @@
       return;
     }
     if (action === 'edit') {
-      openConfigModal(name, target.dataset.path || '');
+      await openEditVPNModal(name);
+      return;
+    }
+    if (action === 'delete') {
+      openDeleteVPNModal(name);
     }
   });
 
   vpnTableBody.addEventListener('change', async (event) => {
     const target = event.target;
     if (target.matches('input[data-action="autostart"]')) {
-      if (!controlsEnabled) {
-        setStatus(CONTROL_DISABLED_MESSAGE, false);
-        target.checked = !target.checked;
-        return;
-      }
       const name = target.getAttribute('data-name');
       try {
         await fetchJSON(`/api/configs/${encodeURIComponent(name)}/autostart`, {
@@ -197,23 +235,114 @@
     }
   });
 
-  async function openConfigModal(name, path) {
+  async function startVPN(name) {
+    await fetchJSON(`/api/configs/${encodeURIComponent(name)}/start`, { method: 'POST' });
+    setStatus(`Starting ${name}...`, false);
+  }
+
+  async function stopVPN(name) {
+    await fetchJSON(`/api/configs/${encodeURIComponent(name)}/stop`, { method: 'POST' });
+    setStatus(`Stopping ${name}...`, false);
+  }
+
+  async function restartVPN(name) {
+    await fetchJSON(`/api/vpns/${encodeURIComponent(name)}/restart`, { method: 'POST' });
+    setStatus(`Restarting ${name}...`, false);
+  }
+
+  async function deleteVPN(name) {
+    await fetchJSON(`/api/vpns/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    setStatus(`Deleted ${name}.`, false);
+  }
+
+  function openDeleteVPNModal(name) {
+    state.pendingDeleteVPN = name;
+    deleteVPNName.textContent = name;
+    deleteVPNModal.show();
+  }
+
+  function openAddVPNModal() {
+    state.vpnEditor = {
+      mode: 'create',
+      originalName: '',
+      configFileName: '',
+    };
+    vpnEditorTitle.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Add VPN Profile';
+    saveVPNLabel.textContent = 'Create VPN';
+    vpnTypeSelect.value = 'wireguard';
+    vpnTypeSelect.disabled = false;
+    vpnNameInput.value = '';
+    vpnNameInput.readOnly = false;
+    vpnConfigFileInput.value = '';
+    vpnConfigEditor.value = '';
+    vpnEditorMeta.textContent = '';
+    vpnEditorModal.show();
+  }
+
+  async function openEditVPNModal(name) {
     try {
-      const data = await fetchJSON(`/api/configs/${encodeURIComponent(name)}/file`);
-      state.currentConfig = name;
-      configModalName.textContent = name;
-      configModalPath.textContent = path;
-      const loadedAt = new Date().toLocaleTimeString();
-      if (controlsEnabled) {
-        configModalStatus.textContent = 'Loaded at ' + loadedAt;
-      } else {
-        configModalStatus.textContent = 'Read-only preview · loaded at ' + loadedAt;
-      }
-      configEditor.value = data.content || '';
-      configModal.show();
+      const data = await fetchJSON(`/api/vpns/${encodeURIComponent(name)}`);
+      const profile = data.vpn || {};
+      state.vpnEditor = {
+        mode: 'edit',
+        originalName: profile.name || name,
+        configFileName: profile.configFile || '',
+      };
+      vpnEditorTitle.innerHTML = '<i class="bi bi-pencil-square me-2"></i>Edit VPN Profile';
+      saveVPNLabel.textContent = 'Save Changes';
+      vpnTypeSelect.value = normalizeVPNType(profile.type || 'wireguard');
+      vpnTypeSelect.disabled = false;
+      vpnNameInput.value = profile.name || name;
+      vpnNameInput.readOnly = true;
+      vpnConfigFileInput.value = '';
+      vpnConfigEditor.value = profile.rawConfig || '';
+      vpnEditorMeta.textContent = `Config file: ${profile.configFile || 'auto'}`;
+      vpnEditorModal.show();
     } catch (err) {
       setStatus(err.message, true);
     }
+  }
+
+  async function saveVPN() {
+    const mode = state.vpnEditor?.mode || 'create';
+    const name = (vpnNameInput.value || '').trim();
+    const type = normalizeVPNType(vpnTypeSelect.value || '');
+    const config = vpnConfigEditor.value || '';
+    if (!name) {
+      throw new Error('VPN name is required.');
+    }
+    if (!type) {
+      throw new Error('VPN type is required.');
+    }
+    if (!config.trim()) {
+      throw new Error('VPN configuration content is required.');
+    }
+    const payload = {
+      name,
+      type,
+      config,
+    };
+    const explicitFile = (state.vpnEditor?.configFileName || '').trim();
+    if (explicitFile) {
+      payload.configFile = explicitFile;
+    }
+
+    if (mode === 'edit') {
+      await fetchJSON(`/api/vpns/${encodeURIComponent(state.vpnEditor.originalName || name)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      setStatus(`Saved VPN ${name}.`, false);
+    } else {
+      await fetchJSON('/api/vpns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      setStatus(`Created VPN ${name}.`, false);
+    }
+    vpnEditorModal.hide();
   }
 
   async function openSettingsModal() {
@@ -333,12 +462,16 @@
   }
 
   function updateErrors(errors = {}) {
+    if (Date.now() < state.statusLockUntil) {
+      return;
+    }
     const entries = Object.entries(errors).filter(([, value]) => value);
     if (entries.length === 0) {
       errorIndicator.classList.add('d-none');
       errorIndicator.textContent = '';
       return;
     }
+    applyStatusToneClasses(true);
     const text = entries.map(([key, value]) => `${key}: ${value}`).join(' | ');
     errorIndicator.textContent = text;
     errorIndicator.classList.remove('d-none');
@@ -811,14 +944,26 @@
         </td>
         <td>
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" role="switch" data-action="autostart" data-name="${cfg.name}" ${cfg.autostart ? 'checked' : ''}${controlDisabledAttributes}>
+            <input class="form-check-input" type="checkbox" role="switch" data-action="autostart" data-name="${cfg.name}" ${cfg.autostart ? 'checked' : ''}>
           </div>
         </td>
         <td class="text-end">
           <div class="btn-group btn-group-sm" role="group">
-            <button class="btn btn-outline-success" data-action="start" data-name="${cfg.name}"${controlDisabledAttributes}><i class="bi bi-play-fill"></i></button>
-            <button class="btn btn-outline-warning" data-action="stop" data-name="${cfg.name}"${controlDisabledAttributes}><i class="bi bi-stop-fill"></i></button>
-            <button class="btn btn-outline-light" data-action="edit" data-name="${cfg.name}" data-path="${cfg.path}"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-outline-success" data-action="start" data-name="${cfg.name}" ${cfg.connected ? 'disabled' : ''} title="Start">
+              <i class="bi bi-play-fill"></i>
+            </button>
+            <button class="btn btn-outline-warning" data-action="stop" data-name="${cfg.name}" ${cfg.connected ? '' : 'disabled'} title="Stop">
+              <i class="bi bi-stop-fill"></i>
+            </button>
+            <button class="btn btn-outline-info" data-action="restart" data-name="${cfg.name}" title="Restart">
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+            <button class="btn btn-outline-light" data-action="edit" data-name="${cfg.name}" title="Edit">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-outline-danger" data-action="delete" data-name="${cfg.name}" title="Delete">
+              <i class="bi bi-trash"></i>
+            </button>
           </div>
         </td>`;
       const latencyCell = row.querySelector('[data-field="latency"]');
@@ -869,29 +1014,83 @@
     if (!message) {
       return;
     }
-    if (isError) {
-      errorIndicator.textContent = message;
-      errorIndicator.classList.remove('d-none');
-    } else {
-      errorIndicator.textContent = message;
-      errorIndicator.classList.remove('d-none');
+    applyStatusToneClasses(Boolean(isError));
+    errorIndicator.textContent = message;
+    errorIndicator.classList.remove('d-none');
+    state.statusLockUntil = Date.now() + 4500;
+    if (!isError) {
       setTimeout(() => {
+        if (Date.now() < state.statusLockUntil) {
+          return;
+        }
         errorIndicator.classList.add('d-none');
-      }, 4000);
+      }, 4600);
     }
   }
 
   async function fetchJSON(url, options = {}) {
     const response = await fetch(url, options);
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || response.statusText);
-    }
     const contentType = response.headers.get('content-type') || '';
+    let parsed = null;
     if (contentType.includes('application/json')) {
-      return response.json();
+      try {
+        parsed = await response.json();
+      } catch (err) {
+        parsed = null;
+      }
+    }
+    if (!response.ok) {
+      if (parsed && typeof parsed.error === 'string' && parsed.error) {
+        throw new Error(parsed.error);
+      }
+      let text = '';
+      try {
+        text = await response.text();
+      } catch (err) {
+        text = '';
+      }
+      throw new Error(text || response.statusText || 'Request failed');
+    }
+    if (parsed !== null) {
+      return parsed;
     }
     return {};
+  }
+
+  function applyStatusToneClasses(isError) {
+    const remove = isError ? statusSuccessClasses : statusErrorClasses;
+    const add = isError ? statusErrorClasses : statusSuccessClasses;
+    remove.forEach((className) => errorIndicator.classList.remove(className));
+    add.forEach((className) => errorIndicator.classList.add(className));
+  }
+
+  function normalizeVPNType(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === 'wireguard' || raw === 'wg' || raw === 'external') {
+      return 'wireguard';
+    }
+    if (raw === 'openvpn' || raw === 'ovpn') {
+      return 'openvpn';
+    }
+    return '';
+  }
+
+  function detectVPNType(fileName, content) {
+    const name = String(fileName || '').toLowerCase();
+    if (name.endsWith('.ovpn')) {
+      return 'openvpn';
+    }
+    if (name.endsWith('.wg') || name.endsWith('.conf')) {
+      return 'wireguard';
+    }
+    const text = String(content || '').toLowerCase();
+    if (text.includes('[interface]') && text.includes('[peer]')) {
+      return 'wireguard';
+    }
+    if (text.includes('\nremote ') || text.includes('\nclient') || text.includes('<ca>')) {
+      return 'openvpn';
+    }
+    return '';
   }
 
   function formatThroughput(value) {

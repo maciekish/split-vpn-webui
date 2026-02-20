@@ -439,15 +439,15 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] "Add VPN" button opens modal; user can paste or upload a `.wg` or `.ovpn` file.
-- [ ] File upload populates the textarea; user can further edit the content before saving.
-- [ ] Saving a new VPN calls `POST /api/vpns` and shows success/error notification.
-- [ ] Edit VPN opens modal pre-filled with current config content; saving calls `PUT /api/vpns/{name}`.
-- [ ] Delete VPN shows confirmation dialog; confirmed deletion calls `DELETE /api/vpns/{name}`.
-- [ ] Start/Stop/Restart buttons call the correct API endpoints and update status in real-time via SSE.
-- [ ] Autostart toggle is functional (calls `/api/configs/{name}/autostart`).
-- [ ] All actions show appropriate success/error notifications.
-- [ ] No regressions in monitoring display (charts, stats, latency all still work).
+- [x] "Add VPN" button opens modal; user can paste or upload a `.wg` or `.ovpn` file.
+- [x] File upload populates the textarea; user can further edit the content before saving.
+- [x] Saving a new VPN calls `POST /api/vpns` and shows success/error notification.
+- [x] Edit VPN opens modal pre-filled with current config content; saving calls `PUT /api/vpns/{name}`.
+- [x] Delete VPN shows confirmation dialog; confirmed deletion calls `DELETE /api/vpns/{name}`.
+- [x] Start/Stop/Restart buttons call the correct API endpoints and update status in real-time via SSE.
+- [x] Autostart toggle is functional (calls `/api/configs/{name}/autostart`).
+- [x] All actions show appropriate success/error notifications.
+- [x] No regressions in monitoring display (charts, stats, latency all still work).
 
 ---
 

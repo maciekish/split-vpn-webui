@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 6 — Web UI: VPN Management
+**Active sprint:** Sprint 7 — Web UI: Domain Routing
 **Last updated:** 2026-02-20
-**Last session summary:** Sprint 5 completed end-to-end: added `internal/prewarm` package (Cloudflare DoH client with Linux `SO_BINDTODEVICE`, cancellable worker pool, scheduler with periodic/manual runs, progress model, and SQLite run store), wired new API endpoints (`POST /api/prewarm/run`, `GET /api/prewarm/status`), and added SSE `event: prewarm` streaming for live progress. Full test suite passing.
+**Last session summary:** Sprint 6 completed end-to-end: enabled full VPN management in the web UI (add/edit/delete/start/stop/restart/autostart), added Add/Edit and delete-confirm modals, wired file-upload-to-editor behavior, and connected all actions to existing REST endpoints with inline success/error notifications. Full test suite passing.
 
 ---
 
@@ -23,9 +23,9 @@
 | **3** — systemd Manager | **Complete** | All Sprint 3 deliverables implemented and validated |
 | **4** — Domain Groups & Routing | **Complete** | All Sprint 4 deliverables implemented and validated |
 | **5** — DNS Pre-Warm | **Complete** | All Sprint 5 deliverables implemented and validated |
-| **6** — Web UI: VPN Management | Not started | Active sprint |
-| **7** — Web UI: Domain Routing | Not started | Blocked until Sprint 6 complete |
-| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Blocked until Sprint 6 complete |
+| **6** — Web UI: VPN Management | **Complete** | All Sprint 6 deliverables implemented and validated |
+| **7** — Web UI: Domain Routing | Not started | Active sprint |
+| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Blocked until Sprint 7 complete |
 | **9** — Install Script & Hardening | Not started | Blocked until Sprint 8 complete |
 | **10** — Persistent Stats, Build & CI | Not started | Blocked until Sprint 9 complete |
 
@@ -33,7 +33,6 @@
 
 ## Known Issues / Blockers
 
-- `controlsEnabled = false` in `app.js` — UI control buttons still disabled. Sprint 6 enables them.
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
 - **`install.sh` still uses old paths** (`/mnt/data/`, `$SCRIPT_DIR/bin/`, writes unit directly to `/etc/systemd/system/`). Deferred to Sprint 9 for full rewrite.
 
@@ -64,6 +63,34 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 6 completion session
+- Updated VPN management UI in `ui/web/templates/layout.html`:
+  - Added "Add VPN" button in the VPN card header.
+  - Replaced old read-only config modal with full Add/Edit VPN modal:
+    - Type selector (WireGuard/OpenVPN)
+    - Name field
+    - Config file upload
+    - Large editable config textarea
+  - Added delete confirmation modal.
+- Updated frontend behavior in `ui/web/static/js/app.js`:
+  - Enabled controls and wired full action handlers:
+    - `openAddVPNModal()`
+    - `openEditVPNModal(name)` via `GET /api/vpns/{name}`
+    - `deleteVPN(name)` via `DELETE /api/vpns/{name}`
+    - `startVPN(name)` via `POST /api/configs/{name}/start`
+    - `stopVPN(name)` via `POST /api/configs/{name}/stop`
+    - `restartVPN(name)` via `POST /api/vpns/{name}/restart`
+  - Added file upload → textarea population flow (with simple type auto-detection).
+  - Updated table action buttons to Start/Stop/Restart/Edit/Delete and left autostart toggle active.
+  - Improved API error handling in `fetchJSON()` to extract `{ "error": "..." }` envelopes.
+  - Improved status messaging styling (success/error tone) and reduced conflicts with periodic SSE error refreshes.
+  - Preserved prewarm settings fields during settings save to avoid accidental resets.
+- Updated styles in `ui/web/static/css/app.css` for new VPN editor controls.
+- Reference validation during this sprint rechecked local implementation references in:
+  - `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/`
+  - (for unit/service control semantics used by UI actions) existing systemd/start-stop paths already aligned with prior Sprint 3 implementation.
+- Validation run: `node --check ui/web/static/js/app.js` and `go test ./...` passed.
 
 ### 2026-02-20 — Sprint 5 completion session
 - Added new package `internal/prewarm/`:

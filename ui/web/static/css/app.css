@@ -130,13 +130,16 @@ body {
   border-color: rgba(167, 139, 250, 0.25);
 }
 
-textarea#config-editor {
+textarea#vpn-config-editor {
   min-height: 400px;
 }
 
-textarea#config-editor[readonly] {
-  background-color: rgba(148, 163, 184, 0.08);
-  cursor: default;
+#vpn-table .btn-group > .btn {
+  min-width: 2rem;
+}
+
+#vpn-editor-meta {
+  min-height: 1.2rem;
 }
 
 @media (max-width: 768px) {
@@ -145,6 +148,9 @@ textarea#config-editor[readonly] {
   }
   .throughput-gauges {
     gap: 1rem;
+  }
+  textarea#vpn-config-editor {
+    min-height: 320px;
   }
   .interface-card .chart-wrapper {
     height: 160px;
