@@ -413,15 +413,15 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] `POST /api/prewarm/run` triggers a pre-warm and returns immediately (runs in background).
-- [ ] `GET /api/prewarm/status` returns `{ "running": bool, "lastRun": {...}, "progress": {...} }`.
-- [ ] SSE stream emits `event: prewarm` messages with `Progress` JSON during a run.
-- [ ] CNAME chaining: if a DoH response contains type=5 (CNAME) answers, the CNAME target is queried one level deep for A/AAAA before collecting IPs.
-- [ ] IPs are inserted with `ipset add svpn_<group>_v4 <ip> timeout 43200 -exist` (both v4 and v6).
-- [ ] Each domain is queried through every active VPN interface (matching reference behavior), not just the egress VPN.
-- [ ] DoH interface binding uses `SO_BINDTODEVICE` on Linux, no-op on non-Linux for development.
-- [ ] Worker respects context cancellation (stops cleanly when app shuts down).
-- [ ] All tests pass (using mock DoH client — no real network calls in tests).
+- [x] `POST /api/prewarm/run` triggers a pre-warm and returns immediately (runs in background).
+- [x] `GET /api/prewarm/status` returns `{ "running": bool, "lastRun": {...}, "progress": {...} }`.
+- [x] SSE stream emits `event: prewarm` messages with `Progress` JSON during a run.
+- [x] CNAME chaining: if a DoH response contains type=5 (CNAME) answers, the CNAME target is queried one level deep for A/AAAA before collecting IPs.
+- [x] IPs are inserted with `ipset add svpn_<group>_v4 <ip> timeout 43200 -exist` (both v4 and v6).
+- [x] Each domain is queried through every active VPN interface (matching reference behavior), not just the egress VPN.
+- [x] DoH interface binding uses `SO_BINDTODEVICE` on Linux, no-op on non-Linux for development.
+- [x] Worker respects context cancellation (stops cleanly when app shuts down).
+- [x] All tests pass (using mock DoH client — no real network calls in tests).
 
 ---
 

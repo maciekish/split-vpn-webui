@@ -6,6 +6,11 @@ import (
 	"net/http"
 )
 
+type streamMessage struct {
+	Event string
+	Data  []byte
+}
+
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -17,7 +22,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
 
-	ch := make(chan []byte, 16)
+	ch := make(chan streamMessage, 16)
 	s.addWatcher(ch)
 	defer s.removeWatcher(ch)
 
@@ -41,22 +46,25 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if len(msg) == 0 {
+			if len(msg.Data) == 0 {
 				continue
 			}
-			fmt.Fprintf(w, "data: %s\n\n", msg)
+			if msg.Event != "" {
+				fmt.Fprintf(w, "event: %s\n", msg.Event)
+			}
+			fmt.Fprintf(w, "data: %s\n\n", msg.Data)
 			flusher.Flush()
 		}
 	}
 }
 
-func (s *Server) addWatcher(ch chan []byte) {
+func (s *Server) addWatcher(ch chan streamMessage) {
 	s.watchersMu.Lock()
 	defer s.watchersMu.Unlock()
 	s.watchers[ch] = struct{}{}
 }
 
-func (s *Server) removeWatcher(ch chan []byte) {
+func (s *Server) removeWatcher(ch chan streamMessage) {
 	s.watchersMu.Lock()
 	defer s.watchersMu.Unlock()
 	if _, ok := s.watchers[ch]; ok {
@@ -67,7 +75,7 @@ func (s *Server) removeWatcher(ch chan []byte) {
 
 func (s *Server) broadcastUpdate(errMap map[string]string) {
 	s.watchersMu.Lock()
-	watchers := make([]chan []byte, 0, len(s.watchers))
+	watchers := make([]chan streamMessage, 0, len(s.watchers))
 	for ch := range s.watchers {
 		watchers = append(watchers, ch)
 	}
@@ -80,9 +88,33 @@ func (s *Server) broadcastUpdate(errMap map[string]string) {
 	if err != nil {
 		return
 	}
+	msg := streamMessage{Data: bytes}
 	for _, ch := range watchers {
 		select {
-		case ch <- bytes:
+		case ch <- msg:
+		default:
+		}
+	}
+}
+
+func (s *Server) broadcastEvent(event string, payload any) {
+	s.watchersMu.Lock()
+	watchers := make([]chan streamMessage, 0, len(s.watchers))
+	for ch := range s.watchers {
+		watchers = append(watchers, ch)
+	}
+	s.watchersMu.Unlock()
+	if len(watchers) == 0 {
+		return
+	}
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	msg := streamMessage{Event: event, Data: bytes}
+	for _, ch := range watchers {
+		select {
+		case ch <- msg:
 		default:
 		}
 	}

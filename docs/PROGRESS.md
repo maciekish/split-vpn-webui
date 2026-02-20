@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 5 — DNS Pre-Warm
+**Active sprint:** Sprint 6 — Web UI: VPN Management
 **Last updated:** 2026-02-20
-**Last session summary:** Sprint 4 completed end-to-end: added `internal/routing` package (SQLite-backed domain groups, ipset manager, dnsmasq manager with path detection + graceful reload fallback, iptables/ip6tables + `ip rule` manager with custom chains), injected routing manager into startup and server, and added full group CRUD API (`/api/groups`). Added mutex-serialized `Apply()` and stale-ipset cleanup ordering fixes with new tests. Full test suite passing.
+**Last session summary:** Sprint 5 completed end-to-end: added `internal/prewarm` package (Cloudflare DoH client with Linux `SO_BINDTODEVICE`, cancellable worker pool, scheduler with periodic/manual runs, progress model, and SQLite run store), wired new API endpoints (`POST /api/prewarm/run`, `GET /api/prewarm/status`), and added SSE `event: prewarm` streaming for live progress. Full test suite passing.
 
 ---
 
@@ -22,10 +22,10 @@
 | **2** — VPN Provider Abstraction | **Complete** | All Sprint 2 deliverables implemented and validated |
 | **3** — systemd Manager | **Complete** | All Sprint 3 deliverables implemented and validated |
 | **4** — Domain Groups & Routing | **Complete** | All Sprint 4 deliverables implemented and validated |
-| **5** — DNS Pre-Warm | Not started | Active sprint |
-| **6** — Web UI: VPN Management | Not started | Ready (dependency on Sprint 3 satisfied) |
+| **5** — DNS Pre-Warm | **Complete** | All Sprint 5 deliverables implemented and validated |
+| **6** — Web UI: VPN Management | Not started | Active sprint |
 | **7** — Web UI: Domain Routing | Not started | Blocked until Sprint 6 complete |
-| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Blocked until Sprint 5 + 6 complete |
+| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Blocked until Sprint 6 complete |
 | **9** — Install Script & Hardening | Not started | Blocked until Sprint 8 complete |
 | **10** — Persistent Stats, Build & CI | Not started | Blocked until Sprint 9 complete |
 
@@ -64,6 +64,39 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 5 completion session
+- Added new package `internal/prewarm/`:
+  - `doh.go` + `bind_linux.go` + `bind_other.go` — DoH client with Cloudflare DNS JSON API support, Linux interface binding via `SO_BINDTODEVICE`, and non-Linux no-op binding for local development.
+  - `worker.go` — cancellable goroutine worker pool that:
+    - Reads domain groups.
+    - Resolves via CNAME (one level), then A/AAAA.
+    - Queries through **every active VPN interface**.
+    - Inserts unique IPs into `svpn_*_v4`/`svpn_*_v6` ipsets with 12-hour timeout.
+    - Emits live progress updates.
+  - `scheduler.go` — periodic + on-demand run control (`Start`, `Stop`, `TriggerNow`, `Status`) with persisted run metadata and live progress callbacks.
+  - `store.go` — SQLite persistence for `prewarm_runs` run history.
+  - `progress.go` — run and per-interface progress models.
+  - Tests:
+    - `doh_test.go` — A/AAAA/CNAME parsing and timeout behavior using `httptest.Server`.
+    - `worker_test.go` — active-interface multi-query behavior, CNAME handling, IP insertion, and cancellation.
+- Settings model extended for prewarm runtime controls:
+  - `prewarmParallelism`
+  - `prewarmDoHTimeoutSeconds`
+  - `prewarmIntervalSeconds`
+- Server integration:
+  - Added prewarm API handlers in `internal/server/handlers_prewarm.go`:
+    - `POST /api/prewarm/run`
+    - `GET /api/prewarm/status`
+  - Updated SSE plumbing in `internal/server/stream.go` to support named events and emit `event: prewarm` messages.
+  - Wired scheduler injection and route registration in `internal/server/server.go`.
+- App startup integration:
+  - `cmd/splitvpnwebui/main.go` now initializes, starts, and gracefully stops the prewarm scheduler.
+- Reference validation completed against:
+  - `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/on_boot.d/90-ipset-prewarm.sh`
+  - `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/on_boot.d/91-ipset-prewarm-cron.sh`
+  - `peacey/split-vpn` and `unifios-utilities` behavior notes already reflected in `docs/IMPLEMENTATION_PLAN.md`.
+- Validation run: `go test ./...` passed.
 
 ### 2026-02-20 — Sprint 4 completion session
 - Added new package `internal/routing/`:

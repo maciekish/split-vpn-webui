@@ -14,6 +14,7 @@ import (
 	"split-vpn-webui/internal/auth"
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/latency"
+	"split-vpn-webui/internal/prewarm"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
@@ -44,20 +45,21 @@ type UpdatePayload struct {
 
 // Server handles HTTP requests and background coordination.
 type Server struct {
-	configManager *config.Manager
-	vpnManager    *vpn.Manager
+	configManager  *config.Manager
+	vpnManager     *vpn.Manager
 	routingManager *routing.Manager
-	systemd       systemd.ServiceManager
-	stats         *stats.Collector
-	latency       *latency.Monitor
-	settings      *settings.Manager
-	auth          *auth.Manager
-	templates     *template.Template
+	prewarm        *prewarm.Scheduler
+	systemd        systemd.ServiceManager
+	stats          *stats.Collector
+	latency        *latency.Monitor
+	settings       *settings.Manager
+	auth           *auth.Manager
+	templates      *template.Template
 
 	systemdManaged bool
 
 	watchersMu sync.Mutex
-	watchers   map[chan []byte]struct{}
+	watchers   map[chan streamMessage]struct{}
 
 	broadcastInterval time.Duration
 	gatewayMu         sync.RWMutex
@@ -69,6 +71,7 @@ func New(
 	cfgManager *config.Manager,
 	vpnManager *vpn.Manager,
 	routingManager *routing.Manager,
+	prewarmScheduler *prewarm.Scheduler,
 	systemdManager systemd.ServiceManager,
 	statsCollector *stats.Collector,
 	latencyMonitor *latency.Monitor,
@@ -80,10 +83,11 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	return &Server{
+	server := &Server{
 		configManager:     cfgManager,
 		vpnManager:        vpnManager,
 		routingManager:    routingManager,
+		prewarm:           prewarmScheduler,
 		systemd:           systemdManager,
 		stats:             statsCollector,
 		latency:           latencyMonitor,
@@ -91,10 +95,16 @@ func New(
 		auth:              authManager,
 		templates:         tmpl,
 		systemdManaged:    systemdManaged,
-		watchers:          make(map[chan []byte]struct{}),
+		watchers:          make(map[chan streamMessage]struct{}),
 		broadcastInterval: 2 * time.Second,
 		gateways:          make(map[string]string),
-	}, nil
+	}
+	if prewarmScheduler != nil {
+		prewarmScheduler.SetProgressHandler(func(progress prewarm.Progress) {
+			server.broadcastEvent("prewarm", progress)
+		})
+	}
+	return server, nil
 }
 
 // Router constructs the http.Handler with all routes.
@@ -134,6 +144,8 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/groups/{id}", s.handleGetGroup)
 			api.Put("/groups/{id}", s.handleUpdateGroup)
 			api.Delete("/groups/{id}", s.handleDeleteGroup)
+			api.Get("/prewarm/status", s.handlePrewarmStatus)
+			api.Post("/prewarm/run", s.handlePrewarmRun)
 
 			api.Get("/vpns", s.handleListVPNs)
 			api.Post("/vpns", s.handleCreateVPN)

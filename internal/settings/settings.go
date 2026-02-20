@@ -13,6 +13,10 @@ type Settings struct {
 	// Network
 	ListenInterface string `json:"listenInterface"`
 	WANInterface    string `json:"wanInterface"`
+	// DNS pre-warm
+	PrewarmParallelism       int `json:"prewarmParallelism,omitempty"`
+	PrewarmDoHTimeoutSeconds int `json:"prewarmDoHTimeoutSeconds,omitempty"`
+	PrewarmIntervalSeconds   int `json:"prewarmIntervalSeconds,omitempty"`
 
 	// Auth — stored as bcrypt hash and random token.
 	// These fields are omitted from JSON output on API responses;

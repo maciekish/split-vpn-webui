@@ -23,8 +23,11 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Scrub auth fields — never expose hash or token via settings API.
 	safe := settings.Settings{
-		ListenInterface: current.ListenInterface,
-		WANInterface:    current.WANInterface,
+		ListenInterface:          current.ListenInterface,
+		WANInterface:             current.WANInterface,
+		PrewarmParallelism:       current.PrewarmParallelism,
+		PrewarmDoHTimeoutSeconds: current.PrewarmDoHTimeoutSeconds,
+		PrewarmIntervalSeconds:   current.PrewarmIntervalSeconds,
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings":   safe,
@@ -35,8 +38,11 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	// Decode only the public, user-editable fields.
 	var payload struct {
-		ListenInterface string `json:"listenInterface"`
-		WANInterface    string `json:"wanInterface"`
+		ListenInterface          string `json:"listenInterface"`
+		WANInterface             string `json:"wanInterface"`
+		PrewarmParallelism       int    `json:"prewarmParallelism"`
+		PrewarmDoHTimeoutSeconds int    `json:"prewarmDoHTimeoutSeconds"`
+		PrewarmIntervalSeconds   int    `json:"prewarmIntervalSeconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -53,6 +59,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	updated := current
 	updated.ListenInterface = payload.ListenInterface
 	updated.WANInterface = payload.WANInterface
+	updated.PrewarmParallelism = payload.PrewarmParallelism
+	updated.PrewarmDoHTimeoutSeconds = payload.PrewarmDoHTimeoutSeconds
+	updated.PrewarmIntervalSeconds = payload.PrewarmIntervalSeconds
 
 	if err := s.settings.Save(updated); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

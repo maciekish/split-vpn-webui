@@ -17,6 +17,7 @@ import (
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/database"
 	"split-vpn-webui/internal/latency"
+	"split-vpn-webui/internal/prewarm"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/server"
 	"split-vpn-webui/internal/settings"
@@ -83,6 +84,10 @@ func main() {
 	if err := routingManager.Apply(context.Background()); err != nil {
 		log.Printf("warning: failed to apply routing state on startup: %v", err)
 	}
+	prewarmScheduler, err := prewarm.NewScheduler(db, settingsManager, routingManager, vpnManager, nil)
+	if err != nil {
+		log.Fatalf("failed to initialize prewarm scheduler: %v", err)
+	}
 
 	storedSettings, err := settingsManager.Get()
 	if err != nil {
@@ -97,10 +102,18 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, vpnManager, routingManager, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
+	srv, err := server.New(cfgManager, vpnManager, routingManager, prewarmScheduler, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}
+	if err := prewarmScheduler.Start(); err != nil {
+		log.Fatalf("failed to start prewarm scheduler: %v", err)
+	}
+	defer func() {
+		if err := prewarmScheduler.Stop(); err != nil {
+			log.Printf("prewarm scheduler stop warning: %v", err)
+		}
+	}()
 
 	router, err := srv.Router()
 	if err != nil {
