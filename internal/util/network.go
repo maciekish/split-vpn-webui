@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -90,6 +91,27 @@ func InterfaceIPv4(name string) (string, error) {
 		}
 	}
 	return "", errors.New("no IPv4 address found")
+}
+
+// InterfaceOperState reports whether an interface is up and its operstate text.
+func InterfaceOperState(name string) (bool, string, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return false, "", errors.New("interface not specified")
+	}
+	base := filepath.Join("/sys/class/net", trimmed)
+	if _, err := os.Stat(base); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, "missing", nil
+		}
+		return false, "error", err
+	}
+	data, err := os.ReadFile(filepath.Join(base, "operstate"))
+	if err != nil {
+		return true, "unknown", err
+	}
+	state := strings.TrimSpace(string(data))
+	return state == "up", state, nil
 }
 
 // DetectInterfaceGateway attempts to determine the gateway for an interface.

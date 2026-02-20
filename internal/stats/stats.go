@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
+
+	"split-vpn-webui/internal/util"
 )
 
 type InterfaceType string
@@ -146,7 +147,7 @@ func (c *Collector) update(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, stats := range c.interfaces {
-		if state, err := readInterfaceState(stats.Interface); err == nil {
+		if _, state, err := util.InterfaceOperState(stats.Interface); err == nil {
 			stats.OperState = state
 		} else {
 			stats.OperState = ""
@@ -313,16 +314,4 @@ func readUintFromFile(path string) (uint64, error) {
 	var value uint64
 	_, err = fmt.Sscanf(string(bytes), "%d", &value)
 	return value, err
-}
-
-func readInterfaceState(iface string) (string, error) {
-	if strings.TrimSpace(iface) == "" {
-		return "", errors.New("interface not specified")
-	}
-	path := filepath.Join("/sys/class/net", iface, "operstate")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(data)), nil
 }

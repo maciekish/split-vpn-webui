@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** Sprint 2 — VPN Provider Abstraction
-**Last updated:** 2026-02-18
-**Last session summary:** Sprint 1 completed in full. All paths corrected, SQLite database package added, authentication system implemented, `handleWriteConfig` un-stubbed, `handleStartVPN`/`handleStopVPN`/`handleAutostart` partially implemented (legacy script-based, Sprint 3 will replace with systemd), deploy files rewritten. All 10 tests pass. Linux amd64 and arm64 cross-compilation confirmed.
+**Last updated:** 2026-02-20
+**Last session summary:** Sprint 2 pre-requisite and foundation completed: `internal/server/server.go` split into focused files (all under 500 lines), duplicate interface operstate logic unified into `internal/util/network.go`, `go mod tidy` run, and new `internal/vpn` package added with provider interface + WireGuard/OpenVPN parse/validate implementations and unit tests. Full test suite still passing.
 
 ---
 
@@ -19,7 +19,7 @@
 | Sprint | Status | Notes |
 |---|---|---|
 | **1** — Foundation Reset | **Complete** | All checklist items done; 10/10 tests pass |
-| **2** — VPN Provider Abstraction | Not started | Ready to begin |
+| **2** — VPN Provider Abstraction | In progress | Server split + housekeeping complete; provider parsing/validation added; allocator/manager/CRUD API pending |
 | **3** — systemd Manager | Not started | Blocked until Sprint 2 complete |
 | **4** — Domain Groups & Routing | Not started | Blocked until Sprint 3 complete |
 | **5** — DNS Pre-Warm | Not started | Blocked until Sprint 4 complete |
@@ -37,10 +37,7 @@
 - `controlsEnabled = false` in `app.js` — UI control buttons still disabled. Sprint 6 enables them.
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
 - No VPN CRUD API yet (Sprint 2 adds the provider abstraction and manager; Sprint 3 wires up the API endpoints and systemd units).
-- **`server.go` is 743 lines** — exceeds the 500-line limit. Must be split as first task of Sprint 2.
 - **`config.go` reads wrong vpn.conf keys**: `VPN_TYPE` (should be `VPN_PROVIDER`), `VPN_GATEWAY` (should be `VPN_ENDPOINT_IPV4`). These fields are always empty from real configs. Sprint 2's new VPN manager uses correct keys.
-- **`go.mod`**: `golang.org/x/crypto` listed as `// indirect` but is a direct import in `internal/auth`. Fix with `go mod tidy`.
-- **`interfaceState()` duplicated** in both `server.go` and `stats.go` — should be unified into `internal/util/`.
 - **`install.sh` still uses old paths** (`/mnt/data/`, `$SCRIPT_DIR/bin/`, writes unit directly to `/etc/systemd/system/`). Deferred to Sprint 9 for full rewrite.
 - **No restart API endpoint** — Sprint 3 must add `POST /api/vpns/{name}/restart`.
 
@@ -71,6 +68,52 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 2 provider foundation session
+- Researched local reference configs/scripts in `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/`:
+  - `split-vpn/sgp.swic.name/wg0.conf`
+  - `split-vpn/web.appulize.com/DreamMachine.ovpn`
+  - `split-vpn/*/vpn.conf`
+  - `on_boot.d/20-ipset.sh` and `on_boot.d/90-ipset-prewarm.sh`
+- Added `internal/vpn/` package:
+  - `provider.go`: `Provider` strategy interface
+  - `profile.go`: `VPNProfile`, `WireGuardConfig`, `OpenVPNConfig` models
+  - `validate.go`: `ValidateName` + `ValidateDomain`
+  - `wireguard.go`: parser/validator + unit generator (`ParseWGConfig`, `ValidateWGConfig`)
+  - `openvpn.go`: parser/validator + unit generator (`ValidateOVPNConfig`)
+- Added tests:
+  - `internal/vpn/wireguard_test.go`
+  - `internal/vpn/openvpn_test.go`
+  - `internal/vpn/validate_test.go`
+- WireGuard parser now handles:
+  - Whitespace-tolerant comma-separated `Address` values with mixed IPv4/IPv6
+  - Multiple `[Peer]` sections
+  - `Table` extraction into `VPNProfile.RouteTable`
+  - Hook directives (`PostUp`, `PreDown`, `PostDown`) preservation
+- OpenVPN parser now handles:
+  - Required directive validation (`client`, `remote`, `dev`)
+  - Inline block parsing (`<ca>`, `<cert>`, `<key>`, `<tls-crypt>`, etc.)
+  - `dev tun` normalization to `tun0`
+- Validation run: `go test ./...` passed.
+
+### 2026-02-20 — Sprint 2 pre-requisite session
+- Renamed local working branch from `calude-code` to `claude-code` to match AGENTS.md requirement.
+- Split `internal/server/server.go` into:
+  - `internal/server/server.go` (core types + router + background loop)
+  - `internal/server/handlers_auth.go`
+  - `internal/server/handlers_page.go`
+  - `internal/server/handlers_config.go`
+  - `internal/server/handlers_settings.go`
+  - `internal/server/stream.go`
+  - `internal/server/state.go`
+  - `internal/server/helpers.go`
+- Verified file-size limit compliance: all `internal/server/*.go` files are now <= 215 lines.
+- Unified interface operstate probing:
+  - Added `util.InterfaceOperState()` in `internal/util/network.go`
+  - Updated `internal/server/state.go` and `internal/stats/stats.go` to use it
+  - Removed duplicate `readInterfaceState()` implementation from `internal/stats/stats.go`
+- Ran `go mod tidy`; `go.mod` now lists `golang.org/x/crypto` as a direct dependency.
+- Validation run: `go test ./...` passed after all refactors.
 
 ### 2026-02-20 — Comprehensive audit session
 - Full codebase audit against CLAUDE.md, reference implementation, and implementation plan.
