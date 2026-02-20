@@ -1,6 +1,8 @@
 package vpn
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -125,5 +127,25 @@ func TestOpenVPNGenerateUnit(t *testing.T) {
 		if !strings.Contains(unit, check) {
 			t.Fatalf("generated unit missing %q\n%s", check, unit)
 		}
+	}
+}
+
+func TestValidateOVPNConfig_ReferenceSample(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "dreammachine.reference.ovpn"))
+	if err != nil {
+		t.Fatalf("read reference ovpn: %v", err)
+	}
+	if err := ValidateOVPNConfig(string(raw)); err != nil {
+		t.Fatalf("ValidateOVPNConfig failed for reference sample: %v", err)
+	}
+	profile, err := NewOpenVPNProvider().ParseConfig(string(raw))
+	if err != nil {
+		t.Fatalf("ParseConfig failed for reference sample: %v", err)
+	}
+	if profile.InterfaceName != "tun0" {
+		t.Fatalf("expected dev tun to normalize to tun0, got %q", profile.InterfaceName)
+	}
+	if len(profile.OpenVPN.InlineBlocks) < 3 {
+		t.Fatalf("expected inline blocks to be parsed, got %d", len(profile.OpenVPN.InlineBlocks))
 	}
 }

@@ -162,12 +162,29 @@ func (m *Manager) parseConfig(path string) (*VPNConfig, error) {
 
 	dir := filepath.Dir(path)
 	name := filepath.Base(dir)
+	vpnType := strings.TrimSpace(values["VPN_PROVIDER"])
+	if vpnType == "" {
+		vpnType = strings.TrimSpace(values["VPN_TYPE"])
+	}
+	switch strings.ToLower(vpnType) {
+	case "external", "wireguard", "wg":
+		vpnType = "wireguard"
+	case "openvpn":
+		vpnType = "openvpn"
+	}
+	gateway := strings.TrimSpace(values["VPN_ENDPOINT_IPV4"])
+	if gateway == "" {
+		gateway = strings.TrimSpace(values["VPN_ENDPOINT_IPV6"])
+	}
+	if gateway == "" {
+		gateway = strings.TrimSpace(values["VPN_GATEWAY"])
+	}
 	cfg := &VPNConfig{
 		Name:          name,
 		Path:          dir,
 		InterfaceName: values["DEV"],
-		VPNType:       values["VPN_TYPE"],
-		Gateway:       values["VPN_GATEWAY"],
+		VPNType:       vpnType,
+		Gateway:       gateway,
 		RawValues:     values,
 	}
 	return cfg, nil

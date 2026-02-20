@@ -21,6 +21,7 @@ import (
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
 	"split-vpn-webui/internal/util"
+	"split-vpn-webui/internal/vpn"
 )
 
 const defaultDataDir = "/data/split-vpn-webui"
@@ -65,6 +66,10 @@ func main() {
 	// VPN config discovery scans the vpns/ subdirectory.
 	vpnsDir := filepath.Join(*dataDir, "vpns")
 	cfgManager := config.NewManager(vpnsDir)
+	vpnManager, err := vpn.NewManager(vpnsDir, nil)
+	if err != nil {
+		log.Fatalf("failed to initialize vpn manager: %v", err)
+	}
 
 	storedSettings, err := settingsManager.Get()
 	if err != nil {
@@ -79,7 +84,7 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
+	srv, err := server.New(cfgManager, vpnManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}

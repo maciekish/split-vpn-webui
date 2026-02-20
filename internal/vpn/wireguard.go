@@ -166,9 +166,11 @@ func parseWireGuardConfig(raw string) (*WireGuardConfig, int, string, error) {
 
 	routeTable := 0
 	if table := strings.TrimSpace(cfg.Interface.Table); table != "" {
-		if value, err := strconv.Atoi(table); err == nil && value > 0 {
-			routeTable = value
+		value, err := strconv.Atoi(table)
+		if err != nil || value <= 0 {
+			return nil, 0, "", fmt.Errorf("[Interface] Table must be a positive integer")
 		}
+		routeTable = value
 	}
 
 	gateway := ""

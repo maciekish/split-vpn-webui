@@ -5,18 +5,19 @@ type VPNMeta map[string]string
 
 // VPNProfile is a normalized representation of a managed VPN profile.
 type VPNProfile struct {
-	Name           string
-	Type           string
-	RawConfig      string
-	ConfigFile     string
-	RouteTable     int
-	FWMark         uint32
-	InterfaceName  string
-	Gateway        string
-	BoundInterface string
-	Meta           VPNMeta
-	WireGuard      *WireGuardConfig
-	OpenVPN        *OpenVPNConfig
+	Name           string           `json:"name"`
+	Type           string           `json:"type"`
+	RawConfig      string           `json:"rawConfig"`
+	ConfigFile     string           `json:"configFile"`
+	RouteTable     int              `json:"routeTable"`
+	FWMark         uint32           `json:"fwMark"`
+	InterfaceName  string           `json:"interfaceName"`
+	Gateway        string           `json:"gateway"`
+	BoundInterface string           `json:"boundInterface"`
+	Meta           VPNMeta          `json:"meta"`
+	Warnings       []string         `json:"warnings,omitempty"`
+	WireGuard      *WireGuardConfig `json:"wireguard,omitempty"`
+	OpenVPN        *OpenVPNConfig   `json:"openvpn,omitempty"`
 }
 
 // WireGuardConfig captures parsed fields from a WireGuard config.

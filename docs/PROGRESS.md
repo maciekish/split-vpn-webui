@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 2 — VPN Provider Abstraction
+**Active sprint:** Sprint 3 — systemd Manager
 **Last updated:** 2026-02-20
-**Last session summary:** Sprint 2 pre-requisite and foundation completed: `internal/server/server.go` split into focused files (all under 500 lines), duplicate interface operstate logic unified into `internal/util/network.go`, `go mod tidy` run, and new `internal/vpn` package added with provider interface + WireGuard/OpenVPN parse/validate implementations and unit tests. Full test suite still passing.
+**Last session summary:** Sprint 2 completed end-to-end: allocator + persistence recovery, VPN manager CRUD, `/api/vpns` handlers, correct vpn.conf key mapping, reference-sample parser tests, and file permission enforcement (dirs 0700, configs 0600, vpn.conf 0644). Full test suite passing.
 
 ---
 
@@ -19,8 +19,8 @@
 | Sprint | Status | Notes |
 |---|---|---|
 | **1** — Foundation Reset | **Complete** | All checklist items done; 10/10 tests pass |
-| **2** — VPN Provider Abstraction | In progress | Server split + housekeeping complete; provider parsing/validation added; allocator/manager/CRUD API pending |
-| **3** — systemd Manager | Not started | Blocked until Sprint 2 complete |
+| **2** — VPN Provider Abstraction | **Complete** | All Sprint 2 deliverables implemented and validated |
+| **3** — systemd Manager | Not started | Active sprint |
 | **4** — Domain Groups & Routing | Not started | Blocked until Sprint 3 complete |
 | **5** — DNS Pre-Warm | Not started | Blocked until Sprint 4 complete |
 | **6** — Web UI: VPN Management | Not started | Blocked until Sprint 3 complete |
@@ -36,8 +36,6 @@
 - `handleStartVPN` and `handleStopVPN` still use the legacy script-based approach (`run-vpn.sh`, `wg-quick`, `pkill`). Sprint 3 replaces this with proper systemd `svpn-<name>` unit management.
 - `controlsEnabled = false` in `app.js` — UI control buttons still disabled. Sprint 6 enables them.
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
-- No VPN CRUD API yet (Sprint 2 adds the provider abstraction and manager; Sprint 3 wires up the API endpoints and systemd units).
-- **`config.go` reads wrong vpn.conf keys**: `VPN_TYPE` (should be `VPN_PROVIDER`), `VPN_GATEWAY` (should be `VPN_ENDPOINT_IPV4`). These fields are always empty from real configs. Sprint 2's new VPN manager uses correct keys.
 - **`install.sh` still uses old paths** (`/mnt/data/`, `$SCRIPT_DIR/bin/`, writes unit directly to `/etc/systemd/system/`). Deferred to Sprint 9 for full rewrite.
 - **No restart API endpoint** — Sprint 3 must add `POST /api/vpns/{name}/restart`.
 
@@ -68,6 +66,50 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 2 completion session
+- Completed remaining Sprint 2 deliverables.
+- Added allocator implementation:
+  - `internal/vpn/allocator.go`
+  - Loads used table IDs from `/etc/iproute2/rt_tables`
+  - Loads used fwmarks/tables from `ip rule` + `ip -6 rule`
+  - Rebuilds allocation state from persisted `/vpns/*/vpn.conf`
+  - Allocates route tables/fwmarks from `>= 200` and prevents collisions
+- Added manager implementation split into focused files:
+  - `internal/vpn/manager.go`
+  - `internal/vpn/manager_prepare.go`
+  - `internal/vpn/manager_storage.go`
+  - `internal/vpn/manager_helpers.go`
+  - `internal/vpn/manager_wireguard.go`
+- Manager now supports full profile CRUD on disk:
+  - `Create`, `List`, `Get`, `Update`, `Delete`
+  - Name validation and type validation
+  - WireGuard legacy peacey `updown.sh` hook stripping with warnings
+  - Route `Table` preservation/allocation behavior
+  - Permission enforcement: vpn dir `0700`, VPN config `0600`, `vpn.conf` `0644`
+- Added VPN API handlers and routes:
+  - `internal/server/handlers_vpn.go`
+  - `GET /api/vpns`
+  - `POST /api/vpns`
+  - `GET /api/vpns/{name}`
+  - `PUT /api/vpns/{name}`
+  - `DELETE /api/vpns/{name}`
+- Wired manager into runtime:
+  - `cmd/splitvpnwebui/main.go` now initializes `vpn.Manager`
+  - `internal/server/server.go` now injects and routes through `vpn.Manager`
+- Fixed legacy vpn.conf key mapping in discovery:
+  - `internal/config/config.go` now reads `VPN_PROVIDER` and `VPN_ENDPOINT_IPV4`/`VPN_ENDPOINT_IPV6` (with legacy fallback).
+- Added/expanded tests:
+  - `internal/vpn/allocator_test.go`
+  - `internal/vpn/manager_test.go`
+  - `internal/vpn/wireguard_test.go` now validates real reference sample from `internal/vpn/testdata/wg0.reference.conf`
+  - `internal/vpn/openvpn_test.go` now validates real reference sample from `internal/vpn/testdata/dreammachine.reference.ovpn`
+- Added reference fixtures:
+  - `internal/vpn/testdata/wg0.reference.conf`
+  - `internal/vpn/testdata/dreammachine.reference.ovpn`
+- Compliance checks:
+  - Confirmed no Go source file exceeds 500 lines.
+  - Validation run: `go test ./...` passed.
 
 ### 2026-02-20 — Sprint 2 provider foundation session
 - Researched local reference configs/scripts in `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/`:

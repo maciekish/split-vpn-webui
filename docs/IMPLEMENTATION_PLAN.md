@@ -181,18 +181,18 @@ On startup, the allocator **must scan all persisted `vpn.conf` files** (in `/dat
 
 ### Deliverables / Definition of Done
 
-- [ ] `server.go` split into ≤500-line files; no file exceeds the limit.
-- [ ] `go mod tidy` run; `golang.org/x/crypto` marked as direct dependency.
-- [ ] Duplicate `interfaceState` unified into `internal/util/`.
-- [ ] `wireguard.ParseWGConfig` correctly parses the sample `wg0.conf` from the reference repo, including whitespace-tolerant `Address` and `Table` extraction.
-- [ ] `openvpn.ValidateOVPNConfig` correctly validates the sample `DreamMachine.ovpn`, including inline `<ca>`/`<cert>`/`<key>` blocks.
-- [ ] VPN name validation rejects path traversal, systemd-reserved chars, and overlong names.
-- [ ] Allocator never issues table ID or fwmark below 200.
-- [ ] Allocator reads live system tables and avoids conflicts.
-- [ ] Allocator recovers persisted allocations from existing `vpn.conf` files on startup.
-- [ ] Full CRUD API for VPN profiles: create, list, get, update, delete — all returning JSON.
-- [ ] Files stored with correct permissions: `vpn.conf` 0644, private key material 0600, VPN directories 0700.
-- [ ] All tests pass: `go test ./...` (not just `./internal/vpn/...`).
+- [x] `server.go` split into ≤500-line files; no file exceeds the limit.
+- [x] `go mod tidy` run; `golang.org/x/crypto` marked as direct dependency.
+- [x] Duplicate `interfaceState` unified into `internal/util/`.
+- [x] `wireguard.ParseWGConfig` correctly parses the sample `wg0.conf` from the reference repo, including whitespace-tolerant `Address` and `Table` extraction.
+- [x] `openvpn.ValidateOVPNConfig` correctly validates the sample `DreamMachine.ovpn`, including inline `<ca>`/`<cert>`/`<key>` blocks.
+- [x] VPN name validation rejects path traversal, systemd-reserved chars, and overlong names.
+- [x] Allocator never issues table ID or fwmark below 200.
+- [x] Allocator reads live system tables and avoids conflicts.
+- [x] Allocator recovers persisted allocations from existing `vpn.conf` files on startup.
+- [x] Full CRUD API for VPN profiles: create, list, get, update, delete — all returning JSON.
+- [x] Files stored with correct permissions: `vpn.conf` 0644, private key material 0600, VPN directories 0700.
+- [x] All tests pass: `go test ./...` (not just `./internal/vpn/...`).
 
 ---
 

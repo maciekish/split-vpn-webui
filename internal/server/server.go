@@ -16,6 +16,7 @@ import (
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
+	"split-vpn-webui/internal/vpn"
 	"split-vpn-webui/ui"
 )
 
@@ -42,6 +43,7 @@ type UpdatePayload struct {
 // Server handles HTTP requests and background coordination.
 type Server struct {
 	configManager *config.Manager
+	vpnManager    *vpn.Manager
 	stats         *stats.Collector
 	latency       *latency.Monitor
 	settings      *settings.Manager
@@ -61,6 +63,7 @@ type Server struct {
 // New creates an HTTP server.
 func New(
 	cfgManager *config.Manager,
+	vpnManager *vpn.Manager,
 	statsCollector *stats.Collector,
 	latencyMonitor *latency.Monitor,
 	settingsManager *settings.Manager,
@@ -73,6 +76,7 @@ func New(
 	}
 	return &Server{
 		configManager:     cfgManager,
+		vpnManager:        vpnManager,
 		stats:             statsCollector,
 		latency:           latencyMonitor,
 		settings:          settingsManager,
@@ -117,6 +121,12 @@ func (s *Server) Router() (http.Handler, error) {
 		protected.Get("/", s.handleIndex)
 
 		protected.Route("/api", func(api chi.Router) {
+			api.Get("/vpns", s.handleListVPNs)
+			api.Post("/vpns", s.handleCreateVPN)
+			api.Get("/vpns/{name}", s.handleGetVPN)
+			api.Put("/vpns/{name}", s.handleUpdateVPN)
+			api.Delete("/vpns/{name}", s.handleDeleteVPN)
+
 			api.Get("/configs", s.handleListConfigs)
 			api.Get("/configs/{name}/file", s.handleReadConfig)
 			api.Put("/configs/{name}/file", s.handleWriteConfig)

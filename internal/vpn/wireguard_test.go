@@ -1,6 +1,8 @@
 package vpn
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -132,5 +134,25 @@ func TestWireGuardGenerateUnit(t *testing.T) {
 		if !strings.Contains(unit, check) {
 			t.Fatalf("generated unit missing %q\n%s", check, unit)
 		}
+	}
+}
+
+func TestParseWGConfig_ReferenceSample(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "wg0.reference.conf"))
+	if err != nil {
+		t.Fatalf("read reference config: %v", err)
+	}
+	profile, err := ParseWGConfig(string(raw))
+	if err != nil {
+		t.Fatalf("ParseWGConfig failed for reference sample: %v", err)
+	}
+	if profile.RouteTable != 101 {
+		t.Fatalf("expected route table 101 from reference sample, got %d", profile.RouteTable)
+	}
+	if profile.Gateway != "sgp.swic.name" {
+		t.Fatalf("expected gateway sgp.swic.name, got %q", profile.Gateway)
+	}
+	if len(profile.WireGuard.Interface.Addresses) != 2 {
+		t.Fatalf("expected 2 addresses from reference sample, got %d", len(profile.WireGuard.Interface.Addresses))
 	}
 }
