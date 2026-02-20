@@ -138,3 +138,7 @@ func validateInterfaceName(name string) error {
 	}
 	return nil
 }
+
+func vpnServiceUnitName(name string) string {
+	return "svpn-" + name + ".service"
+}

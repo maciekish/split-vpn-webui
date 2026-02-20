@@ -34,12 +34,20 @@ type Manager struct {
 	mu sync.Mutex
 
 	vpnsDir   string
+	dataDir   string
 	allocator *Allocator
+	units     UnitManager
 	providers map[string]Provider
 }
 
+// UnitManager captures unit lifecycle operations used by vpn.Manager.
+type UnitManager interface {
+	WriteUnit(unitName, content string) error
+	RemoveUnit(unitName string) error
+}
+
 // NewManager creates a manager rooted at vpnsDir.
-func NewManager(vpnsDir string, allocator *Allocator) (*Manager, error) {
+func NewManager(vpnsDir string, allocator *Allocator, unitManager UnitManager) (*Manager, error) {
 	trimmed := strings.TrimSpace(vpnsDir)
 	if trimmed == "" {
 		return nil, fmt.Errorf("vpns directory is required")
@@ -59,7 +67,9 @@ func NewManager(vpnsDir string, allocator *Allocator) (*Manager, error) {
 	}
 	return &Manager{
 		vpnsDir:   trimmed,
+		dataDir:   filepath.Dir(trimmed),
 		allocator: allocator,
+		units:     unitManager,
 		providers: map[string]Provider{
 			"wireguard": NewWireGuardProvider(),
 			"openvpn":   NewOpenVPNProvider(),
@@ -145,6 +155,13 @@ func (m *Manager) Create(req UpsertRequest) (*VPNProfile, error) {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
+	if m.units != nil {
+		if err := m.units.WriteUnit(prepared.unitName, prepared.unitContent); err != nil {
+			m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+			_ = os.RemoveAll(dir)
+			return nil, err
+		}
+	}
 
 	profile, err := m.readProfileLocked(name)
 	if err != nil {
@@ -186,6 +203,11 @@ func (m *Manager) Update(name string, req UpsertRequest) (*VPNProfile, error) {
 		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
 		return nil, err
 	}
+	if m.units != nil {
+		if err := m.units.WriteUnit(prepared.unitName, prepared.unitContent); err != nil {
+			return nil, err
+		}
+	}
 	if existing.ConfigFile != "" && existing.ConfigFile != prepared.configFileName {
 		_ = os.Remove(filepath.Join(dir, existing.ConfigFile))
 	}
@@ -214,6 +236,11 @@ func (m *Manager) Delete(name string) error {
 	if err != nil {
 		return err
 	}
+	if m.units != nil {
+		if err := m.units.RemoveUnit(vpnServiceUnitName(validated)); err != nil {
+			return err
+		}
+	}
 	if err := os.RemoveAll(filepath.Join(m.vpnsDir, validated)); err != nil {
 		return err
 	}
@@ -231,4 +258,6 @@ type preparedProfile struct {
 	markReserved       uint32
 	releaseTable       int
 	releaseMark        uint32
+	unitName           string
+	unitContent        string
 }

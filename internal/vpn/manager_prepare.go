@@ -91,6 +91,13 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 		meta["VPN_BOUND_IFACE"] = bound
 	}
 
+	unitProfile := &VPNProfile{
+		Name:          name,
+		Type:          vpnType,
+		ConfigFile:    configFileName,
+		InterfaceName: iface,
+	}
+
 	return &preparedProfile{
 		meta:               meta,
 		rawConfig:          sanitizedConfig,
@@ -100,6 +107,8 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 		markReserved:       reservedMark,
 		releaseTable:       releaseTable,
 		releaseMark:        releaseMark,
+		unitName:           vpnServiceUnitName(name),
+		unitContent:        provider.GenerateUnit(unitProfile, m.dataDir),
 	}, nil
 }
 

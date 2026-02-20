@@ -20,6 +20,7 @@ import (
 	"split-vpn-webui/internal/server"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
+	"split-vpn-webui/internal/systemd"
 	"split-vpn-webui/internal/util"
 	"split-vpn-webui/internal/vpn"
 )
@@ -66,7 +67,11 @@ func main() {
 	// VPN config discovery scans the vpns/ subdirectory.
 	vpnsDir := filepath.Join(*dataDir, "vpns")
 	cfgManager := config.NewManager(vpnsDir)
-	vpnManager, err := vpn.NewManager(vpnsDir, nil)
+	systemdManager := systemd.NewManager(*dataDir)
+	if err := systemdManager.WriteBootHook(); err != nil {
+		log.Printf("warning: failed to write boot hook: %v", err)
+	}
+	vpnManager, err := vpn.NewManager(vpnsDir, nil, systemdManager)
 	if err != nil {
 		log.Fatalf("failed to initialize vpn manager: %v", err)
 	}
@@ -84,7 +89,7 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, vpnManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
+	srv, err := server.New(cfgManager, vpnManager, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}

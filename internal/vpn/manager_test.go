@@ -8,7 +8,25 @@ import (
 	"testing"
 )
 
-func newTestManager(t *testing.T) (*Manager, string) {
+type testUnitManager struct {
+	written map[string]string
+	removed []string
+}
+
+func (t *testUnitManager) WriteUnit(unitName, content string) error {
+	if t.written == nil {
+		t.written = map[string]string{}
+	}
+	t.written[unitName] = content
+	return nil
+}
+
+func (t *testUnitManager) RemoveUnit(unitName string) error {
+	t.removed = append(t.removed, unitName)
+	return nil
+}
+
+func newTestManager(t *testing.T) (*Manager, string, *testUnitManager) {
 	t.Helper()
 	vpnsDir := t.TempDir()
 	routeTables := filepath.Join(t.TempDir(), "rt_tables")
@@ -25,15 +43,16 @@ func newTestManager(t *testing.T) (*Manager, string) {
 	if err != nil {
 		t.Fatalf("create allocator: %v", err)
 	}
-	manager, err := NewManager(vpnsDir, alloc)
+	unitManager := &testUnitManager{}
+	manager, err := NewManager(vpnsDir, alloc, unitManager)
 	if err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
-	return manager, vpnsDir
+	return manager, vpnsDir, unitManager
 }
 
 func TestManagerCreateGetUpdateDeleteWireGuard(t *testing.T) {
-	manager, vpnsDir := newTestManager(t)
+	manager, vpnsDir, unitManager := newTestManager(t)
 
 	config := `[Interface]
 PrivateKey = test-private-key
@@ -64,6 +83,9 @@ PersistentKeepalive = 25
 	}
 	if len(created.Warnings) == 0 {
 		t.Fatalf("expected warnings about removed legacy hooks")
+	}
+	if _, ok := unitManager.written["svpn-wg-sgp.service"]; !ok {
+		t.Fatalf("expected unit to be written for created vpn")
 	}
 
 	profileDir := filepath.Join(vpnsDir, "wg-sgp")
@@ -126,13 +148,16 @@ Endpoint = updated.swic.name:51820
 	if err := manager.Delete("wg-sgp"); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
+	if len(unitManager.removed) == 0 || unitManager.removed[len(unitManager.removed)-1] != "svpn-wg-sgp.service" {
+		t.Fatalf("expected unit removal for deleted vpn, got %#v", unitManager.removed)
+	}
 	if _, err := manager.Get("wg-sgp"); !errors.Is(err, ErrVPNNotFound) {
 		t.Fatalf("expected ErrVPNNotFound after delete, got %v", err)
 	}
 }
 
 func TestManagerNameValidationAndDuplicates(t *testing.T) {
-	manager, _ := newTestManager(t)
+	manager, _, _ := newTestManager(t)
 
 	wgConfig := `[Interface]
 PrivateKey = test
@@ -156,7 +181,7 @@ Endpoint = host:51820
 }
 
 func TestManagerPreservesUserTableAndDetectsConflicts(t *testing.T) {
-	manager, _ := newTestManager(t)
+	manager, _, _ := newTestManager(t)
 
 	configWithTable := `[Interface]
 PrivateKey = test
@@ -182,7 +207,7 @@ Endpoint = host:51820
 }
 
 func TestManagerCreateOpenVPN(t *testing.T) {
-	manager, _ := newTestManager(t)
+	manager, _, _ := newTestManager(t)
 
 	ovpn := `client
 remote 87.98.233.31 1194

@@ -275,16 +275,16 @@ Key differences from reference:
 
 ### Deliverables / Definition of Done
 
-- [ ] Creating a VPN via API writes the systemd unit to `/data/split-vpn-webui/units/svpn-<name>.service` and creates the symlink in `/etc/systemd/system/`.
-- [ ] `POST /api/configs/{name}/start` starts the VPN via `systemctl start svpn-<name>`.
-- [ ] `POST /api/configs/{name}/stop` stops it.
-- [ ] `POST /api/vpns/{name}/restart` restarts it.
-- [ ] `POST /api/configs/{name}/autostart` enables/disables the systemd unit.
-- [ ] Deleting a VPN removes the unit file, removes the symlink, and runs `daemon-reload`.
-- [ ] Boot hook written to `/data/on_boot.d/10-split-vpn-webui.sh` with correct content and `chmod +x`.
-- [ ] Legacy `runStartStopCommand` / `runCommand` code is deleted — no fallback to `wg-quick` or `pkill`.
-- [ ] No shell string interpolation anywhere — all `exec.Command` calls use string slices.
-- [ ] All tests pass.
+- [x] Creating a VPN via API writes the systemd unit to `/data/split-vpn-webui/units/svpn-<name>.service` and creates the symlink in `/etc/systemd/system/`.
+- [x] `POST /api/configs/{name}/start` starts the VPN via `systemctl start svpn-<name>`.
+- [x] `POST /api/configs/{name}/stop` stops it.
+- [x] `POST /api/vpns/{name}/restart` restarts it.
+- [x] `POST /api/configs/{name}/autostart` enables/disables the systemd unit.
+- [x] Deleting a VPN removes the unit file, removes the symlink, and runs `daemon-reload`.
+- [x] Boot hook written to `/data/on_boot.d/10-split-vpn-webui.sh` with correct content and `chmod +x`.
+- [x] Legacy `runStartStopCommand` / `runCommand` code is deleted — no fallback to `wg-quick` or `pkill`.
+- [x] No shell string interpolation anywhere — all `exec.Command` calls use string slices.
+- [x] All tests pass.
 
 ---
 

@@ -16,6 +16,7 @@ import (
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
+	"split-vpn-webui/internal/systemd"
 	"split-vpn-webui/internal/vpn"
 	"split-vpn-webui/ui"
 )
@@ -44,6 +45,7 @@ type UpdatePayload struct {
 type Server struct {
 	configManager *config.Manager
 	vpnManager    *vpn.Manager
+	systemd       systemd.ServiceManager
 	stats         *stats.Collector
 	latency       *latency.Monitor
 	settings      *settings.Manager
@@ -64,6 +66,7 @@ type Server struct {
 func New(
 	cfgManager *config.Manager,
 	vpnManager *vpn.Manager,
+	systemdManager systemd.ServiceManager,
 	statsCollector *stats.Collector,
 	latencyMonitor *latency.Monitor,
 	settingsManager *settings.Manager,
@@ -77,6 +80,7 @@ func New(
 	return &Server{
 		configManager:     cfgManager,
 		vpnManager:        vpnManager,
+		systemd:           systemdManager,
 		stats:             statsCollector,
 		latency:           latencyMonitor,
 		settings:          settingsManager,
@@ -126,6 +130,7 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/vpns/{name}", s.handleGetVPN)
 			api.Put("/vpns/{name}", s.handleUpdateVPN)
 			api.Delete("/vpns/{name}", s.handleDeleteVPN)
+			api.Post("/vpns/{name}/restart", s.handleRestartVPN)
 
 			api.Get("/configs", s.handleListConfigs)
 			api.Get("/configs/{name}/file", s.handleReadConfig)

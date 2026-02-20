@@ -1,11 +1,7 @@
 package server
 
 import (
-	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -146,7 +142,11 @@ func (s *Server) collectConfigStatuses() ([]*config.VPNConfig, []ConfigStatus, m
 }
 
 func (s *Server) startVPN(cfg *config.VPNConfig) {
-	if err := runStartStopCommand(cfg, true); err != nil {
+	if s.systemd == nil {
+		s.broadcastUpdate(map[string]string{cfg.Name: "systemd manager unavailable"})
+		return
+	}
+	if err := s.systemd.Start(vpnServiceUnitName(cfg.Name)); err != nil {
 		s.broadcastUpdate(map[string]string{cfg.Name: err.Error()})
 	} else {
 		time.Sleep(2 * time.Second)
@@ -155,12 +155,29 @@ func (s *Server) startVPN(cfg *config.VPNConfig) {
 }
 
 func (s *Server) stopVPN(cfg *config.VPNConfig) {
-	if err := runStartStopCommand(cfg, false); err != nil {
+	if s.systemd == nil {
+		s.broadcastUpdate(map[string]string{cfg.Name: "systemd manager unavailable"})
+		return
+	}
+	if err := s.systemd.Stop(vpnServiceUnitName(cfg.Name)); err != nil {
 		s.broadcastUpdate(map[string]string{cfg.Name: err.Error()})
 	} else {
 		time.Sleep(1 * time.Second)
 		s.broadcastUpdate(nil)
 	}
+}
+
+func (s *Server) restartVPN(name string) {
+	if s.systemd == nil {
+		s.broadcastUpdate(map[string]string{name: "systemd manager unavailable"})
+		return
+	}
+	if err := s.systemd.Restart(vpnServiceUnitName(name)); err != nil {
+		s.broadcastUpdate(map[string]string{name: err.Error()})
+		return
+	}
+	time.Sleep(2 * time.Second)
+	s.broadcastUpdate(nil)
 }
 
 func (s *Server) applyAutostart() {
@@ -178,38 +195,4 @@ func (s *Server) applyAutostart() {
 			go s.startVPN(cfg)
 		}
 	}
-}
-
-func runStartStopCommand(cfg *config.VPNConfig, start bool) error {
-	dir := cfg.Path
-	if start {
-		if script := filepath.Join(dir, "run-vpn.sh"); fileExists(script) {
-			return runCommand(dir, script)
-		}
-		return fmt.Errorf("no start script available for %s (will be managed via systemd in a future sprint)", cfg.Name)
-	}
-	if script := filepath.Join(dir, "stop-vpn.sh"); fileExists(script) {
-		return runCommand(dir, script)
-	}
-	if cfg.VPNType == "wireguard" && cfg.InterfaceName != "" {
-		return runCommand("", "wg-quick", "down", cfg.InterfaceName)
-	}
-	if cfg.VPNType == "openvpn" {
-		if cfg.InterfaceName != "" {
-			// pkill with fixed args — no shell interpolation.
-			return runCommand("", "pkill", "-f", "openvpn.*"+cfg.InterfaceName)
-		}
-		return runCommand("", "pkill", "openvpn")
-	}
-	return fmt.Errorf("no stop command available for %s", cfg.Name)
-}
-
-func runCommand(dir string, command string, args ...string) error {
-	cmd := exec.Command(command, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
