@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 4 — Domain Groups & Routing
+**Active sprint:** Sprint 5 — DNS Pre-Warm
 **Last updated:** 2026-02-20
-**Last session summary:** Sprint 3 completed end-to-end: new `internal/systemd` manager package (unit/symlink lifecycle + boot hook generation), VPN manager writes/removes units, legacy script-based start/stop removed, config start/stop/autostart now call `systemctl`, restart endpoint added at `POST /api/vpns/{name}/restart`, and boot hook generation wired in startup. Full test suite passing.
+**Last session summary:** Sprint 4 completed end-to-end: added `internal/routing` package (SQLite-backed domain groups, ipset manager, dnsmasq manager with path detection + graceful reload fallback, iptables/ip6tables + `ip rule` manager with custom chains), injected routing manager into startup and server, and added full group CRUD API (`/api/groups`). Added mutex-serialized `Apply()` and stale-ipset cleanup ordering fixes with new tests. Full test suite passing.
 
 ---
 
@@ -21,10 +21,10 @@
 | **1** — Foundation Reset | **Complete** | All checklist items done; 10/10 tests pass |
 | **2** — VPN Provider Abstraction | **Complete** | All Sprint 2 deliverables implemented and validated |
 | **3** — systemd Manager | **Complete** | All Sprint 3 deliverables implemented and validated |
-| **4** — Domain Groups & Routing | Not started | Active sprint |
-| **5** — DNS Pre-Warm | Not started | Blocked until Sprint 4 complete |
-| **6** — Web UI: VPN Management | Not started | Blocked until Sprint 3 complete |
-| **7** — Web UI: Domain Routing | Not started | Blocked until Sprint 4 + 6 complete |
+| **4** — Domain Groups & Routing | **Complete** | All Sprint 4 deliverables implemented and validated |
+| **5** — DNS Pre-Warm | Not started | Active sprint |
+| **6** — Web UI: VPN Management | Not started | Ready (dependency on Sprint 3 satisfied) |
+| **7** — Web UI: Domain Routing | Not started | Blocked until Sprint 6 complete |
 | **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Blocked until Sprint 5 + 6 complete |
 | **9** — Install Script & Hardening | Not started | Blocked until Sprint 8 complete |
 | **10** — Persistent Stats, Build & CI | Not started | Blocked until Sprint 9 complete |
@@ -64,6 +64,34 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 4 completion session
+- Added new package `internal/routing/`:
+  - `model.go` — domain group model, validation, deterministic ipset naming.
+  - `store.go` — SQLite CRUD for `domain_groups` and `domain_entries`.
+  - `ipset.go` — ipset command wrapper with ensure/add/flush/destroy/list.
+  - `dnsmasq.go` — dnsmasq drop-in dir detection, config rendering/writing, graceful reload (`kill -HUP`) with systemctl fallback.
+  - `iptables.go` — IPv4+IPv6 custom chains (`SVPN_MARK`, `SVPN_NAT`), MASQUERADE rules, and `ip rule`/`ip -6 rule` refresh+flush handling.
+  - `executor.go`, `mock_exec.go`, `mock_ipset.go` — command and ipset mocks for tests.
+  - `manager.go` — orchestration layer (`Apply`, `CreateGroup`, `UpdateGroup`, `DeleteGroup`) with apply mutex and startup-safe reconciliation.
+  - Tests: `store_test.go`, `dnsmasq_test.go`, `iptables_test.go`, `manager_test.go`.
+- Added routing HTTP handlers:
+  - `internal/server/handlers_routing.go` — CRUD endpoints:
+    - `GET /api/groups`
+    - `POST /api/groups`
+    - `GET /api/groups/{id}`
+    - `PUT /api/groups/{id}`
+    - `DELETE /api/groups/{id}`
+  - Structured JSON error responses preserved as `{ "error": "..." }`.
+- Wired routing manager through app:
+  - `internal/server/server.go` now injects `*routing.Manager` and registers `/api/groups` routes.
+  - `cmd/splitvpnwebui/main.go` now initializes routing manager and calls `Apply()` on startup to restore runtime state.
+- Edge-case hardening completed:
+  - `Manager.Apply()` now serializes concurrent calls with a mutex.
+  - Reordered cleanup so stale ipsets are destroyed **after** rules are applied/flushed, avoiding “set in use” failures.
+  - `CreateGroup`/`UpdateGroup` now validate the referenced egress VPN before persisting.
+  - Added concurrency/order tests covering these paths.
+- Validation run: `go test ./...` passed.
 
 ### 2026-02-20 — Sprint 3 completion session
 - Added new package `internal/systemd/`:

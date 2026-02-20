@@ -14,6 +14,7 @@ import (
 	"split-vpn-webui/internal/auth"
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/latency"
+	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
 	"split-vpn-webui/internal/systemd"
@@ -45,6 +46,7 @@ type UpdatePayload struct {
 type Server struct {
 	configManager *config.Manager
 	vpnManager    *vpn.Manager
+	routingManager *routing.Manager
 	systemd       systemd.ServiceManager
 	stats         *stats.Collector
 	latency       *latency.Monitor
@@ -66,6 +68,7 @@ type Server struct {
 func New(
 	cfgManager *config.Manager,
 	vpnManager *vpn.Manager,
+	routingManager *routing.Manager,
 	systemdManager systemd.ServiceManager,
 	statsCollector *stats.Collector,
 	latencyMonitor *latency.Monitor,
@@ -80,6 +83,7 @@ func New(
 	return &Server{
 		configManager:     cfgManager,
 		vpnManager:        vpnManager,
+		routingManager:    routingManager,
 		systemd:           systemdManager,
 		stats:             statsCollector,
 		latency:           latencyMonitor,
@@ -125,6 +129,12 @@ func (s *Server) Router() (http.Handler, error) {
 		protected.Get("/", s.handleIndex)
 
 		protected.Route("/api", func(api chi.Router) {
+			api.Get("/groups", s.handleListGroups)
+			api.Post("/groups", s.handleCreateGroup)
+			api.Get("/groups/{id}", s.handleGetGroup)
+			api.Put("/groups/{id}", s.handleUpdateGroup)
+			api.Delete("/groups/{id}", s.handleDeleteGroup)
+
 			api.Get("/vpns", s.handleListVPNs)
 			api.Post("/vpns", s.handleCreateVPN)
 			api.Get("/vpns/{name}", s.handleGetVPN)

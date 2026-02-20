@@ -358,17 +358,17 @@ Same for `ip6tables`. This makes `Apply()` idempotent: flush the custom chains, 
 
 ### Deliverables / Definition of Done
 
-- [ ] `POST /api/groups` creates a group with domains and egress VPN; `Apply()` runs.
-- [ ] After `Apply()`, ipsets `svpn_<group>_v4` and `svpn_<group>_v6` exist in the kernel.
-- [ ] After `Apply()`, dnsmasq config exists at the detected path with correct `ipset=` lines.
-- [ ] After `Apply()`, iptables **and** ip6tables rules route matched packets to the correct VPN fwmark.
-- [ ] After `Apply()`, MASQUERADE/SNAT rules exist in the nat POSTROUTING chain for each VPN.
-- [ ] After `Apply()`, `ip rule` and `ip -6 rule` entries route fwmark traffic to the correct table.
-- [ ] `Apply()` is idempotent — running it twice does not duplicate rules, sets, or ip rules.
-- [ ] On startup, `Apply()` restores all rules (ipsets, iptables chains, and ip rules are recreated after reboot).
-- [ ] dnsmasq is reloaded via `kill -HUP` (graceful, no DNS downtime) with `systemctl restart` as fallback.
-- [ ] All group CRUD endpoints return correct JSON.
-- [ ] All tests pass (using mocks for ipset/iptables/dnsmasq system calls).
+- [x] `POST /api/groups` creates a group with domains and egress VPN; `Apply()` runs.
+- [x] After `Apply()`, ipsets `svpn_<group>_v4` and `svpn_<group>_v6` exist in the kernel.
+- [x] After `Apply()`, dnsmasq config exists at the detected path with correct `ipset=` lines.
+- [x] After `Apply()`, iptables **and** ip6tables rules route matched packets to the correct VPN fwmark.
+- [x] After `Apply()`, MASQUERADE/SNAT rules exist in the nat POSTROUTING chain for each VPN.
+- [x] After `Apply()`, `ip rule` and `ip -6 rule` entries route fwmark traffic to the correct table.
+- [x] `Apply()` is idempotent — running it twice does not duplicate rules, sets, or ip rules.
+- [x] On startup, `Apply()` restores all rules (ipsets, iptables chains, and ip rules are recreated after reboot).
+- [x] dnsmasq is reloaded via `kill -HUP` (graceful, no DNS downtime) with `systemctl restart` as fallback.
+- [x] All group CRUD endpoints return correct JSON.
+- [x] All tests pass (using mocks for ipset/iptables/dnsmasq system calls).
 
 ---
 

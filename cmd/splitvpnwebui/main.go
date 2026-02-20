@@ -17,6 +17,7 @@ import (
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/database"
 	"split-vpn-webui/internal/latency"
+	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/server"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
@@ -75,6 +76,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize vpn manager: %v", err)
 	}
+	routingManager, err := routing.NewManager(db, vpnManager)
+	if err != nil {
+		log.Fatalf("failed to initialize routing manager: %v", err)
+	}
+	if err := routingManager.Apply(context.Background()); err != nil {
+		log.Printf("warning: failed to apply routing state on startup: %v", err)
+	}
 
 	storedSettings, err := settingsManager.Get()
 	if err != nil {
@@ -89,7 +97,7 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, vpnManager, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
+	srv, err := server.New(cfgManager, vpnManager, routingManager, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}
