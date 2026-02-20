@@ -37,6 +37,12 @@
 - `controlsEnabled = false` in `app.js` — UI control buttons still disabled. Sprint 6 enables them.
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
 - No VPN CRUD API yet (Sprint 2 adds the provider abstraction and manager; Sprint 3 wires up the API endpoints and systemd units).
+- **`server.go` is 743 lines** — exceeds the 500-line limit. Must be split as first task of Sprint 2.
+- **`config.go` reads wrong vpn.conf keys**: `VPN_TYPE` (should be `VPN_PROVIDER`), `VPN_GATEWAY` (should be `VPN_ENDPOINT_IPV4`). These fields are always empty from real configs. Sprint 2's new VPN manager uses correct keys.
+- **`go.mod`**: `golang.org/x/crypto` listed as `// indirect` but is a direct import in `internal/auth`. Fix with `go mod tidy`.
+- **`interfaceState()` duplicated** in both `server.go` and `stats.go` — should be unified into `internal/util/`.
+- **`install.sh` still uses old paths** (`/mnt/data/`, `$SCRIPT_DIR/bin/`, writes unit directly to `/etc/systemd/system/`). Deferred to Sprint 9 for full rewrite.
+- **No restart API endpoint** — Sprint 3 must add `POST /api/vpns/{name}/restart`.
 
 ---
 
@@ -65,6 +71,20 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Comprehensive audit session
+- Full codebase audit against CLAUDE.md, reference implementation, and implementation plan.
+- No code changes made — documentation only.
+- Identified 29 issues across 5 categories (code↔spec sync, plan gaps, structural issues, edge cases, IPv6 parity).
+- Updated `docs/IMPLEMENTATION_PLAN.md` with significant additions:
+  - Sprint 2: Added `server.go` split plan (pre-requisite), VPN name validation (moved from Sprint 9), allocator reboot recovery, WireGuard parser edge cases (Address whitespace, Table directive, PostUp/PreDown handling, multiple peers), OpenVPN parser edge cases (inline blocks, separate credential files, dev directive), `go mod tidy` housekeeping, `interfaceState` dedup.
+  - Sprint 3: Added detailed generated systemd unit templates for WireGuard and OpenVPN, documented key differences from reference (no peacey updown.sh, absolute paths, no sleep 30, --route-noexec for OVPN), added legacy code removal (runStartStopCommand), added restart endpoint.
+  - Sprint 4: Added dnsmasq path detection (both `/run/dnsmasq.d/` and `/run/dnsmasq.dhcp.conf.d/`), MASQUERADE/SNAT rule requirement, `ip rule` deduplication via flush-and-readd pattern, custom iptables chain pattern (SVPN_MARK/SVPN_NAT), full IPv6 parity (ip6tables + ip -6 rule), graceful dnsmasq reload via `kill -HUP`.
+  - Sprint 5: Added per-interface vs per-egress behavior note (reference queries ALL interfaces), SO_BINDTODEVICE platform considerations and mock strategy.
+  - Sprint 8: Removed duplicate login.html creation (already exists from Sprint 1), added current-password requirement for password change endpoint.
+  - Sprint 10: Noted stats_history table already exists, added Cleanup function reference.
+  - Added new "Cross-Cutting Concerns" section: legacy config.go mapping issues, concurrency safety requirements, atomic writes pattern, IPv6 parity checklist.
+- Updated `docs/PROGRESS.md` Known Issues with all newly identified issues.
 
 ### 2026-02-18 — Planning session
 - Conducted full codebase audit.
