@@ -10,7 +10,7 @@
 
 **Active sprint:** Sprint 10 — Persistent Stats, Build & CI
 **Last updated:** 2026-02-21
-**Last session summary:** Planning/spec update session: expanded requirements to include policy-based routing selectors in groups (source IP/CIDR, destination IP/CIDR, destination port/protocol, destination ASN, domain, wildcard domains with public subdomain discovery) and added Sprint 11 implementation plan for periodic runtime resolver refresh.
+**Last session summary:** Planning/spec update session: added uninstall requirements and plan for an interactive `uninstall.sh` flow (ask "remove everything" first; if no, prompt per category: binaries, VPNs+units, config files, statistics data), and added Sprint 12 to the implementation plan.
 
 ---
 
@@ -29,6 +29,7 @@
 | **9** — Install Script & Hardening | **Complete** | Installer + hardening + tests implemented |
 | **10** — Persistent Stats, Build & CI | Not started | Active sprint |
 | **11** — Policy Routing Expansion | Not started | Planned: selector/rule model + runtime resolvers |
+| **12** — Interactive Uninstall Script | Not started | Planned: full wipe or category-by-category uninstall |
 
 ---
 
@@ -37,6 +38,7 @@
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
 - Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
 - Policy-routing expansion (source/destination/port/ASN/wildcard) is now captured for Sprint 11 and not implemented yet.
+- Interactive uninstall flow is now captured for Sprint 12 and not implemented yet.
 
 ---
 
@@ -65,6 +67,30 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Uninstall spec/planning session
+- Updated `AGENTS.md`:
+  - Added `uninstall.sh` to repository layout.
+  - Added explicit **Uninstallation** requirements:
+    - first prompt asks whether to remove EVERYTHING
+    - if not, prompt category-by-category for:
+      - binaries
+      - VPNs + their systemd units
+      - config files
+      - statistics data
+    - default `No` prompts
+    - final removed/kept summary
+    - cleanup restricted to app namespace only
+- Updated `docs/IMPLEMENTATION_PLAN.md`:
+  - Added Sprint 12 in sprint overview.
+  - Added full Sprint 12 section with:
+    - required uninstall prompt flow
+    - category scope rules
+    - service/systemd cleanup requirements
+    - deliverables checklist
+- Updated progress tracking:
+  - Added Sprint 12 as planned/not started.
+  - Recorded uninstall flow as pending implementation scope.
 
 ### 2026-02-21 — Policy-routing spec expansion session
 - Updated `AGENTS.md` requirements:

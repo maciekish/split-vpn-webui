@@ -56,6 +56,7 @@ split-vpn-webui/
 │   ├── split-vpn-webui.service # systemd unit for the web app itself
 │   └── split-vpn-webui.sh      # Boot hook (goes into /data/on_boot.d)
 ├── install.sh                  # Installer script
+├── uninstall.sh                # Interactive uninstaller
 ├── go.mod / go.sum
 └── AGENTS.md                   # This file
 ```
@@ -281,6 +282,35 @@ Installer must work as: `curl -fsSL https://raw.githubusercontent.com/maciekish/
 8. Print the access URL at the end.
 
 > **Why this works:** `/data/` is the real persistent partition on UniFi OS 2.x+ (not a symlink — the actual mount point). It survives firmware updates. `/etc/systemd/system/` is on the rootfs and is wiped on every firmware update. The boot hook lives safely in `/data/on_boot.d/` and re-creates all ephemeral symlinks on every boot, making the service fully self-healing.
+
+### 8. Uninstallation
+
+An interactive uninstaller script must be provided at:
+```
+/data/split-vpn-webui/uninstall.sh
+```
+
+Behaviour requirements:
+1. Prompt first: **"Remove EVERYTHING related to split-vpn-webui? [y/N]"**.
+2. If **Yes**, remove all app traces:
+   - binary and web UI service units/symlinks
+   - all managed VPN profiles and `svpn-*.service` units/symlinks
+   - app config files
+   - stats database and logs
+   - boot hook (`/data/on_boot.d/10-split-vpn-webui.sh`)
+   - runtime routing artifacts owned by this app (iptables/ip6tables chains/rules, `ip rule`/`ip -6 rule` entries, `svpn_*` ipsets, dnsmasq drop-in)
+3. If **No**, prompt category-by-category and apply only selected removals:
+   - binaries
+   - VPNs + their systemd units
+   - config files
+   - statistics data
+4. Use safe defaults (`No`) for all prompts.
+5. Always run service/runtime cleanup for selected categories safely:
+   - stop/disable affected services first
+   - remove symlinks/canonical units as needed
+   - run `systemctl daemon-reload` when unit links change
+   - avoid touching resources outside this app namespace.
+6. Print a final summary of exactly what was removed and what was kept.
 
 ---
 

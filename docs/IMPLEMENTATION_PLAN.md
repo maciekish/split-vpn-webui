@@ -61,6 +61,7 @@ The following is **already fully implemented** and must not regress:
 | **9** | Install script & hardening | `install.sh`, boot hook, input validation, file permissions |
 | **10** | Persistent stats, build & CI | SQLite stats history, cross-compile, GitHub Actions |
 | **11** | Policy routing expansion | Source/destination IP rules, destination ports, ASNs, wildcard subdomain discovery, periodic runtime resolver refresh |
+| **12** | Uninstall workflow | Interactive `uninstall.sh` with full wipe or granular category removal |
 
 ---
 
@@ -626,6 +627,71 @@ For development/testing on macOS, the DoH client interface binding must be behin
 - [ ] Resolver removes stale entries no longer present in latest snapshots.
 - [ ] Full IPv4/IPv6 parity in rule generation and ipset management.
 - [ ] All tests pass (`go test ./...`), including resolver and routing rule generation tests.
+
+---
+
+## Sprint 12 — Interactive Uninstall Script
+
+**Goal:** Provide a safe, explicit uninstallation path that can either remove everything or remove selected categories only.
+
+### Files to modify/create
+
+| File | Change |
+|---|---|
+| `uninstall.sh` | New interactive script with prompt flow: ask "remove EVERYTHING?" first; if no, ask per-category prompts (binaries, VPNs+units, config files, statistics data); execute selected cleanup actions and print summary |
+| `install.sh` | Ensure installer deploys/updates `uninstall.sh` into `/data/split-vpn-webui/uninstall.sh` with executable permissions |
+| `README.md` | Add uninstall usage section and category behavior documentation |
+| `docs/PROGRESS.md` | Track completion notes and validation evidence |
+
+### Required prompt flow
+
+1. Ask once:
+   - `Remove EVERYTHING related to split-vpn-webui? [y/N]`
+2. If answer is `yes`:
+   - remove all app traces (app binary/service, VPN profiles+units, config, stats/logs, boot hook, runtime routing artifacts in app namespace).
+3. If answer is `no`:
+   - ask each category individually (default `No`):
+     - `Remove binaries? [y/N]`
+     - `Remove VPNs + their systemd units? [y/N]`
+     - `Remove config files? [y/N]`
+     - `Remove statistics data? [y/N]`
+
+### Category scope rules
+
+- `binaries`:
+  - remove `/data/split-vpn-webui/split-vpn-webui`
+  - remove `split-vpn-webui.service` canonical unit + `/etc/systemd/system` symlink
+  - stop/disable `split-vpn-webui.service` first
+- `VPNs + units`:
+  - remove `/data/split-vpn-webui/vpns/*`
+  - remove `/data/split-vpn-webui/units/svpn-*.service`
+  - remove `/etc/systemd/system/svpn-*.service` symlinks
+  - stop/disable matching services first
+- `config files`:
+  - remove `settings.json` and other app-owned config artifacts (excluding selected-to-keep categories)
+  - remove boot hook `/data/on_boot.d/10-split-vpn-webui.sh` when doing full config removal
+- `statistics data`:
+  - remove `/data/split-vpn-webui/stats.db`
+  - remove `/data/split-vpn-webui/logs/*`
+
+### Safety and cleanup requirements
+
+- Default answer for every prompt is `No`.
+- Never touch `/data/split-vpn/` or UniFi/peacey-owned resources.
+- Only remove resources in this app namespace (`/data/split-vpn-webui`, `/data/on_boot.d/10-split-vpn-webui.sh`, `svpn-*` units, `svpn_*` runtime rules/ipsets).
+- If units/symlinks are changed, run `systemctl daemon-reload`.
+- Clean runtime routing artifacts owned by this app (`SVPN_*` chains/rules, `svpn_*` ipsets, app dnsmasq drop-in) when appropriate.
+- Print end-of-run summary with explicit `Removed` and `Kept` sections.
+
+### Deliverables / Definition of Done
+
+- [ ] `uninstall.sh` exists and is executable.
+- [ ] Script first asks whether to remove everything.
+- [ ] If "No", script asks per category (binaries, VPNs+units, config files, statistics data).
+- [ ] Chosen categories are removed; unselected categories are preserved.
+- [ ] Service/unit cleanup and `daemon-reload` behavior is correct.
+- [ ] Runtime routing artifacts in app namespace are removed when requested.
+- [ ] Script prints a clear final summary of removed vs kept items.
 
 ---
 
