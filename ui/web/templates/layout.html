@@ -88,6 +88,26 @@
       </div>
     </div>
   </div>
+
+  <div class="row g-4 mt-1">
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold"><i class="bi bi-diagram-3 me-2"></i>Domain Routing</span>
+          <button class="btn btn-outline-primary btn-sm" id="open-add-group">
+            <i class="bi bi-plus-circle me-1"></i>Add Group
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="alert d-none py-2 small mb-3" id="domain-groups-status" role="status"></div>
+          <div class="domain-groups-grid" id="domain-groups-list"></div>
+          <div class="text-body-secondary small d-none" id="domain-groups-empty">
+            No domain groups configured yet.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 
 <div class="modal fade" id="vpnEditorModal" tabindex="-1" aria-hidden="true">
@@ -151,6 +171,60 @@
   </div>
 </div>
 
+<div class="modal fade" id="domainGroupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="domain-group-modal-title"><i class="bi bi-diagram-3 me-2"></i>Add Domain Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="domain-group-name">Group Name</label>
+            <input class="form-control" id="domain-group-name" type="text" autocomplete="off" placeholder="e.g. Streaming-SG">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="domain-group-egress">Egress VPN</label>
+            <select class="form-select" id="domain-group-egress"></select>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="domain-group-domains">Domains</label>
+            <textarea class="form-control font-monospace" id="domain-group-domains" rows="10" placeholder="one domain per line&#10;*.example.com&#10;api.example.com"></textarea>
+            <div class="form-text">One domain per line. Wildcards like <code>*.example.com</code> are supported.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="save-domain-group">
+          <i class="bi bi-save me-1"></i>Save Group
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="deleteGroupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Delete Domain Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">Delete domain group <strong id="delete-group-name"></strong>?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-group">
+          <i class="bi bi-trash me-1"></i>Delete
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -183,6 +257,7 @@
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/domain-routing.js"></script>
 </body>
 </html>
 {{end}}

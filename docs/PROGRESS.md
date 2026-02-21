@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 7 — Web UI: Domain Routing
+**Active sprint:** Sprint 8 — Web UI: Pre-Warm, Auth & Settings
 **Last updated:** 2026-02-20
-**Last session summary:** Sprint 6 completed end-to-end: enabled full VPN management in the web UI (add/edit/delete/start/stop/restart/autostart), added Add/Edit and delete-confirm modals, wired file-upload-to-editor behavior, and connected all actions to existing REST endpoints with inline success/error notifications. Full test suite passing.
+**Last session summary:** Sprint 7 completed end-to-end: added full Domain Routing UI (group list, add/edit modal, delete confirmation, and live egress VPN dropdown), wired all group actions to `/api/groups`, and added dedicated status feedback in the section. Full test suite passing.
 
 ---
 
@@ -24,8 +24,8 @@
 | **4** — Domain Groups & Routing | **Complete** | All Sprint 4 deliverables implemented and validated |
 | **5** — DNS Pre-Warm | **Complete** | All Sprint 5 deliverables implemented and validated |
 | **6** — Web UI: VPN Management | **Complete** | All Sprint 6 deliverables implemented and validated |
-| **7** — Web UI: Domain Routing | Not started | Active sprint |
-| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Blocked until Sprint 7 complete |
+| **7** — Web UI: Domain Routing | **Complete** | All Sprint 7 deliverables implemented and validated |
+| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Active sprint |
 | **9** — Install Script & Hardening | Not started | Blocked until Sprint 8 complete |
 | **10** — Persistent Stats, Build & CI | Not started | Blocked until Sprint 9 complete |
 
@@ -63,6 +63,35 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 7 completion session
+- Added Domain Routing UI in `ui/web/templates/layout.html`:
+  - New "Domain Routing" section with card-based group list.
+  - "Add Group" button and add/edit modal containing:
+    - Group name input
+    - Egress VPN select
+    - Domains textarea (one domain per line)
+  - Delete confirmation modal for group removal.
+- Added dedicated frontend module `ui/web/static/js/domain-routing.js`:
+  - `loadDomainGroups()` via `GET /api/groups`
+  - `loadVPNs()` via `GET /api/vpns` for egress dropdown population
+  - Add/edit flow using:
+    - `POST /api/groups`
+    - `PUT /api/groups/{id}`
+  - Delete flow using:
+    - `DELETE /api/groups/{id}`
+  - Inline section-level status messages for success/error outcomes.
+  - Refresh integration: reloads groups + VPN list when "Reload" is clicked.
+- Added styling in `ui/web/static/css/app.css` for domain group cards and domain badges.
+- Wired new script in template:
+  - Added `<script src="/static/js/domain-routing.js"></script>` after `app.js`.
+- Deliverable alignment:
+  - UI now exposes full group CRUD; backend `routing.Manager.Apply()` already runs on every save/delete from Sprint 4, so routing re-apply behavior is preserved.
+- Validation run:
+  - `node --check ui/web/static/js/domain-routing.js`
+  - `node --check ui/web/static/js/app.js`
+  - `go test ./...`
+  - All passed.
 
 ### 2026-02-20 — Sprint 6 completion session
 - Updated VPN management UI in `ui/web/templates/layout.html`:

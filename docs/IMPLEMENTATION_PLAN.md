@@ -465,13 +465,13 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] Domain groups section visible in UI, loads existing groups on page load.
-- [ ] "Add Group" modal: name, egress VPN (populated from live VPN list), domains textarea.
-- [ ] Saving a group calls `POST /api/groups` and the group appears in the list immediately.
-- [ ] Edit group pre-populates modal, saving calls `PUT /api/groups/{id}`.
-- [ ] Delete shows confirmation, calls `DELETE /api/groups/{id}`.
-- [ ] After any save/delete, routing rules are re-applied on the backend (confirmed via routing manager).
-- [ ] Egress VPN dropdown is populated from the live VPN list.
+- [x] Domain groups section visible in UI, loads existing groups on page load.
+- [x] "Add Group" modal: name, egress VPN (populated from live VPN list), domains textarea.
+- [x] Saving a group calls `POST /api/groups` and the group appears in the list immediately.
+- [x] Edit group pre-populates modal, saving calls `PUT /api/groups/{id}`.
+- [x] Delete shows confirmation, calls `DELETE /api/groups/{id}`.
+- [x] After any save/delete, routing rules are re-applied on the backend (confirmed via routing manager).
+- [x] Egress VPN dropdown is populated from the live VPN list.
 
 ---
 
