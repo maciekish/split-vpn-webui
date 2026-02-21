@@ -38,6 +38,31 @@ The server defaults to `/mnt/data/split-vpn` but the base directory is configura
 2. From the project directory run `./install.sh` to install or refresh the systemd unit and boot script. The installer writes the unit with the absolute path to your `bin/split-vpn-webui` binary (including `--systemd`), reloads systemd, enables the service, and starts it immediately.
 3. Browse to `https://<gateway-ip>:8091` (adjust port/host as needed) to access the UI.
 
+## Uninstall
+
+The installer deploys an interactive uninstall script at:
+
+- `/data/split-vpn-webui/uninstall.sh`
+
+Run it as root:
+
+```sh
+/data/split-vpn-webui/uninstall.sh
+```
+
+The script first asks:
+
+- `Remove EVERYTHING related to split-vpn-webui? [y/N]`
+
+If you answer `No`, it asks category-by-category (default `No` each):
+
+- `Remove binaries? [y/N]`
+- `Remove VPNs + their systemd units? [y/N]`
+- `Remove config files? [y/N]`
+- `Remove statistics data? [y/N]`
+
+It only removes resources in this app namespace (`/data/split-vpn-webui`, `/data/on_boot.d/10-split-vpn-webui.sh`, `svpn-*` units, `svpn_*` runtime routing artifacts) and never touches `/data/split-vpn`.
+
 ## Autostart markers
 
 Autostart selections are saved by creating or removing a `.split-vpn-webui-autostart` file inside each VPN directory. The current UI does not modify these markers, but future releases will re-enable the toggle switches once control workflows are complete.

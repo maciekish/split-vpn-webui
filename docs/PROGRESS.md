@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 12 — Interactive Uninstall Script
+**Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-21
-**Last session summary:** Sprint 11 completed end-to-end: implemented rule-based policy routing (source/destination CIDR, destination port/protocol, ASN, domain, wildcard), runtime resolver scheduler with manual run + periodic refresh + stale snapshot replacement, and full backend/frontend/test updates.
+**Last session summary:** Sprint 12 completed end-to-end: added interactive uninstall flow (`uninstall.sh`) with full-wipe or category-based removal, runtime routing cleanup, installer deployment of uninstall script, and documentation updates.
 
 ---
 
@@ -29,14 +29,13 @@
 | **9** — Install Script & Hardening | **Complete** | Installer + hardening + tests implemented |
 | **10** — Persistent Stats, Build & CI | **Complete** | Stats persistence + cross-build + CI workflow implemented |
 | **11** — Policy Routing Expansion | **Complete** | Rule-based selectors + resolver scheduler + UI/API + tests implemented |
-| **12** — Interactive Uninstall Script | Not started | Planned: full wipe or category-by-category uninstall |
+| **12** — Interactive Uninstall Script | **Complete** | Interactive full-wipe + category uninstall flow implemented |
 
 ---
 
 ## Known Issues / Blockers
 
 - Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
-- Interactive uninstall flow is now captured for Sprint 12 and not implemented yet.
 
 ---
 
@@ -65,6 +64,43 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Sprint 12 completion session
+- Added `uninstall.sh` in repo root:
+  - Interactive prompt flow implemented exactly as planned:
+    - `Remove EVERYTHING related to split-vpn-webui? [y/N]`
+    - if `No`, category prompts:
+      - `Remove binaries? [y/N]`
+      - `Remove VPNs + their systemd units? [y/N]`
+      - `Remove config files? [y/N]`
+      - `Remove statistics data? [y/N]`
+  - Category cleanup behavior implemented:
+    - binaries: stop/disable `split-vpn-webui.service`, remove app binary + canonical app unit + systemd symlink.
+    - VPNs + units: stop/disable `svpn-*.service`, remove managed VPN unit files/symlinks + VPN profile directories.
+    - config files: remove app settings and boot hook.
+    - statistics data: remove `stats.db` and log files.
+  - Runtime cleanup implemented for app namespace:
+    - removes `SVPN_*` iptables/ip6tables chains and jump rules.
+    - removes managed `ip rule` entries in the app policy namespace.
+    - removes `svpn_*` ipsets.
+    - removes app dnsmasq drop-in (`split-vpn-webui.conf`) and reload/restart dnsmasq.
+  - Summary output implemented with explicit `Removed` and `Kept` sections.
+  - Safety behavior:
+    - default `No` for all prompts.
+    - root check enforced by default.
+    - scope restricted to split-vpn-webui namespace only.
+- Updated installer deployment:
+  - `install.sh` now downloads/deploys `/data/split-vpn-webui/uninstall.sh` and marks it executable.
+  - installer output now prints uninstall script path.
+- Updated docs:
+  - `README.md` now includes uninstall usage + category behavior.
+  - `docs/IMPLEMENTATION_PLAN.md` Sprint 12 checklist marked complete.
+  - `docs/PROGRESS.md` sprint status updated to Sprint 12 complete.
+- Validation run:
+  - `bash -n install.sh uninstall.sh deploy/on_boot_hook.sh`
+  - `SKIP_ROOT_CHECK=1 printf 'n\nn\nn\nn\nn\n' | bash uninstall.sh`
+  - `go test ./...`
+  - all passed locally.
 
 ### 2026-02-21 — Sprint 11 completion session
 - Policy-routing model/storage expansion:

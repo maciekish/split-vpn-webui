@@ -685,13 +685,13 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] `uninstall.sh` exists and is executable.
-- [ ] Script first asks whether to remove everything.
-- [ ] If "No", script asks per category (binaries, VPNs+units, config files, statistics data).
-- [ ] Chosen categories are removed; unselected categories are preserved.
-- [ ] Service/unit cleanup and `daemon-reload` behavior is correct.
-- [ ] Runtime routing artifacts in app namespace are removed when requested.
-- [ ] Script prints a clear final summary of removed vs kept items.
+- [x] `uninstall.sh` exists and is executable.
+- [x] Script first asks whether to remove everything.
+- [x] If "No", script asks per category (binaries, VPNs+units, config files, statistics data).
+- [x] Chosen categories are removed; unselected categories are preserved.
+- [x] Service/unit cleanup and `daemon-reload` behavior is correct.
+- [x] Runtime routing artifacts in app namespace are removed when requested.
+- [x] Script prints a clear final summary of removed vs kept items.
 
 ---
 

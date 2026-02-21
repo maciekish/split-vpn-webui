@@ -8,6 +8,7 @@ UNITS_DIR="${DATA_DIR}/units"
 SERVICE_NAME="split-vpn-webui.service"
 SERVICE_PATH="${UNITS_DIR}/${SERVICE_NAME}"
 BOOT_SCRIPT_PATH="/data/on_boot.d/10-split-vpn-webui.sh"
+UNINSTALL_PATH="${DATA_DIR}/uninstall.sh"
 GITHUB_API="https://api.github.com/repos/${REPO}"
 
 need_cmd() {
@@ -75,6 +76,22 @@ install_binary_from_asset() {
 	echo "Downloading release binary: ${asset_url}"
 	curl -fsSL "${asset_url}" -o "${tmp}"
 	install -m 0755 "${tmp}" "${BINARY_PATH}"
+}
+
+resolve_uninstall_script_url() {
+	local ref="main"
+	if [[ -n "${VERSION:-}" ]]; then
+		ref="${VERSION}"
+	fi
+	echo "https://raw.githubusercontent.com/${REPO}/${ref}/uninstall.sh"
+}
+
+install_uninstall_script() {
+	local url
+	url="$(resolve_uninstall_script_url)"
+	echo "Downloading uninstall script: ${url}"
+	curl -fsSL "${url}" -o "${UNINSTALL_PATH}"
+	chmod 0755 "${UNINSTALL_PATH}"
 }
 
 write_service_unit() {
@@ -176,6 +193,7 @@ MSG
 	install -d -m 0755 "/data/on_boot.d"
 
 	install_binary_from_asset "${asset_url}"
+	install_uninstall_script
 	write_service_unit
 	write_boot_hook
 
@@ -187,6 +205,7 @@ MSG
 	echo "Binary: ${BINARY_PATH}"
 	echo "Service unit: ${SERVICE_PATH}"
 	echo "Boot hook: ${BOOT_SCRIPT_PATH}"
+	echo "Uninstall script: ${UNINSTALL_PATH}"
 	echo "Access URL: $(detect_access_url)"
 }
 
