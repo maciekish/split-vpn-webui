@@ -227,6 +227,9 @@
       prewarmParallelism: Number(current.prewarmParallelism || 0),
       prewarmDoHTimeoutSeconds: Number(current.prewarmDoHTimeoutSeconds || 0),
       prewarmIntervalSeconds: Math.round(rawMinutes * 60),
+      resolverParallelism: Number(current.resolverParallelism || 0),
+      resolverTimeoutSeconds: Number(current.resolverTimeoutSeconds || 0),
+      resolverIntervalSeconds: Number(current.resolverIntervalSeconds || 0),
     };
     await fetchJSON('/api/settings', {
       method: 'PUT',
@@ -347,4 +350,3 @@
     showPrewarmStatus(err.message, true);
   });
 })();
-

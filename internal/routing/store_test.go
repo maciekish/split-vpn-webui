@@ -100,3 +100,35 @@ func TestStoreValidationAndNotFound(t *testing.T) {
 		t.Fatalf("expected ErrGroupNotFound on delete, got %v", err)
 	}
 }
+
+func TestStoreReadsLegacyDomainEntriesAsRule(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+
+	result, err := store.db.ExecContext(ctx, `
+		INSERT INTO domain_groups (name, egress_vpn) VALUES ('Legacy', 'wg-sgp')
+	`)
+	if err != nil {
+		t.Fatalf("insert group: %v", err)
+	}
+	groupID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("last insert id: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO domain_entries (group_id, domain) VALUES (?, 'example.com')
+	`, groupID); err != nil {
+		t.Fatalf("insert domain entry: %v", err)
+	}
+
+	group, err := store.Get(ctx, groupID)
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if len(group.Rules) != 1 {
+		t.Fatalf("expected one generated legacy rule, got %d", len(group.Rules))
+	}
+	if len(group.Rules[0].Domains) != 1 || group.Rules[0].Domains[0] != "example.com" {
+		t.Fatalf("unexpected legacy rule domains: %#v", group.Rules[0].Domains)
+	}
+}

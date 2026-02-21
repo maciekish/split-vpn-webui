@@ -14,9 +14,26 @@ import (
 )
 
 type groupUpsertPayload struct {
-	Name      string   `json:"name"`
-	EgressVPN string   `json:"egressVpn"`
-	Domains   []string `json:"domains"`
+	Name      string              `json:"name"`
+	EgressVPN string              `json:"egressVpn"`
+	Domains   []string            `json:"domains,omitempty"`
+	Rules     []ruleUpsertPayload `json:"rules,omitempty"`
+}
+
+type ruleUpsertPayload struct {
+	Name             string              `json:"name"`
+	SourceCIDRs      []string            `json:"sourceCidrs,omitempty"`
+	DestinationCIDRs []string            `json:"destinationCidrs,omitempty"`
+	DestinationPorts []portUpsertPayload `json:"destinationPorts,omitempty"`
+	DestinationASNs  []string            `json:"destinationAsns,omitempty"`
+	Domains          []string            `json:"domains,omitempty"`
+	WildcardDomains  []string            `json:"wildcardDomains,omitempty"`
+}
+
+type portUpsertPayload struct {
+	Protocol string `json:"protocol"`
+	Start    int    `json:"start"`
+	End      int    `json:"end,omitempty"`
 }
 
 func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
@@ -116,10 +133,31 @@ func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		return routing.DomainGroup{}, fmt.Errorf("%w: invalid JSON body", routing.ErrGroupValidation)
 	}
+	rules := make([]routing.RoutingRule, 0, len(payload.Rules))
+	for _, rule := range payload.Rules {
+		ports := make([]routing.PortRange, 0, len(rule.DestinationPorts))
+		for _, port := range rule.DestinationPorts {
+			ports = append(ports, routing.PortRange{
+				Protocol: port.Protocol,
+				Start:    port.Start,
+				End:      port.End,
+			})
+		}
+		rules = append(rules, routing.RoutingRule{
+			Name:             rule.Name,
+			SourceCIDRs:      append([]string(nil), rule.SourceCIDRs...),
+			DestinationCIDRs: append([]string(nil), rule.DestinationCIDRs...),
+			DestinationPorts: ports,
+			DestinationASNs:  append([]string(nil), rule.DestinationASNs...),
+			Domains:          append([]string(nil), rule.Domains...),
+			WildcardDomains:  append([]string(nil), rule.WildcardDomains...),
+		})
+	}
 	return routing.NormalizeAndValidate(routing.DomainGroup{
 		Name:      payload.Name,
 		EgressVPN: payload.EgressVPN,
 		Domains:   payload.Domains,
+		Rules:     rules,
 	})
 }
 

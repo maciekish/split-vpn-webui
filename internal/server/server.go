@@ -48,6 +48,7 @@ type Server struct {
 	configManager  *config.Manager
 	vpnManager     *vpn.Manager
 	routingManager *routing.Manager
+	resolver       *routing.ResolverScheduler
 	prewarm        *prewarm.Scheduler
 	systemd        systemd.ServiceManager
 	stats          *stats.Collector
@@ -71,6 +72,7 @@ func New(
 	cfgManager *config.Manager,
 	vpnManager *vpn.Manager,
 	routingManager *routing.Manager,
+	resolverScheduler *routing.ResolverScheduler,
 	prewarmScheduler *prewarm.Scheduler,
 	systemdManager systemd.ServiceManager,
 	statsCollector *stats.Collector,
@@ -87,6 +89,7 @@ func New(
 		configManager:     cfgManager,
 		vpnManager:        vpnManager,
 		routingManager:    routingManager,
+		resolver:          resolverScheduler,
 		prewarm:           prewarmScheduler,
 		systemd:           systemdManager,
 		stats:             statsCollector,
@@ -102,6 +105,11 @@ func New(
 	if prewarmScheduler != nil {
 		prewarmScheduler.SetProgressHandler(func(progress prewarm.Progress) {
 			server.broadcastEvent("prewarm", progress)
+		})
+	}
+	if resolverScheduler != nil {
+		resolverScheduler.SetProgressHandler(func(progress routing.ResolverProgress) {
+			server.broadcastEvent("resolver", progress)
 		})
 	}
 	return server, nil
@@ -144,6 +152,8 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/groups/{id}", s.handleGetGroup)
 			api.Put("/groups/{id}", s.handleUpdateGroup)
 			api.Delete("/groups/{id}", s.handleDeleteGroup)
+			api.Get("/resolver/status", s.handleResolverStatus)
+			api.Post("/resolver/run", s.handleResolverRun)
 			api.Get("/prewarm/status", s.handlePrewarmStatus)
 			api.Post("/prewarm/run", s.handlePrewarmRun)
 			api.Get("/auth/token", s.handleGetAuthToken)

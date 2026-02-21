@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 11 — Policy Routing Expansion
+**Active sprint:** Sprint 12 — Interactive Uninstall Script
 **Last updated:** 2026-02-21
-**Last session summary:** Sprint 10 completed end-to-end: added stats history persist/load with startup retention cleanup, wired startup/shutdown persistence hooks, added cross-build Makefile targets, and added GitHub Actions build/release workflow.
+**Last session summary:** Sprint 11 completed end-to-end: implemented rule-based policy routing (source/destination CIDR, destination port/protocol, ASN, domain, wildcard), runtime resolver scheduler with manual run + periodic refresh + stale snapshot replacement, and full backend/frontend/test updates.
 
 ---
 
@@ -28,7 +28,7 @@
 | **8** — Web UI: Pre-Warm, Auth & Settings | **Complete** | All Sprint 8 deliverables implemented and validated |
 | **9** — Install Script & Hardening | **Complete** | Installer + hardening + tests implemented |
 | **10** — Persistent Stats, Build & CI | **Complete** | Stats persistence + cross-build + CI workflow implemented |
-| **11** — Policy Routing Expansion | Not started | Active sprint |
+| **11** — Policy Routing Expansion | **Complete** | Rule-based selectors + resolver scheduler + UI/API + tests implemented |
 | **12** — Interactive Uninstall Script | Not started | Planned: full wipe or category-by-category uninstall |
 
 ---
@@ -36,7 +36,6 @@
 ## Known Issues / Blockers
 
 - Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
-- Policy-routing expansion (source/destination/port/ASN/wildcard) is now captured for Sprint 11 and not implemented yet.
 - Interactive uninstall flow is now captured for Sprint 12 and not implemented yet.
 
 ---
@@ -66,6 +65,107 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Sprint 11 completion session
+- Policy-routing model/storage expansion:
+  - `internal/routing/model.go`:
+    - Added rule-based group schema (`Rules []RoutingRule`) with selector support for:
+      - source CIDR/IP
+      - destination CIDR/IP
+      - destination port ranges + protocol
+      - destination ASN
+      - exact domains
+      - wildcard domains
+    - Added strict normalization/validation and legacy payload compatibility (`domains` => rule conversion).
+  - `internal/database/schema.go`:
+    - Added new routing rule tables:
+      - `routing_rules`
+      - `routing_rule_source_cidrs`
+      - `routing_rule_destination_cidrs`
+      - `routing_rule_ports`
+      - `routing_rule_asns`
+      - `routing_rule_domains`
+    - Added resolver persistence tables:
+      - `resolver_cache`
+      - `resolver_runs`
+  - `internal/routing/store.go` + `internal/routing/store_legacy.go` + `internal/routing/store_resolver.go`:
+    - Persist rule selectors and resolver snapshots/runs.
+    - Added legacy migration read path from `domain_entries` (existing installs load as an implicit rule).
+    - Added atomic resolver snapshot replace logic (stale-entry removal by replacement).
+- Runtime routing engine updates:
+  - `internal/routing/manager.go`:
+    - Builds per-rule bindings (AND within rule, OR across rules) and applies atomically.
+    - Creates per-rule source/destination ipsets and populates static + resolved selectors.
+  - `internal/routing/ipset.go`:
+    - Switched to `hash:net` sets for IPv4/IPv6 CIDR support.
+    - `AddIP` now accepts IP or CIDR values.
+  - `internal/routing/iptables.go`:
+    - Added mangle rule generation for:
+      - source-set match (`src`)
+      - destination-set match (`dst`)
+      - protocol + destination-port matching
+    - Preserved IPv4/IPv6 parity and deterministic application order.
+  - `internal/routing/dnsmasq.go`:
+    - Generates per-rule dnsmasq `ipset=` entries for exact + wildcard domains mapped to rule destination sets.
+- Resolver implementation and scheduling:
+  - Added:
+    - `internal/routing/resolver.go`
+    - `internal/routing/resolver_helpers.go`
+    - `internal/routing/resolver_domains.go` (Cloudflare DoH A/AAAA + one-level CNAME)
+    - `internal/routing/resolver_asn.go` (public ASN prefix resolution via RIPE announced-prefixes API)
+    - `internal/routing/resolver_wildcard.go` (public subdomain discovery via `crt.sh`)
+  - Resolver scheduler capabilities:
+    - periodic runs
+    - manual trigger
+    - live progress
+    - persisted run history
+    - stale selector cache replacement
+    - automatic routing re-apply after successful snapshot refresh
+- API/server wiring:
+  - `internal/server/server.go`:
+    - Injected resolver scheduler and SSE broadcast for `event: resolver`.
+    - Added endpoints:
+      - `POST /api/resolver/run`
+      - `GET /api/resolver/status`
+  - Added `internal/server/handlers_resolver.go`.
+  - `internal/server/handlers_routing.go` now accepts rule-based group payloads.
+  - `cmd/splitvpnwebui/main.go` now initializes/starts/stops resolver scheduler.
+- Settings support:
+  - `internal/settings/settings.go`:
+    - Added resolver settings:
+      - `resolverParallelism`
+      - `resolverTimeoutSeconds`
+      - `resolverIntervalSeconds`
+  - `internal/server/handlers_settings.go`, `ui/web/static/js/app.js`, `ui/web/static/js/prewarm-auth.js` updated to preserve/read/write resolver settings.
+- Frontend policy routing and resolver UI:
+  - `ui/web/templates/layout.html`:
+    - Expanded policy routing section with resolver status + progress UI.
+    - Replaced domain-only modal with rule-builder modal.
+  - `ui/web/static/js/domain-routing.js`:
+    - Implemented rule editor CRUD (source/destination CIDRs, ports/protocols, ASNs, domains, wildcard domains).
+  - Added `ui/web/static/js/routing-resolver.js`:
+    - Manual resolver trigger
+    - status/progress rendering
+    - polling + SSE event handling
+  - `ui/web/static/css/app.css` updated for rule-card styling.
+- Tests added/updated:
+  - `internal/routing/resolver_test.go`:
+    - selector dedupe
+    - scheduler run + snapshot update + routing re-apply
+    - stale snapshot replacement behavior
+  - `internal/routing/store_test.go`:
+    - legacy `domain_entries` migration-read coverage
+  - `internal/routing/iptables_test.go`:
+    - source/destination + protocol/port rule generation coverage
+  - `internal/database/database_test.go`:
+    - schema presence checks updated for new Sprint 11 tables
+- Validation run:
+  - `go test ./...`
+  - `node --check ui/web/static/js/domain-routing.js`
+  - `node --check ui/web/static/js/routing-resolver.js`
+  - `node --check ui/web/static/js/app.js`
+  - `node --check ui/web/static/js/prewarm-auth.js`
+  - all passed locally.
 
 ### 2026-02-21 — Sprint 10 completion session
 - Stats history persistence implemented:

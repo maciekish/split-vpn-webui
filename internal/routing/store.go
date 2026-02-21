@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 )
 
-// Store persists domain groups in SQLite.
+// Store persists routing groups and resolver cache rows in SQLite.
 type Store struct {
 	db *sql.DB
 }
@@ -21,7 +22,7 @@ func NewStore(db *sql.DB) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// Create inserts a domain group and its domain entries.
+// Create inserts a group and all nested rule selectors.
 func (s *Store) Create(ctx context.Context, group DomainGroup) (*DomainGroup, error) {
 	normalized, err := NormalizeAndValidate(group)
 	if err != nil {
@@ -46,7 +47,10 @@ func (s *Store) Create(ctx context.Context, group DomainGroup) (*DomainGroup, er
 		return nil, err
 	}
 
-	if err := insertDomains(ctx, tx, groupID, normalized.Domains); err != nil {
+	if err := replaceRulesTx(ctx, tx, groupID, normalized.Rules); err != nil {
+		return nil, err
+	}
+	if err := replaceLegacyDomainsTx(ctx, tx, groupID, normalized.Domains); err != nil {
 		return nil, err
 	}
 
@@ -56,7 +60,7 @@ func (s *Store) Create(ctx context.Context, group DomainGroup) (*DomainGroup, er
 	return s.Get(ctx, groupID)
 }
 
-// Update overwrites a group row and its domain entries.
+// Update overwrites a group row and nested rule selectors.
 func (s *Store) Update(ctx context.Context, id int64, group DomainGroup) (*DomainGroup, error) {
 	if id <= 0 {
 		return nil, fmt.Errorf("%w: invalid group id", ErrGroupValidation)
@@ -88,10 +92,10 @@ func (s *Store) Update(ctx context.Context, id int64, group DomainGroup) (*Domai
 		return nil, ErrGroupNotFound
 	}
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_entries WHERE group_id = ?`, id); err != nil {
+	if err := replaceRulesTx(ctx, tx, id, normalized.Rules); err != nil {
 		return nil, err
 	}
-	if err := insertDomains(ctx, tx, id, normalized.Domains); err != nil {
+	if err := replaceLegacyDomainsTx(ctx, tx, id, normalized.Domains); err != nil {
 		return nil, err
 	}
 
@@ -101,7 +105,7 @@ func (s *Store) Update(ctx context.Context, id int64, group DomainGroup) (*Domai
 	return s.Get(ctx, id)
 }
 
-// Delete removes a group and its domain entries.
+// Delete removes a group and all dependent rows.
 func (s *Store) Delete(ctx context.Context, id int64) error {
 	if id <= 0 {
 		return fmt.Errorf("%w: invalid group id", ErrGroupValidation)
@@ -137,11 +141,22 @@ func (s *Store) Get(ctx context.Context, id int64) (*DomainGroup, error) {
 		}
 		return nil, err
 	}
-	domains, err := s.listDomainsByGroup(ctx, group.ID)
+
+	rules, err := s.listRulesByGroup(ctx, group.ID)
 	if err != nil {
 		return nil, err
 	}
-	group.Domains = domains
+	if len(rules) == 0 {
+		legacyDomains, legacyErr := s.listLegacyDomainsByGroup(ctx, group.ID)
+		if legacyErr != nil {
+			return nil, legacyErr
+		}
+		if len(legacyDomains) > 0 {
+			rules = []RoutingRule{{Name: "Rule 1", Domains: legacyDomains}}
+		}
+	}
+	group.Rules = rules
+	group.Domains = legacyDomainsFromRules(rules)
 	return &group, nil
 }
 
@@ -158,14 +173,14 @@ func (s *Store) List(ctx context.Context) ([]DomainGroup, error) {
 	defer rows.Close()
 
 	groups := make([]DomainGroup, 0)
-	ids := make([]int64, 0)
+	groupIDs := make([]int64, 0)
 	for rows.Next() {
 		var group DomainGroup
 		if err := rows.Scan(&group.ID, &group.Name, &group.EgressVPN, &group.CreatedAt, &group.UpdatedAt); err != nil {
 			return nil, err
 		}
 		groups = append(groups, group)
-		ids = append(ids, group.ID)
+		groupIDs = append(groupIDs, group.ID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -174,74 +189,284 @@ func (s *Store) List(ctx context.Context) ([]DomainGroup, error) {
 		return groups, nil
 	}
 
-	domainsByID, err := s.listDomainsForGroups(ctx, ids)
+	rulesByGroup, err := s.listRulesForGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	legacyDomainsByGroup, err := s.listLegacyDomainsForGroups(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for i := range groups {
-		groups[i].Domains = domainsByID[groups[i].ID]
+		rules := append([]RoutingRule(nil), rulesByGroup[groups[i].ID]...)
+		if len(rules) == 0 && len(legacyDomainsByGroup[groups[i].ID]) > 0 {
+			rules = []RoutingRule{{Name: "Rule 1", Domains: append([]string(nil), legacyDomainsByGroup[groups[i].ID]...)}}
+		}
+		groups[i].Rules = rules
+		groups[i].Domains = legacyDomainsFromRules(rules)
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
 	return groups, nil
 }
 
-func insertDomains(ctx context.Context, tx *sql.Tx, groupID int64, domains []string) error {
+func replaceRulesTx(ctx context.Context, tx *sql.Tx, groupID int64, rules []RoutingRule) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM routing_rules WHERE group_id = ?`, groupID); err != nil {
+		return err
+	}
+
+	for idx, rule := range rules {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO routing_rules (group_id, name, position)
+			VALUES (?, ?, ?)
+		`, groupID, rule.Name, idx)
+		if err != nil {
+			return err
+		}
+		ruleID, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		for _, cidr := range rule.SourceCIDRs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_source_cidrs (rule_id, cidr) VALUES (?, ?)
+			`, ruleID, cidr); err != nil {
+				return err
+			}
+		}
+		for _, cidr := range rule.DestinationCIDRs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_destination_cidrs (rule_id, cidr) VALUES (?, ?)
+			`, ruleID, cidr); err != nil {
+				return err
+			}
+		}
+		for _, port := range rule.DestinationPorts {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_ports (rule_id, protocol, start_port, end_port)
+				VALUES (?, ?, ?, ?)
+			`, ruleID, port.Protocol, port.Start, port.End); err != nil {
+				return err
+			}
+		}
+		for _, asn := range rule.DestinationASNs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_asns (rule_id, asn) VALUES (?, ?)
+			`, ruleID, asn); err != nil {
+				return err
+			}
+		}
+		for _, domain := range rule.Domains {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_domains (rule_id, domain, is_wildcard)
+				VALUES (?, ?, 0)
+			`, ruleID, domain); err != nil {
+				return err
+			}
+		}
+		for _, wildcard := range rule.WildcardDomains {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_domains (rule_id, domain, is_wildcard)
+				VALUES (?, ?, 1)
+			`, ruleID, wildcard); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func replaceLegacyDomainsTx(ctx context.Context, tx *sql.Tx, groupID int64, domains []string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_entries WHERE group_id = ?`, groupID); err != nil {
+		return err
+	}
 	for _, domain := range domains {
+		trimmed := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), "*.")
+		if trimmed == "" {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO domain_entries (group_id, domain)
 			VALUES (?, ?)
-		`, groupID, domain); err != nil {
+		`, groupID, trimmed); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Store) listDomainsByGroup(ctx context.Context, groupID int64) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT domain FROM domain_entries WHERE group_id = ? ORDER BY domain ASC
-	`, groupID)
+func (s *Store) listRulesByGroup(ctx context.Context, groupID int64) ([]RoutingRule, error) {
+	rulesByGroup, err := s.listRulesForGroups(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	domains := make([]string, 0)
-	for rows.Next() {
-		var domain string
-		if err := rows.Scan(&domain); err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
-	}
-	return domains, rows.Err()
+	return append([]RoutingRule(nil), rulesByGroup[groupID]...), nil
 }
 
-func (s *Store) listDomainsForGroups(ctx context.Context, groupIDs []int64) (map[int64][]string, error) {
-	result := make(map[int64][]string, len(groupIDs))
+func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule, error) {
+	rulesByGroup := make(map[int64][]RoutingRule)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT group_id, domain
-		FROM domain_entries
-		ORDER BY group_id ASC, domain ASC
+		SELECT id, group_id, name, position
+		FROM routing_rules
+		ORDER BY group_id ASC, position ASC, id ASC
 	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
+	type storedRule struct {
+		groupID int64
+		ruleID  int64
+		rule    RoutingRule
+	}
+	stored := make([]storedRule, 0)
+	ruleIDs := make([]int64, 0)
 	for rows.Next() {
-		var groupID int64
-		var domain string
-		if err := rows.Scan(&groupID, &domain); err != nil {
+		var entry storedRule
+		var position int
+		if err := rows.Scan(&entry.ruleID, &entry.groupID, &entry.rule.Name, &position); err != nil {
 			return nil, err
 		}
-		result[groupID] = append(result[groupID], domain)
+		entry.rule.ID = entry.ruleID
+		stored = append(stored, entry)
+		ruleIDs = append(ruleIDs, entry.ruleID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	for _, id := range groupIDs {
-		if _, ok := result[id]; !ok {
-			result[id] = []string{}
+	if len(stored) == 0 {
+		return rulesByGroup, nil
+	}
+
+	sourceByRule, err := listRuleCIDRs(ctx, s.db, "routing_rule_source_cidrs", ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	destByRule, err := listRuleCIDRs(ctx, s.db, "routing_rule_destination_cidrs", ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	portsByRule, err := listRulePorts(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	asnByRule, err := listRuleASNs(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	domainsByRule, wildcardsByRule, err := listRuleDomains(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range stored {
+		rule := entry.rule
+		rule.SourceCIDRs = append([]string(nil), sourceByRule[entry.ruleID]...)
+		rule.DestinationCIDRs = append([]string(nil), destByRule[entry.ruleID]...)
+		rule.DestinationPorts = append([]PortRange(nil), portsByRule[entry.ruleID]...)
+		rule.DestinationASNs = append([]string(nil), asnByRule[entry.ruleID]...)
+		rule.Domains = append([]string(nil), domainsByRule[entry.ruleID]...)
+		rule.WildcardDomains = append([]string(nil), wildcardsByRule[entry.ruleID]...)
+		rulesByGroup[entry.groupID] = append(rulesByGroup[entry.groupID], rule)
+	}
+	return rulesByGroup, nil
+}
+
+func listRuleCIDRs(ctx context.Context, db *sql.DB, table string, ruleIDs []int64) (map[int64][]string, error) {
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT rule_id, cidr FROM %s ORDER BY rule_id ASC, cidr ASC`, table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]string)
+	for rows.Next() {
+		var ruleID int64
+		var cidr string
+		if err := rows.Scan(&ruleID, &cidr); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], cidr)
+	}
+	return result, rows.Err()
+}
+
+func listRulePorts(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]PortRange, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT rule_id, protocol, start_port, end_port
+		FROM routing_rule_ports
+		ORDER BY rule_id ASC, protocol ASC, start_port ASC, end_port ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]PortRange)
+	for rows.Next() {
+		var ruleID int64
+		var protocol string
+		var start int
+		var end int
+		if err := rows.Scan(&ruleID, &protocol, &start, &end); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], PortRange{Protocol: protocol, Start: start, End: end})
+	}
+	return result, rows.Err()
+}
+
+func listRuleASNs(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT rule_id, asn
+		FROM routing_rule_asns
+		ORDER BY rule_id ASC, asn ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]string)
+	for rows.Next() {
+		var ruleID int64
+		var asn string
+		if err := rows.Scan(&ruleID, &asn); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], asn)
+	}
+	return result, rows.Err()
+}
+
+func listRuleDomains(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, map[int64][]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT rule_id, domain, is_wildcard
+		FROM routing_rule_domains
+		ORDER BY rule_id ASC, is_wildcard ASC, domain ASC
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	domains := make(map[int64][]string)
+	wildcards := make(map[int64][]string)
+	for rows.Next() {
+		var ruleID int64
+		var domain string
+		var isWildcard int
+		if err := rows.Scan(&ruleID, &domain, &isWildcard); err != nil {
+			return nil, nil, err
+		}
+		if isWildcard == 1 {
+			wildcards[ruleID] = append(wildcards[ruleID], domain)
+		} else {
+			domains[ruleID] = append(domains[ruleID], domain)
 		}
 	}
-	return result, nil
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return domains, wildcards, nil
 }

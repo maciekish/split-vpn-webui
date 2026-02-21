@@ -93,16 +93,70 @@
     <div class="col-12">
       <div class="card shadow-sm">
         <div class="card-header d-flex justify-content-between align-items-center">
-          <span class="fw-semibold"><i class="bi bi-diagram-3 me-2"></i>Domain Routing</span>
-          <button class="btn btn-outline-primary btn-sm" id="open-add-group">
-            <i class="bi bi-plus-circle me-1"></i>Add Group
-          </button>
+          <span class="fw-semibold"><i class="bi bi-diagram-3 me-2"></i>Policy Routing</span>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-success btn-sm" id="run-resolver-now">
+              <i class="bi bi-arrow-repeat me-1"></i>Run Resolver
+            </button>
+            <button class="btn btn-outline-primary btn-sm" id="open-add-group">
+              <i class="bi bi-plus-circle me-1"></i>Add Group
+            </button>
+          </div>
         </div>
         <div class="card-body">
           <div class="alert d-none py-2 small mb-3" id="domain-groups-status" role="status"></div>
+          <div class="row g-3 align-items-end mb-3">
+            <div class="col-6 col-md-3">
+              <div class="small text-body-secondary">Resolver Last Run</div>
+              <div class="fw-semibold" id="resolver-last-run-at">Never</div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="small text-body-secondary">Duration</div>
+              <div class="fw-semibold" id="resolver-last-duration">–</div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="small text-body-secondary">Selectors</div>
+              <div class="fw-semibold" id="resolver-last-selectors">–</div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="small text-body-secondary">Prefixes</div>
+              <div class="fw-semibold" id="resolver-last-prefixes">–</div>
+            </div>
+            <div class="col-12 col-md-2 text-md-end">
+              <span class="badge text-bg-secondary d-none" id="resolver-running-badge">Resolver Running</span>
+            </div>
+          </div>
+          <div class="mt-2 mb-3 d-none" id="resolver-progress-wrap">
+            <div class="d-flex justify-content-between small text-body-secondary mb-1">
+              <span id="resolver-progress-label">Resolving...</span>
+              <span id="resolver-progress-meta"></span>
+            </div>
+            <div class="progress" role="progressbar" aria-label="Resolver progress">
+              <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" id="resolver-progress-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-12 col-md-3">
+              <label class="form-label small text-body-secondary mb-1" for="resolver-interval-minutes">Interval (minutes)</label>
+              <input class="form-control form-control-sm" id="resolver-interval-minutes" type="number" min="1" step="1" placeholder="60">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label small text-body-secondary mb-1" for="resolver-timeout-seconds">Timeout (seconds)</label>
+              <input class="form-control form-control-sm" id="resolver-timeout-seconds" type="number" min="1" step="1" placeholder="10">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label small text-body-secondary mb-1" for="resolver-parallelism">Parallelism</label>
+              <input class="form-control form-control-sm" id="resolver-parallelism" type="number" min="1" step="1" placeholder="6">
+            </div>
+            <div class="col-12 col-md-3">
+              <button class="btn btn-outline-primary btn-sm w-100" id="save-resolver-settings" type="button">
+                <i class="bi bi-save me-1"></i>Save Resolver Settings
+              </button>
+            </div>
+          </div>
           <div class="domain-groups-grid" id="domain-groups-list"></div>
           <div class="text-body-secondary small d-none" id="domain-groups-empty">
-            No domain groups configured yet.
+            No policy groups configured yet.
           </div>
         </div>
       </div>
@@ -225,7 +279,7 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="domain-group-modal-title"><i class="bi bi-diagram-3 me-2"></i>Add Domain Group</h5>
+        <h5 class="modal-title" id="domain-group-modal-title"><i class="bi bi-diagram-3 me-2"></i>Add Policy Group</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
@@ -239,9 +293,16 @@
             <select class="form-select" id="domain-group-egress"></select>
           </div>
           <div class="col-12">
-            <label class="form-label" for="domain-group-domains">Domains</label>
-            <textarea class="form-control font-monospace" id="domain-group-domains" rows="10" placeholder="one domain per line&#10;*.example.com&#10;api.example.com"></textarea>
-            <div class="form-text">One domain per line. Wildcards like <code>*.example.com</code> are supported.</div>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label mb-0">Rules</label>
+              <button class="btn btn-outline-primary btn-sm" type="button" id="add-routing-rule">
+                <i class="bi bi-plus-circle me-1"></i>Add Rule
+              </button>
+            </div>
+            <div class="small text-body-secondary mb-2">
+              Selectors inside one rule are ANDed. Multiple rules in a group are ORed.
+            </div>
+            <div class="routing-rules-list" id="routing-rules-list"></div>
           </div>
         </div>
       </div>
@@ -263,7 +324,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p class="mb-0">Delete domain group <strong id="delete-group-name"></strong>?</p>
+        <p class="mb-0">Delete policy group <strong id="delete-group-name"></strong>?</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -337,6 +398,7 @@
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/domain-routing.js"></script>
+<script src="/static/js/routing-resolver.js"></script>
 <script src="/static/js/prewarm-auth.js"></script>
 </body>
 </html>

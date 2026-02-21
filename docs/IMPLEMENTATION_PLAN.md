@@ -617,16 +617,16 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] Group API/UI can persist mixed selector rules in the same group assigned to one VPN.
-- [ ] Source-IP based routing works for IPv4 and IPv6.
-- [ ] Destination-IP/CIDR based routing works for IPv4 and IPv6.
-- [ ] Destination-port(+protocol) based routing works and can be combined with source/destination selectors in one rule.
-- [ ] Destination-ASN based routing works by resolving ASN prefixes and keeping them refreshed.
-- [ ] Wildcard domain mode (`*.example.com`) discovers subdomains from public database sources and routes discovered subdomains through the assigned VPN.
-- [ ] Resolver scheduler refreshes domains/ASNs/wildcards periodically and supports manual run.
-- [ ] Resolver removes stale entries no longer present in latest snapshots.
-- [ ] Full IPv4/IPv6 parity in rule generation and ipset management.
-- [ ] All tests pass (`go test ./...`), including resolver and routing rule generation tests.
+- [x] Group API/UI can persist mixed selector rules in the same group assigned to one VPN.
+- [x] Source-IP based routing works for IPv4 and IPv6.
+- [x] Destination-IP/CIDR based routing works for IPv4 and IPv6.
+- [x] Destination-port(+protocol) based routing works and can be combined with source/destination selectors in one rule.
+- [x] Destination-ASN based routing works by resolving ASN prefixes and keeping them refreshed.
+- [x] Wildcard domain mode (`*.example.com`) discovers subdomains from public database sources and routes discovered subdomains through the assigned VPN.
+- [x] Resolver scheduler refreshes domains/ASNs/wildcards periodically and supports manual run.
+- [x] Resolver removes stale entries no longer present in latest snapshots.
+- [x] Full IPv4/IPv6 parity in rule generation and ipset management.
+- [x] All tests pass (`go test ./...`), including resolver and routing rule generation tests.
 
 ---
 

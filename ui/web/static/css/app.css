@@ -159,6 +159,10 @@ textarea#vpn-config-editor {
   min-height: 2.4rem;
 }
 
+.domain-group-rules {
+  min-height: 2.4rem;
+}
+
 .domain-group-domain {
   display: inline-block;
   font-size: 0.75rem;
@@ -168,6 +172,11 @@ textarea#vpn-config-editor {
   background: rgba(59, 130, 246, 0.2);
   color: #dbeafe;
   font-family: var(--bs-font-monospace);
+}
+
+.routing-rules-list .routing-rule-card {
+  background: rgba(15, 23, 42, 0.32);
+  border-color: rgba(148, 163, 184, 0.22) !important;
 }
 
 #prewarm-progress-bar {

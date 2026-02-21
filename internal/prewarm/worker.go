@@ -263,6 +263,26 @@ func (w *Worker) activeInterfaces() ([]string, error) {
 func buildTasks(groups []routing.DomainGroup) ([]domainTask, error) {
 	tasks := make([]domainTask, 0)
 	for _, group := range groups {
+		for ruleIndex, rule := range group.Rules {
+			sets := routing.RuleSetNames(group.Name, ruleIndex)
+			domainList := append([]string(nil), rule.Domains...)
+			domainList = append(domainList, rule.WildcardDomains...)
+			for _, rawDomain := range domainList {
+				domain := normalizeDomain(rawDomain)
+				if domain == "" {
+					continue
+				}
+				tasks = append(tasks, domainTask{
+					GroupName: group.Name,
+					SetV4:     sets.DestinationV4,
+					SetV6:     sets.DestinationV6,
+					Domain:    domain,
+				})
+			}
+		}
+		if len(group.Rules) > 0 {
+			continue
+		}
 		setV4, setV6 := routing.GroupSetNames(group.Name)
 		for _, rawDomain := range group.Domains {
 			domain := normalizeDomain(rawDomain)

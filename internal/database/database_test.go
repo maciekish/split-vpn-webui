@@ -13,7 +13,20 @@ func TestOpen_InMemory(t *testing.T) {
 	defer db.Close()
 
 	// Verify all expected tables exist.
-	tables := []string{"stats_history", "domain_groups", "domain_entries", "prewarm_runs"}
+	tables := []string{
+		"stats_history",
+		"domain_groups",
+		"domain_entries",
+		"routing_rules",
+		"routing_rule_source_cidrs",
+		"routing_rule_destination_cidrs",
+		"routing_rule_ports",
+		"routing_rule_asns",
+		"routing_rule_domains",
+		"resolver_cache",
+		"resolver_runs",
+		"prewarm_runs",
+	}
 	for _, table := range tables {
 		var name string
 		err := db.QueryRow(

@@ -31,7 +31,7 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 	sorted := append([]RouteBinding(nil), bindings...)
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].GroupName == sorted[j].GroupName {
-			return sorted[i].SetV4 < sorted[j].SetV4
+			return sorted[i].RuleIndex < sorted[j].RuleIndex
 		}
 		return sorted[i].GroupName < sorted[j].GroupName
 	})
@@ -49,7 +49,8 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		return err
 	}
 
-	seenRules := make(map[string]struct{})
+	seenIPRules := make(map[string]struct{})
+	seenNATRules := make(map[string]struct{})
 	for _, binding := range sorted {
 		if binding.Mark < 200 {
 			return fmt.Errorf("invalid fwmark %d for group %s", binding.Mark, binding.GroupName)
@@ -61,25 +62,26 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 			return fmt.Errorf("missing interface for group %s", binding.GroupName)
 		}
 		markHex := fmt.Sprintf("0x%x", binding.Mark)
+		if err := m.addMarkRules(binding, markHex); err != nil {
+			return err
+		}
 
-		if err := m.exec.Run("iptables", "-t", "mangle", "-A", markChainName, "-m", "set", "--match-set", binding.SetV4, "dst", "-j", "MARK", "--set-mark", markHex); err != nil {
-			return fmt.Errorf("add ipv4 mark rule for %s: %w", binding.GroupName, err)
-		}
-		if err := m.exec.Run("ip6tables", "-t", "mangle", "-A", markChainName, "-m", "set", "--match-set", binding.SetV6, "dst", "-j", "MARK", "--set-mark", markHex); err != nil {
-			return fmt.Errorf("add ipv6 mark rule for %s: %w", binding.GroupName, err)
-		}
-		if err := m.exec.Run("iptables", "-t", "nat", "-A", natChainName, "-m", "mark", "--mark", markHex, "-o", binding.Interface, "-j", "MASQUERADE"); err != nil {
-			return fmt.Errorf("add ipv4 nat rule for %s: %w", binding.GroupName, err)
-		}
-		if err := m.exec.Run("ip6tables", "-t", "nat", "-A", natChainName, "-m", "mark", "--mark", markHex, "-o", binding.Interface, "-j", "MASQUERADE"); err != nil {
-			return fmt.Errorf("add ipv6 nat rule for %s: %w", binding.GroupName, err)
+		natKey := markHex + ":" + binding.Interface
+		if _, seen := seenNATRules[natKey]; !seen {
+			seenNATRules[natKey] = struct{}{}
+			if err := m.exec.Run("iptables", "-t", "nat", "-A", natChainName, "-m", "mark", "--mark", markHex, "-o", binding.Interface, "-j", "MASQUERADE"); err != nil {
+				return fmt.Errorf("add ipv4 nat rule for %s: %w", binding.GroupName, err)
+			}
+			if err := m.exec.Run("ip6tables", "-t", "nat", "-A", natChainName, "-m", "mark", "--mark", markHex, "-o", binding.Interface, "-j", "MASQUERADE"); err != nil {
+				return fmt.Errorf("add ipv6 nat rule for %s: %w", binding.GroupName, err)
+			}
 		}
 
 		uniqueRule := markHex + ":" + strconv.Itoa(binding.RouteTable)
-		if _, seen := seenRules[uniqueRule]; seen {
+		if _, seen := seenIPRules[uniqueRule]; seen {
 			continue
 		}
-		seenRules[uniqueRule] = struct{}{}
+		seenIPRules[uniqueRule] = struct{}{}
 		if err := m.refreshIPRule(markHex, binding.RouteTable, false); err != nil {
 			return err
 		}
@@ -88,6 +90,74 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		}
 	}
 	return nil
+}
+
+func (m *RuleManager) addMarkRules(binding RouteBinding, markHex string) error {
+	if binding.HasSource {
+		if strings.TrimSpace(binding.SourceSetV4) == "" || strings.TrimSpace(binding.SourceSetV6) == "" {
+			return fmt.Errorf("missing source set names for group %s rule %d", binding.GroupName, binding.RuleIndex+1)
+		}
+	}
+	if binding.HasDestination {
+		if strings.TrimSpace(binding.DestinationSetV4) == "" || strings.TrimSpace(binding.DestinationSetV6) == "" {
+			return fmt.Errorf("missing destination set names for group %s rule %d", binding.GroupName, binding.RuleIndex+1)
+		}
+	}
+
+	ports := binding.DestinationPorts
+	if len(ports) == 0 {
+		if err := m.addMarkRuleByFamily("iptables", binding, markHex, PortRange{}); err != nil {
+			return err
+		}
+		return m.addMarkRuleByFamily("ip6tables", binding, markHex, PortRange{})
+	}
+	for _, port := range ports {
+		if err := m.addMarkRuleByFamily("iptables", binding, markHex, port); err != nil {
+			return err
+		}
+		if err := m.addMarkRuleByFamily("ip6tables", binding, markHex, port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *RuleManager) addMarkRuleByFamily(tool string, binding RouteBinding, markHex string, port PortRange) error {
+	isIPv6 := tool == "ip6tables"
+	args := []string{"-t", "mangle", "-A", markChainName}
+	if binding.HasSource {
+		setName := binding.SourceSetV4
+		if isIPv6 {
+			setName = binding.SourceSetV6
+		}
+		args = append(args, "-m", "set", "--match-set", setName, "src")
+	}
+	if binding.HasDestination {
+		setName := binding.DestinationSetV4
+		if isIPv6 {
+			setName = binding.DestinationSetV6
+		}
+		args = append(args, "-m", "set", "--match-set", setName, "dst")
+	}
+	if port.Protocol != "" {
+		args = append(args, "-p", port.Protocol, "--dport", formatPortRange(port))
+	}
+	args = append(args, "-j", "MARK", "--set-mark", markHex)
+	if err := m.exec.Run(tool, args...); err != nil {
+		family := "ipv4"
+		if isIPv6 {
+			family = "ipv6"
+		}
+		return fmt.Errorf("add %s mark rule for %s: %w", family, binding.GroupName, err)
+	}
+	return nil
+}
+
+func formatPortRange(port PortRange) string {
+	if port.End <= 0 || port.End == port.Start {
+		return strconv.Itoa(port.Start)
+	}
+	return fmt.Sprintf("%d:%d", port.Start, port.End)
 }
 
 // FlushRules removes this application's chains and managed ip rules.

@@ -17,6 +17,10 @@ type Settings struct {
 	PrewarmParallelism       int `json:"prewarmParallelism,omitempty"`
 	PrewarmDoHTimeoutSeconds int `json:"prewarmDoHTimeoutSeconds,omitempty"`
 	PrewarmIntervalSeconds   int `json:"prewarmIntervalSeconds,omitempty"`
+	// Policy resolver refresh
+	ResolverParallelism     int `json:"resolverParallelism,omitempty"`
+	ResolverTimeoutSeconds  int `json:"resolverTimeoutSeconds,omitempty"`
+	ResolverIntervalSeconds int `json:"resolverIntervalSeconds,omitempty"`
 
 	// Auth — stored as bcrypt hash and random token.
 	// These fields are omitted from JSON output on API responses;

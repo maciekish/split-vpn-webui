@@ -28,6 +28,9 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		PrewarmParallelism:       current.PrewarmParallelism,
 		PrewarmDoHTimeoutSeconds: current.PrewarmDoHTimeoutSeconds,
 		PrewarmIntervalSeconds:   current.PrewarmIntervalSeconds,
+		ResolverParallelism:      current.ResolverParallelism,
+		ResolverTimeoutSeconds:   current.ResolverTimeoutSeconds,
+		ResolverIntervalSeconds:  current.ResolverIntervalSeconds,
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings":   safe,
@@ -43,6 +46,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		PrewarmParallelism       int    `json:"prewarmParallelism"`
 		PrewarmDoHTimeoutSeconds int    `json:"prewarmDoHTimeoutSeconds"`
 		PrewarmIntervalSeconds   int    `json:"prewarmIntervalSeconds"`
+		ResolverParallelism      int    `json:"resolverParallelism"`
+		ResolverTimeoutSeconds   int    `json:"resolverTimeoutSeconds"`
+		ResolverIntervalSeconds  int    `json:"resolverIntervalSeconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -62,6 +68,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	updated.PrewarmParallelism = payload.PrewarmParallelism
 	updated.PrewarmDoHTimeoutSeconds = payload.PrewarmDoHTimeoutSeconds
 	updated.PrewarmIntervalSeconds = payload.PrewarmIntervalSeconds
+	updated.ResolverParallelism = payload.ResolverParallelism
+	updated.ResolverTimeoutSeconds = payload.ResolverTimeoutSeconds
+	updated.ResolverIntervalSeconds = payload.ResolverIntervalSeconds
 
 	if err := s.settings.Save(updated); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

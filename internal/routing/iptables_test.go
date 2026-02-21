@@ -12,12 +12,14 @@ func TestApplyRulesIncludesIPv4AndIPv6Commands(t *testing.T) {
 
 	bindings := []RouteBinding{
 		{
-			GroupName:  "Streaming-SG",
-			SetV4:      "svpn_streaming_sg_v4",
-			SetV6:      "svpn_streaming_sg_v6",
-			Mark:       0x169,
-			RouteTable: 201,
-			Interface:  "wg-sgp",
+			GroupName:        "Streaming-SG",
+			RuleIndex:        0,
+			DestinationSetV4: "svpn_streaming_sg_r1d4",
+			DestinationSetV6: "svpn_streaming_sg_r1d6",
+			HasDestination:   true,
+			Mark:             0x169,
+			RouteTable:       201,
+			Interface:        "wg-sgp",
 		},
 	}
 	if err := manager.ApplyRules(bindings); err != nil {
@@ -26,8 +28,8 @@ func TestApplyRulesIncludesIPv4AndIPv6Commands(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	checks := []string{
-		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_streaming_sg_v4 dst -j MARK --set-mark 0x169",
-		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_streaming_sg_v6 dst -j MARK --set-mark 0x169",
+		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_streaming_sg_r1d4 dst -j MARK --set-mark 0x169",
+		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_streaming_sg_r1d6 dst -j MARK --set-mark 0x169",
 		"iptables -t nat -A SVPN_NAT -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
 		"ip6tables -t nat -A SVPN_NAT -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
 		"ip rule add fwmark 0x169 table 201 priority 100",
@@ -42,8 +44,8 @@ func TestApplyRulesIncludesIPv4AndIPv6Commands(t *testing.T) {
 
 func TestApplyRulesIsDeterministic(t *testing.T) {
 	bindings := []RouteBinding{
-		{GroupName: "B", SetV4: "svpn_b_v4", SetV6: "svpn_b_v6", Mark: 205, RouteTable: 205, Interface: "wg-b"},
-		{GroupName: "A", SetV4: "svpn_a_v4", SetV6: "svpn_a_v6", Mark: 204, RouteTable: 204, Interface: "wg-a"},
+		{GroupName: "B", RuleIndex: 1, DestinationSetV4: "svpn_b_r2d4", DestinationSetV6: "svpn_b_r2d6", HasDestination: true, Mark: 205, RouteTable: 205, Interface: "wg-b"},
+		{GroupName: "A", RuleIndex: 0, DestinationSetV4: "svpn_a_r1d4", DestinationSetV6: "svpn_a_r1d6", HasDestination: true, Mark: 204, RouteTable: 204, Interface: "wg-a"},
 	}
 
 	first := &MockExec{}
@@ -57,6 +59,41 @@ func TestApplyRulesIsDeterministic(t *testing.T) {
 
 	if !reflect.DeepEqual(first.RunCalls, second.RunCalls) {
 		t.Fatalf("expected deterministic command order\nfirst: %#v\nsecond: %#v", first.RunCalls, second.RunCalls)
+	}
+}
+
+func TestApplyRulesIncludesSourceAndPortSelectors(t *testing.T) {
+	mock := &MockExec{}
+	manager := NewRuleManager(mock)
+
+	bindings := []RouteBinding{
+		{
+			GroupName:        "Gaming",
+			RuleIndex:        0,
+			SourceSetV4:      "svpn_gaming_r1s4",
+			SourceSetV6:      "svpn_gaming_r1s6",
+			DestinationSetV4: "svpn_gaming_r1d4",
+			DestinationSetV6: "svpn_gaming_r1d6",
+			HasSource:        true,
+			HasDestination:   true,
+			DestinationPorts: []PortRange{{Protocol: "tcp", Start: 443, End: 443}},
+			Mark:             0x170,
+			RouteTable:       202,
+			Interface:        "wg-gaming",
+		},
+	}
+	if err := manager.ApplyRules(bindings); err != nil {
+		t.Fatalf("ApplyRules failed: %v", err)
+	}
+
+	calls := joinCalls(mock.RunCalls)
+	for _, expected := range []string{
+		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_gaming_r1s4 src -m set --match-set svpn_gaming_r1d4 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_gaming_r1s6 src -m set --match-set svpn_gaming_r1d6 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
+	} {
+		if !containsCall(calls, expected) {
+			t.Fatalf("expected call %q in %#v", expected, calls)
+		}
 	}
 }
 

@@ -87,6 +87,10 @@ func main() {
 	if err := routingManager.Apply(context.Background()); err != nil {
 		log.Printf("warning: failed to apply routing state on startup: %v", err)
 	}
+	resolverScheduler, err := routing.NewResolverScheduler(routingManager, settingsManager)
+	if err != nil {
+		log.Fatalf("failed to initialize resolver scheduler: %v", err)
+	}
 	prewarmScheduler, err := prewarm.NewScheduler(db, settingsManager, routingManager, vpnManager, nil)
 	if err != nil {
 		log.Fatalf("failed to initialize prewarm scheduler: %v", err)
@@ -105,10 +109,18 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, vpnManager, routingManager, prewarmScheduler, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
+	srv, err := server.New(cfgManager, vpnManager, routingManager, resolverScheduler, prewarmScheduler, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}
+	if err := resolverScheduler.Start(); err != nil {
+		log.Fatalf("failed to start resolver scheduler: %v", err)
+	}
+	defer func() {
+		if err := resolverScheduler.Stop(); err != nil {
+			log.Printf("resolver scheduler stop warning: %v", err)
+		}
+	}()
 	if err := prewarmScheduler.Start(); err != nil {
 		log.Fatalf("failed to start prewarm scheduler: %v", err)
 	}

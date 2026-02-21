@@ -16,7 +16,7 @@ var ipsetNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 // IPSetOperator defines required ipset interactions.
 type IPSetOperator interface {
 	EnsureSet(name, family string) error
-	AddIP(setName, ip string, timeoutSeconds int) error
+	AddIP(setName, value string, timeoutSeconds int) error
 	FlushSet(name string) error
 	DestroySet(name string) error
 	ListSets(prefix string) ([]string, error)
@@ -38,12 +38,12 @@ func (m *IPSetManager) EnsureSet(name, family string) error {
 	if err := validateIPSetName(name); err != nil {
 		return err
 	}
-	setType := "hash:ip"
+	setType := "hash:net"
 	switch strings.ToLower(strings.TrimSpace(family)) {
 	case "inet":
-		setType = "hash:ip"
+		setType = "hash:net"
 	case "inet6":
-		setType = "hash:ip6"
+		setType = "hash:net"
 	default:
 		return fmt.Errorf("invalid ipset family %q", family)
 	}
@@ -53,18 +53,24 @@ func (m *IPSetManager) EnsureSet(name, family string) error {
 	return nil
 }
 
-func (m *IPSetManager) AddIP(setName, ip string, timeoutSeconds int) error {
+func (m *IPSetManager) AddIP(setName, value string, timeoutSeconds int) error {
 	if err := validateIPSetName(setName); err != nil {
 		return err
 	}
-	if net.ParseIP(strings.TrimSpace(ip)) == nil {
-		return fmt.Errorf("invalid IP address %q", ip)
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("ipset value is required")
+	}
+	if net.ParseIP(trimmed) == nil {
+		if _, _, err := net.ParseCIDR(trimmed); err != nil {
+			return fmt.Errorf("invalid IP/CIDR value %q", value)
+		}
 	}
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultIPSetTimeoutSeconds
 	}
-	if err := m.exec.Run("ipset", "add", setName, ip, "timeout", strconv.Itoa(timeoutSeconds), "-exist"); err != nil {
-		return fmt.Errorf("ipset add %s %s: %w", setName, ip, err)
+	if err := m.exec.Run("ipset", "add", setName, trimmed, "timeout", strconv.Itoa(timeoutSeconds), "-exist"); err != nil {
+		return fmt.Errorf("ipset add %s %s: %w", setName, trimmed, err)
 	}
 	return nil
 }
