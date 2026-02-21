@@ -10,7 +10,7 @@
 
 **Active sprint:** Sprint 10 — Persistent Stats, Build & CI
 **Last updated:** 2026-02-21
-**Last session summary:** Sprint 9 completed: installer rewritten for UniFi `/data` persistence and `udm-boot` prerequisite checks, deploy boot-hook template renamed, server-side URL/domain validation hardened, config path containment checks added, and new server/config/integration-tag tests introduced. `go test ./...` passing.
+**Last session summary:** Planning/spec update session: expanded requirements to include policy-based routing selectors in groups (source IP/CIDR, destination IP/CIDR, destination port/protocol, destination ASN, domain, wildcard domains with public subdomain discovery) and added Sprint 11 implementation plan for periodic runtime resolver refresh.
 
 ---
 
@@ -28,6 +28,7 @@
 | **8** — Web UI: Pre-Warm, Auth & Settings | **Complete** | All Sprint 8 deliverables implemented and validated |
 | **9** — Install Script & Hardening | **Complete** | Installer + hardening + tests implemented |
 | **10** — Persistent Stats, Build & CI | Not started | Active sprint |
+| **11** — Policy Routing Expansion | Not started | Planned: selector/rule model + runtime resolvers |
 
 ---
 
@@ -35,6 +36,7 @@
 
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
 - Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
+- Policy-routing expansion (source/destination/port/ASN/wildcard) is now captured for Sprint 11 and not implemented yet.
 
 ---
 
@@ -63,6 +65,25 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Policy-routing spec expansion session
+- Updated `AGENTS.md` requirements:
+  - Replaced domain-only routing requirement with policy-based group/rule model supporting:
+    - source IP/CIDR
+    - destination IP/CIDR
+    - destination port/range + protocol
+    - destination ASN
+    - exact domains
+    - wildcard domains (`*.example.com`)
+  - Added explicit rule semantics (AND inside rule, OR across rules in a group).
+  - Added resolver requirements: periodic runtime refresh for domains, wildcard-discovered subdomains, and ASN prefixes.
+  - Added explicit wildcard discovery requirement using public subdomain intelligence sources (CT-backed, `crt.sh` primary).
+- Updated `docs/IMPLEMENTATION_PLAN.md`:
+  - Added Sprint 11 to the sprint overview.
+  - Added full Sprint 11 section with file-level implementation plan and definition-of-done checklist for policy routing + runtime resolver refresh.
+- Progress status updated:
+  - Sprint 10 remains active.
+  - Sprint 11 added as planned/not started.
 
 ### 2026-02-21 — Sprint 9 completion session
 - Installer overhaul in `install.sh`:

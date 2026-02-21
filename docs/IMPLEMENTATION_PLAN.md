@@ -60,6 +60,7 @@ The following is **already fully implemented** and must not regress:
 | **8** | Web UI — Pre-warm, auth & settings | Pre-warm dashboard, settings page, password/token management |
 | **9** | Install script & hardening | `install.sh`, boot hook, input validation, file permissions |
 | **10** | Persistent stats, build & CI | SQLite stats history, cross-compile, GitHub Actions |
+| **11** | Policy routing expansion | Source/destination IP rules, destination ports, ASNs, wildcard subdomain discovery, periodic runtime resolver refresh |
 
 ---
 
@@ -561,6 +562,70 @@ For development/testing on macOS, the DoH client interface binding must be behin
 - [ ] GitHub Actions workflow builds and uploads release binaries on tag push.
 - [ ] `install.sh` downloads the correct binary for the detected architecture.
 - [ ] Stats history table does not grow unbounded (rows older than 7 days are pruned on startup).
+
+---
+
+## Sprint 11 — Policy Routing Expansion (Source/Destination/Port/ASN/Wildcard)
+
+**Goal:** Expand routing groups from domain-only selectors to full policy-based selectors while keeping per-group egress VPN assignment:
+- source IP/CIDR
+- destination IP/CIDR
+- destination port/range (+ protocol)
+- destination ASN
+- exact domains
+- wildcard domains with public subdomain discovery
+
+### Semantics
+
+- Group has `Rules []RoutingRule`.
+- Each rule may include one or more selectors.
+- Selectors inside one rule are ANDed.
+- Rules inside one group are ORed.
+- Matching traffic is marked with the group VPN's fwmark and routed via its route table.
+
+### Dynamic resolution requirements
+
+- Domains must be resolved periodically at runtime (A/AAAA + one-level CNAME handling).
+- ASNs must be resolved periodically to currently announced IPv4/IPv6 prefixes from public BGP/ASN data APIs.
+- Wildcard domains (e.g. `*.apple.com`) must use public subdomain intelligence sources (certificate-transparency-backed databases; primary source: `crt.sh`) to discover known subdomains, then resolve those to IPs and keep them refreshed.
+- Resolver runs must support:
+  - schedule-based periodic execution
+  - manual "Run now"
+  - stale-entry removal (items no longer present in latest snapshots)
+
+### Files to modify/create
+
+| File | Change |
+|---|---|
+| `internal/routing/model.go` | Replace domain-only `DomainGroup` schema with `RoutingGroup` + `RoutingRule` model supporting source/destination CIDRs, ports/protocols, ASNs, domains, wildcard domains |
+| `internal/routing/store.go` | Add DB persistence for group rules and selector sets; include migration path from existing domain-only rows |
+| `internal/database/schema.go` | Add/modify tables for routing rules/selectors and resolver cache snapshots |
+| `internal/routing/iptables.go` | Generate mangle rules for src-set, dst-set, protocol, and destination-port matching combinations (IPv4+IPv6 parity) |
+| `internal/routing/ipset.go` | Support `hash:net` usage for CIDRs and ASN prefix insertion; maintain separate dst/src set namespaces |
+| `internal/routing/manager.go` | Build runtime rule graph from group rules and apply atomically |
+| `internal/routing/resolver.go` | Orchestrate domain/asn/wildcard resolution and reconciliation into ipsets |
+| `internal/routing/resolver_domains.go` | Domain resolver implementation (DoH, CNAME handling, dedupe) |
+| `internal/routing/resolver_asn.go` | ASN prefix provider client(s) for public BGP/ASN APIs; normalization and validation |
+| `internal/routing/resolver_wildcard.go` | Wildcard subdomain discovery via public CT-backed sources (`crt.sh` primary), normalization, dedupe |
+| `internal/settings/settings.go` | Add resolver refresh settings: intervals/timeouts/parallelism/provider toggles |
+| `internal/server/handlers_routing.go` | Update CRUD API payloads for rule-based groups and validate all selector types |
+| `internal/server/handlers_prewarm.go` | Add resolver refresh trigger/status endpoints (or unify with prewarm status endpoint) |
+| `ui/web/templates/layout.html` | Expand group editor UI to include rule builder for source/destination CIDR, ports, ASNs, domain/wildcard entries |
+| `ui/web/static/js/domain-routing.js` | Implement rule editor CRUD and resolver run/status integration |
+| `internal/routing/*_test.go` | Add rule-matching generation tests, migration tests, and resolver tests (domain/asn/wildcard) |
+
+### Deliverables / Definition of Done
+
+- [ ] Group API/UI can persist mixed selector rules in the same group assigned to one VPN.
+- [ ] Source-IP based routing works for IPv4 and IPv6.
+- [ ] Destination-IP/CIDR based routing works for IPv4 and IPv6.
+- [ ] Destination-port(+protocol) based routing works and can be combined with source/destination selectors in one rule.
+- [ ] Destination-ASN based routing works by resolving ASN prefixes and keeping them refreshed.
+- [ ] Wildcard domain mode (`*.example.com`) discovers subdomains from public database sources and routes discovered subdomains through the assigned VPN.
+- [ ] Resolver scheduler refreshes domains/ASNs/wildcards periodically and supports manual run.
+- [ ] Resolver removes stale entries no longer present in latest snapshots.
+- [ ] Full IPv4/IPv6 parity in rule generation and ipset management.
+- [ ] All tests pass (`go test ./...`), including resolver and routing rule generation tests.
 
 ---
 

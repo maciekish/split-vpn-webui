@@ -209,30 +209,49 @@ Every action a user would previously perform via SSH must be available in the UI
 - Start / stop / restart a VPN (calls `systemctl start|stop|restart svpn-<name>.service`).
 - View real-time VPN status, throughput, and latency.
 
-### 4. Domain-Based Routing (ipset / dnsmasq integration)
+### 4. Policy-Based Routing (Domains, IPs, Ports, ASNs, Source CIDRs)
 
-**Domain Groups:** Users create named groups (e.g., "Streaming-SG", "Gaming") and assign domains to them (one domain per line, wildcards like `*.example.com` supported). Each group is assigned an egress VPN.
+**Routing Groups:** Users create named groups (e.g. "Streaming-SG", "Gaming"), assign each group to an egress VPN, and add one or more match rules per group.
 
-**Mechanism (mirrors `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/on_boot.d/20-ipset.sh`):**
-1. For each domain group, create two `ipset` sets: `svpn_<group>_v4` (hash:ip, 24 h timeout) and `svpn_<group>_v6` (hash:ip6, 24 h timeout).
-2. Write a dnsmasq config file at `/run/dnsmasq.d/split-vpn-webui.conf` with `ipset=/<domain>/<v4set>,<v6set>` entries.
-3. Reload dnsmasq (`systemctl reload dnsmasq` or `kill -HUP <pid>`).
-4. Add iptables/ip6tables rules to PREROUTING and FORWARD chains to mark packets whose destination is in each ipset with the corresponding VPN fwmark, then route via the VPN's route table.
-5. On any change (domain added/removed, group egress changed), regenerate and reload atomically.
+Each group must support all of the following selector types:
+- Source IP/CIDR (IPv4 and IPv6)
+- Destination IP/CIDR (IPv4 and IPv6)
+- Destination port or port range (with protocol: TCP, UDP, or both)
+- Destination ASN (e.g. `AS13335` / `13335`)
+- Domains (exact FQDN)
+- Wildcard domains (e.g. `*.apple.com`)
 
-All of this must be driven from Go code — not delegated to a shell script. Shell scripts in `deploy/` are only for bootstrap and systemd units.
+**Rule semantics:**
+- Each rule may contain one or more selectors.
+- Within a rule: selectors are ANDed (all configured selectors in that rule must match).
+- Within a group: rules are ORed (any matching rule routes traffic through that group's egress VPN).
 
-### 5. DNS Pre-Warm
+**Runtime mechanism:**
+1. For each group, maintain destination sets `svpn_<group>_v4` / `svpn_<group>_v6` and source sets `svpn_<group>_src_v4` / `svpn_<group>_src_v6`.
+2. Domains and wildcard domains populate destination sets via DNS resolution.
+3. ASN entries are resolved to active prefixes and inserted into destination sets.
+4. Static destination IP/CIDR entries are inserted directly into destination sets; static source IP/CIDR entries are inserted into source sets.
+5. iptables/ip6tables rules must support matching on source set, destination set, destination port/protocol, and combinations of these according to rule semantics, then set the group's fwmark and route via the VPN route table.
+6. On any change (group/rule/create/update/delete, egress change, resolver refresh), regenerate and apply atomically.
 
-A background worker (exposed via UI) that pre-fetches DNS records for all configured domains and populates ipsets before clients make requests.
+All of this must be driven from Go code — not delegated to shell scripts. Shell scripts in `deploy/` are only for bootstrap and systemd units.
 
-**Behaviour (mirrors `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/on_boot.d/90-ipset-prewarm.sh`):**
-- For each domain in every group, query A and AAAA records via Cloudflare DoH (`https://cloudflare-dns.com/dns-query?name=<domain>&type=A`) using the egress VPN's network interface (bind socket to the VPN interface).
-- Follow CNAMEs one level deep.
-- Insert resolved IPs into the corresponding ipsets with a 12-hour timeout (`ipset add <set> <ip> timeout 43200`).
-- Configurable parameters (stored in settings): parallelism (goroutines), per-VPN DoH timeout, run schedule (cron expression or fixed interval).
-- UI shows: last run timestamp, duration, domains processed, IPs inserted, per-VPN progress bar for live runs.
-- Trigger manually from UI or on configurable schedule.
+### 5. Resolver & Pre-Warm Workers
+
+Background workers (UI-visible) must continuously resolve and refresh all dynamic selector types so routing stays current:
+- Domain resolver: A/AAAA (with CNAME follow one level deep) via Cloudflare DoH.
+- Wildcard subdomain discovery resolver: for `*.example.com`, query public subdomain intelligence sources (certificate-transparency-backed public databases; primary target: `crt.sh`) to enumerate known subdomains, then resolve and insert resulting IPs.
+- ASN resolver: query public BGP/ASN datasets to fetch currently announced prefixes for each configured ASN, then insert into destination sets.
+
+**Refresh requirements:**
+- Dynamic selectors (domains, wildcard discoveries, ASNs) must be resolved at runtime and refreshed periodically on a configurable schedule.
+- Must support manual "Run now" refresh from UI.
+- Insert refreshed results into the correct ipsets with bounded TTLs.
+- Remove stale entries when no longer present in the latest resolver snapshot.
+
+**Worker configuration/UI:**
+- Configurable parameters (stored in settings): parallelism, per-provider timeout, schedule interval, provider enable/disable toggles.
+- UI shows: last run timestamp, duration, items processed, IP/prefixes inserted/removed, and per-VPN/per-provider live progress bars.
 
 ### 6. systemd Unit Management
 
@@ -271,9 +290,10 @@ Installer must work as: `curl -fsSL https://raw.githubusercontent.com/maciekish/
 
 - **Strategy pattern for VPN types** — `VPNProvider` interface with `WireGuard` and `OpenVPN` implementations. Adding a new VPN type = add a new implementation file, zero changes to core logic.
 - **Config manager** — owns reading, writing, and validation of all config files. No other package writes files directly.
-- **Routing manager** — owns all ipset, iptables, and dnsmasq interactions. Idempotent: running it twice must not corrupt state.
+- **Routing manager** — owns all ipset, iptables, and dnsmasq interactions for policy groups/rules. Idempotent: running it twice must not corrupt state.
+- **Resolver manager** — owns runtime resolution of dynamic selectors (domains, wildcard subdomains, ASNs), periodic refresh, and stale-entry reconciliation.
 - **Systemd manager** — owns all `systemctl` and unit-file interactions.
-- **Prewarm worker** — runs as a goroutine pool, reports progress via channels consumed by the SSE stream.
+- **Prewarm/refresh workers** — run as goroutine pools, report progress via channels consumed by the SSE stream.
 - **HTTP layer** — thin handlers only; all business logic in the above packages.
 
 ### Code Quality
@@ -319,36 +339,58 @@ Key files to consult during development:
 
 These are **examples of what needs to be re-implemented in Go**, not runtime dependencies.
 
-### Domain Routing Setup (`20-ipset.sh` equivalent)
+### Policy Routing Setup (`20-ipset.sh` + policy extensions)
 
-For each domain group:
+For each routing group:
 ```bash
-# Create ipsets
-ipset create svpn_<group>_v4 hash:ip family inet timeout 86400 -exist
-ipset create svpn_<group>_v6 hash:ip6 family inet6 timeout 86400 -exist
+# Destination sets (resolved domains, wildcard discoveries, ASN prefixes, static destination IPs/CIDRs)
+ipset create svpn_<group>_v4 hash:net family inet timeout 86400 -exist
+ipset create svpn_<group>_v6 hash:net family inet6 timeout 86400 -exist
 
-# dnsmasq entry (written to /run/dnsmasq.d/split-vpn-webui.conf)
+# Source selector sets (static source IPs/CIDRs)
+ipset create svpn_<group>_src_v4 hash:net family inet timeout 86400 -exist
+ipset create svpn_<group>_src_v6 hash:net family inet6 timeout 86400 -exist
+
+# dnsmasq entries for exact/wildcard domains (written to /run/dnsmasq.d/split-vpn-webui.conf)
 ipset=/<domain>/svpn_<group>_v4,svpn_<group>_v6
+```
 
-# iptables rule to mark and route packets
-iptables -t mangle -A PREROUTING -m set --match-set svpn_<group>_v4 dst \
+Rule examples:
+```bash
+# Destination-IP based rule
+iptables -t mangle -A SVPN_MARK -m set --match-set svpn_<group>_v4 dst \
     -j MARK --set-mark <fwmark>
+
+# Source-IP + destination-port rule (AND semantics inside a rule)
+iptables -t mangle -A SVPN_MARK -m set --match-set svpn_<group>_src_v4 src \
+    -p tcp --dport 443 -j MARK --set-mark <fwmark>
+
+# IPv6 equivalent
+ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_<group>_v6 dst \
+    -j MARK --set-mark <fwmark>
+
 ip rule add fwmark <fwmark> table <route_table>
 ```
 
-### DNS Pre-Warm (`90-ipset-prewarm.sh` equivalent)
+### Resolver & Refresh (`90-ipset-prewarm.sh` + dynamic sources)
 
-For each domain, for each VPN interface regardless of its configured egress:
+For each dynamic selector (domain, wildcard, ASN), for each VPN interface regardless of configured egress:
 ```bash
-# DoH query via specific interface
+# Domain A/AAAA via DoH through a specific VPN interface
 curl --interface <vpn_dev> -s \
     "https://cloudflare-dns.com/dns-query?name=<domain>&type=A" \
     -H "accept: application/dns-json"
-# Parse JSON response, extract "Answer" array, filter type=1 (A) or type=28 (AAAA)
-# Insert IPs: ipset add svpn_<group>_v4 <ip> timeout 43200 -exist
+
+# Wildcard subdomain discovery via public CT data source (example)
+curl -s "https://crt.sh/?q=%25.<domain>&output=json"
+
+# ASN prefix discovery via public BGP/ASN data source (example)
+curl -s "https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS<asn>"
 ```
 
-CNAME chaining: if an answer contains type=5 (CNAME) records, query the CNAME target recursively (one level) before querying A/AAAA.
+- Domain CNAME chaining: if a DoH response contains type=5 (CNAME), query the CNAME target one level deep before collecting A/AAAA.
+- Wildcard mode: discovered subdomains are normalized, deduplicated, resolved, and inserted into the group's destination sets.
+- ASN mode: currently announced IPv4/IPv6 prefixes are inserted into the group's destination sets and refreshed periodically.
 
 ### WireGuard vpn.conf (reference values)
 
