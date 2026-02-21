@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 9 — Install Script & Hardening
-**Last updated:** 2026-02-20
-**Last session summary:** Sprint 8 completed end-to-end: added DNS pre-warm control panel with Run Now, live SSE progress, last-run stats, and schedule persistence; added authenticated auth APIs for password change and token management; and extended settings modal with change-password and API token copy/regenerate controls. Full test suite passing.
+**Active sprint:** Sprint 10 — Persistent Stats, Build & CI
+**Last updated:** 2026-02-21
+**Last session summary:** Sprint 9 completed: installer rewritten for UniFi `/data` persistence and `udm-boot` prerequisite checks, deploy boot-hook template renamed, server-side URL/domain validation hardened, config path containment checks added, and new server/config/integration-tag tests introduced. `go test ./...` passing.
 
 ---
 
@@ -26,15 +26,15 @@
 | **6** — Web UI: VPN Management | **Complete** | All Sprint 6 deliverables implemented and validated |
 | **7** — Web UI: Domain Routing | **Complete** | All Sprint 7 deliverables implemented and validated |
 | **8** — Web UI: Pre-Warm, Auth & Settings | **Complete** | All Sprint 8 deliverables implemented and validated |
-| **9** — Install Script & Hardening | Not started | Active sprint |
-| **10** — Persistent Stats, Build & CI | Not started | Blocked until Sprint 9 complete |
+| **9** — Install Script & Hardening | **Complete** | Installer + hardening + tests implemented |
+| **10** — Persistent Stats, Build & CI | Not started | Active sprint |
 
 ---
 
 ## Known Issues / Blockers
 
 - Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
-- **`install.sh` still uses old paths** (`/mnt/data/`, `$SCRIPT_DIR/bin/`, writes unit directly to `/etc/systemd/system/`). Deferred to Sprint 9 for full rewrite.
+- Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
 
 ---
 
@@ -63,6 +63,43 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Sprint 9 completion session
+- Installer overhaul in `install.sh`:
+  - Added strict prerequisite check: `systemctl is-active --quiet udm-boot` must pass.
+  - Added architecture detection for `amd64`/`arm64`.
+  - Added GitHub Releases asset resolution and download for Linux arch-specific binary.
+  - Migrated install targets to `/data/split-vpn-webui/` only:
+    - binary at `/data/split-vpn-webui/split-vpn-webui`
+    - canonical unit at `/data/split-vpn-webui/units/split-vpn-webui.service`
+    - persistent boot hook at `/data/on_boot.d/10-split-vpn-webui.sh`
+  - Boot hook runs immediately at install end to activate service in current boot session.
+  - Installer now prints detected access URL.
+- Deploy template change:
+  - Renamed `deploy/split-vpn-webui.sh` to `deploy/on_boot_hook.sh` to match Sprint 9 plan.
+- Server hardening:
+  - Added centralized `{name}` URL param validation in `internal/server/helpers.go` via `vpn.ValidateName`.
+  - Applied validation across all VPN/config name-parameter handlers in:
+    - `internal/server/handlers_vpn.go`
+    - `internal/server/handlers_config.go`
+  - Added handler-level group payload validation/normalization in `internal/server/handlers_routing.go` using `routing.NormalizeAndValidate`.
+- Config path sanitization:
+  - Added base-path containment checks in `internal/config/config.go` so resolved config paths cannot escape configured VPN base directory (including symlink resolution).
+- New tests:
+  - `internal/server/server_test.go`:
+    - reject traversal names
+    - reject overlong names
+    - reject invalid domains in group payloads
+    - verify valid domain normalization
+  - `internal/config/config_test.go`:
+    - allow in-base config paths
+    - reject escaping config directories
+  - `integration/integration_test.go`:
+    - added `//go:build integration` end-to-end lifecycle test scaffold (start server, create VPN, start VPN, verify systemd active).
+- Validation run:
+  - `bash -n install.sh deploy/on_boot_hook.sh`
+  - `go test ./...`
+  - All passing in current dev environment.
 
 ### 2026-02-20 — Sprint 8 completion session
 - Backend auth API expansion in `internal/server/handlers_auth.go`:

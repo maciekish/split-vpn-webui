@@ -529,10 +529,10 @@ For development/testing on macOS, the DoH client interface binding must be behin
 - [ ] `install.sh` runs successfully on a UDM SE with `udm-boot-2x` installed.
 - [ ] After running `install.sh` and rebooting, the service comes back up automatically.
 - [ ] After a simulated firmware update (wipe `/etc/systemd/system/`), the boot hook restores the service.
-- [ ] No input accepted by any API endpoint can cause path traversal.
-- [ ] All VPN private key files created with permission `0600`.
-- [ ] All `exec.Command` calls verified to use slice args (grep audit passes).
-- [ ] All tests pass: `go test ./...`.
+- [x] No input accepted by any API endpoint can cause path traversal.
+- [x] All VPN private key files created with permission `0600`.
+- [x] All `exec.Command` calls verified to use slice args (grep audit passes).
+- [x] All tests pass: `go test ./...`.
 
 ---
 

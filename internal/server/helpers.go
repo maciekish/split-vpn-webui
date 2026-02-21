@@ -2,7 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"split-vpn-webui/internal/vpn"
 )
 
 func dominantKey(counts map[string]int) string {
@@ -27,4 +32,13 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 
 func vpnServiceUnitName(name string) string {
 	return "svpn-" + name + ".service"
+}
+
+func (s *Server) requireVPNNameParam(w http.ResponseWriter, r *http.Request) (string, bool) {
+	name := chi.URLParam(r, "name")
+	if err := vpn.ValidateName(name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid vpn name: %v", err)})
+		return "", false
+	}
+	return name, true
 }

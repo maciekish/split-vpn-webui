@@ -3,8 +3,6 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-
-	"github.com/go-chi/chi/v5"
 )
 
 func (s *Server) handleListConfigs(w http.ResponseWriter, r *http.Request) {
@@ -17,7 +15,10 @@ func (s *Server) handleListConfigs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReadConfig(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	content, err := s.configManager.ReadConfigFile(name)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -27,7 +28,10 @@ func (s *Server) handleReadConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWriteConfig(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	var payload struct {
 		Content string `json:"content"`
 	}
@@ -51,7 +55,10 @@ func (s *Server) handleStartVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "systemd manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	cfg, err := s.configManager.Get(name)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -66,7 +73,10 @@ func (s *Server) handleStopVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "systemd manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	cfg, err := s.configManager.Get(name)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -81,7 +91,10 @@ func (s *Server) handleAutostart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "systemd manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	var payload struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -117,7 +130,10 @@ func (s *Server) handleRestartVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "systemd manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	if _, err := s.configManager.Get(name); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return

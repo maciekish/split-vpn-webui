@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,7 +57,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	payload, err := decodeGroupPayload(r)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeRoutingError(w, err)
 		return
 	}
 	created, err := s.routingManager.CreateGroup(r.Context(), payload)
@@ -80,7 +81,7 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	payload, err := decodeGroupPayload(r)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeRoutingError(w, err)
 		return
 	}
 	updated, err := s.routingManager.UpdateGroup(r.Context(), id, payload)
@@ -113,13 +114,13 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 	var payload groupUpsertPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		return routing.DomainGroup{}, errors.New("invalid JSON body")
+		return routing.DomainGroup{}, fmt.Errorf("%w: invalid JSON body", routing.ErrGroupValidation)
 	}
-	return routing.DomainGroup{
+	return routing.NormalizeAndValidate(routing.DomainGroup{
 		Name:      payload.Name,
 		EgressVPN: payload.EgressVPN,
 		Domains:   payload.Domains,
-	}, nil
+	})
 }
 
 func parseGroupID(raw string) (int64, error) {

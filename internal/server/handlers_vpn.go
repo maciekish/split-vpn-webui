@@ -5,8 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"split-vpn-webui/internal/vpn"
 )
 
@@ -28,7 +26,10 @@ func (s *Server) handleGetVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vpn manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	profile, err := s.vpnManager.Get(name)
 	if err != nil {
 		writeVPNError(w, err)
@@ -65,7 +66,10 @@ func (s *Server) handleUpdateVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vpn manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	var payload vpn.UpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -89,7 +93,10 @@ func (s *Server) handleDeleteVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "vpn manager unavailable"})
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name, ok := s.requireVPNNameParam(w, r)
+	if !ok {
+		return
+	}
 	if err := s.vpnManager.Delete(name); err != nil {
 		writeVPNError(w, err)
 		return

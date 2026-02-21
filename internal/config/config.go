@@ -196,7 +196,15 @@ func (m *Manager) ConfigPath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cfg.Path, configFileName), nil
+	configDir, err := ensureWithinBase(m.basePath, cfg.Path)
+	if err != nil {
+		return "", err
+	}
+	path, err := ensureWithinBase(configDir, filepath.Join(configDir, configFileName))
+	if err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // ReadConfigFile returns the raw vpn.conf contents.
@@ -280,4 +288,38 @@ func (m *Manager) AllAutostart() (map[string]bool, error) {
 		result[cfg.Name] = enabled
 	}
 	return result, nil
+}
+
+func ensureWithinBase(basePath, targetPath string) (string, error) {
+	base, err := evaluatePath(basePath)
+	if err != nil {
+		return "", err
+	}
+	target, err := evaluatePath(targetPath)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path %q escapes base path %q", target, base)
+	}
+	return target, nil
+}
+
+func evaluatePath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	evaluated, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return filepath.Clean(abs), nil
+		}
+		return "", err
+	}
+	return filepath.Clean(evaluated), nil
 }
