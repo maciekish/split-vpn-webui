@@ -64,6 +64,9 @@ type ResolverScheduler struct {
 	domainResolver   DomainResolver
 	asnResolver      ASNResolver
 	wildcardResolver WildcardResolver
+	customDomain     bool
+	customASN        bool
+	customWildcard   bool
 
 	now func() time.Time
 
@@ -134,12 +137,15 @@ func NewResolverSchedulerWithDeps(
 	}
 	if domainResolver != nil {
 		scheduler.domainResolver = domainResolver
+		scheduler.customDomain = true
 	}
 	if asnResolver != nil {
 		scheduler.asnResolver = asnResolver
+		scheduler.customASN = true
 	}
 	if wildcardResolver != nil {
 		scheduler.wildcardResolver = wildcardResolver
+		scheduler.customWildcard = true
 	}
 	return scheduler, nil
 }
@@ -305,6 +311,7 @@ type resolverStats struct {
 }
 
 func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settings.Settings) (resolverStats, error) {
+	resolvers := s.resolversForRun(current)
 	groups, err := s.manager.store.List(ctx)
 	if err != nil {
 		return resolverStats{}, err
@@ -338,7 +345,7 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 		go func() {
 			defer workers.Done()
 			for job := range jobCh {
-				values, err := s.resolveJob(runCtx, job)
+				values, err := s.resolveJob(runCtx, job, resolvers)
 				resultCh <- resolverResult{job: job, values: values, err: err}
 				if err != nil {
 					cancel()
@@ -398,14 +405,20 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 	}, nil
 }
 
-func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob) (ResolverValues, error) {
+type runResolvers struct {
+	domain   DomainResolver
+	asn      ASNResolver
+	wildcard WildcardResolver
+}
+
+func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob, resolvers runResolvers) (ResolverValues, error) {
 	switch job.Selector.Type {
 	case "domain":
-		return s.domainResolver.Resolve(ctx, job.Selector.Key)
+		return resolvers.domain.Resolve(ctx, job.Selector.Key)
 	case "asn":
-		return s.asnResolver.Resolve(ctx, job.Selector.Key)
+		return resolvers.asn.Resolve(ctx, job.Selector.Key)
 	case "wildcard":
-		domains, err := s.wildcardResolver.Resolve(ctx, job.Selector.Key)
+		domains, err := resolvers.wildcard.Resolve(ctx, job.Selector.Key)
 		if err != nil {
 			return ResolverValues{}, err
 		}
@@ -415,7 +428,7 @@ func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob) (Re
 		v4 := make(map[string]struct{})
 		v6 := make(map[string]struct{})
 		for _, domain := range domains {
-			values, err := s.domainResolver.Resolve(ctx, domain)
+			values, err := resolvers.domain.Resolve(ctx, domain)
 			if err != nil {
 				continue
 			}
@@ -430,4 +443,28 @@ func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob) (Re
 	default:
 		return ResolverValues{}, fmt.Errorf("unknown selector type %q", job.Selector.Type)
 	}
+}
+
+func (s *ResolverScheduler) resolversForRun(current settings.Settings) runResolvers {
+	timeout := resolverTimeoutFromSettings(current)
+	// Non-custom resolvers are rebuilt per run so timeout setting changes
+	// are applied immediately without requiring a process restart.
+	result := runResolvers{
+		domain:   newDoHDomainResolver(timeout),
+		asn:      newRIPEASNResolver(timeout),
+		wildcard: newCRTSHWildcardResolver(timeout),
+	}
+
+	s.mu.RLock()
+	if s.customDomain && s.domainResolver != nil {
+		result.domain = s.domainResolver
+	}
+	if s.customASN && s.asnResolver != nil {
+		result.asn = s.asnResolver
+	}
+	if s.customWildcard && s.wildcardResolver != nil {
+		result.wildcard = s.wildcardResolver
+	}
+	s.mu.RUnlock()
+	return result
 }

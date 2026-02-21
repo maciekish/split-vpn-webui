@@ -1,87 +1,116 @@
-# Split VPN Web UI
+# split-vpn-webui
 
-A lightweight Go web application for monitoring [peacey/split-vpn](https://github.com/peacey/split-vpn) on UniFi gateways. The UI provides live interface statistics, latency visibility, and persisted preferences while remaining responsive on constrained hardware. VPN lifecycle and configuration management are planned for a future release; the controls are visible in the UI but intentionally disabled in this monitoring-focused build.
+Standalone Go web UI for managing split-tunnel VPN on UniFi gateways (UDM SE/Pro/UDR class devices).  
+The app is self-contained and does not depend on `peacey/split-vpn` scripts at runtime.
 
-## Features
+## What It Does
 
-- 📊 **Live interface metrics** – WAN and VPN interfaces display current throughput, per-interface history charts, and corrected WAN usage (VPN traffic is subtracted automatically).
-- 📶 **Latency visibility** – Periodic pings to each tunnel gateway while the UI is open. Monitoring pauses automatically when the browser tab is hidden to minimise load.
-- ⚙️ **Persisted preferences** – Choose the WAN interface used for corrected statistics and restrict the UI to a specific listen interface via the settings panel. Selections are saved under `/mnt/data/split-vpn` and survive restarts.
-- 🎨 **Responsive design** – Bootstrap 5 based layout with Chart.js visualisations, local assets, and mobile-friendly controls.
+- Manage VPN profiles end-to-end from the browser:
+  - WireGuard and OpenVPN create/edit/delete
+  - Start/stop/restart and autostart via systemd
+- Apply split-routing policies to VPN-assigned routing groups:
+  - source IP/CIDR
+  - destination IP/CIDR
+  - destination ports/protocol
+  - destination ASN (resolved to prefixes)
+  - exact domains
+  - wildcard domains (`*.example.com`) with public subdomain discovery
+- Keep dynamic selectors fresh at runtime:
+  - periodic resolver refresh (domain/ASN/wildcard)
+  - manual resolver run from UI/API
+  - stale snapshot replacement
+- DNS pre-warm worker:
+  - Cloudflare DoH over VPN interfaces
+  - A/AAAA + one-level CNAME follow
+  - writes to app-managed ipsets with timeout
+- Real-time monitoring:
+  - per-interface throughput
+  - latency tracking
+  - SSE live updates
+- Authentication:
+  - password login (default password: `split-vpn`)
+  - bearer token API auth for reverse-proxy auto-login patterns
 
-## Planned functionality
+## Persistence and Paths
 
-The UI exposes placeholders for these capabilities so the layout remains familiar, but they are currently disabled while the monitoring workflow stabilises:
+All durable app state lives under:
 
-- 🛡️ Autostart toggles for each tunnel
-- 📝 Direct editing of `vpn.conf`
-- 🔌 Start/stop buttons for tunnel processes
+`/data/split-vpn-webui/`
 
-## Building
+Important locations:
+
+- Binary: `/data/split-vpn-webui/split-vpn-webui`
+- Settings: `/data/split-vpn-webui/settings.json`
+- Stats DB: `/data/split-vpn-webui/stats.db`
+- Logs: `/data/split-vpn-webui/logs/`
+- VPN profiles: `/data/split-vpn-webui/vpns/<vpn-name>/`
+- Canonical units: `/data/split-vpn-webui/units/`
+- Boot hook: `/data/on_boot.d/10-split-vpn-webui.sh`
+
+The app uses namespaced resources to avoid clashes:
+
+- systemd units: `svpn-<vpn-name>.service`
+- ipset names: `svpn_*`
+- iptables chains: `SVPN_*`
+
+## Build and Test
 
 ```sh
-# Build the static binary
-GOOS=linux GOARCH=amd64 go build -o bin/split-vpn-webui ./cmd/splitvpnwebui
+go test ./...
+go build ./cmd/splitvpnwebui
 ```
 
-During development you can run the server directly:
+Cross-compile:
 
 ```sh
-go run ./cmd/splitvpnwebui --addr :8091 --split-vpn-dir ./testdata
+GOOS=linux GOARCH=amd64 go build -o split-vpn-webui-amd64 ./cmd/splitvpnwebui
+GOOS=linux GOARCH=arm64 go build -o split-vpn-webui-arm64 ./cmd/splitvpnwebui
 ```
 
-The server defaults to `/mnt/data/split-vpn` but the base directory is configurable through `--split-vpn-dir`. It listens on TCP port `8091` by default (UniFi reserves the `808x` range); override with `--addr` or via the in-app settings if needed. Pass `--systemd` when running under the provided unit so the service can restart itself after settings changes.
+Run locally:
 
-## Deployment on UniFi Gateways
+```sh
+go run ./cmd/splitvpnwebui --addr :8091 --data-dir ./tmp-data
+```
 
-1. Copy the compiled `split-vpn-webui` binary to `/usr/local/bin/` on the gateway.
-2. From the project directory run `./install.sh` to install or refresh the systemd unit and boot script. The installer writes the unit with the absolute path to your `bin/split-vpn-webui` binary (including `--systemd`), reloads systemd, enables the service, and starts it immediately.
-3. Browse to `https://<gateway-ip>:8091` (adjust port/host as needed) to access the UI.
+## Install on UniFi Gateway
+
+Prerequisite: `udm-boot-2x` must already be installed and active.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/maciekish/split-vpn-webui/main/install.sh | bash
+```
+
+Installer behavior:
+
+1. verifies `udm-boot` is active
+2. downloads the correct release binary for `amd64`/`arm64`
+3. writes binary and app files to `/data/split-vpn-webui/`
+4. writes canonical unit files to `/data/split-vpn-webui/units/`
+5. writes boot hook to `/data/on_boot.d/10-split-vpn-webui.sh`
+6. runs the boot hook immediately to activate service
 
 ## Uninstall
 
-The installer deploys an interactive uninstall script at:
-
-- `/data/split-vpn-webui/uninstall.sh`
-
-Run it as root:
+Interactive uninstall script:
 
 ```sh
 /data/split-vpn-webui/uninstall.sh
 ```
 
-The script first asks:
+Flow:
 
-- `Remove EVERYTHING related to split-vpn-webui? [y/N]`
+1. asks `Remove EVERYTHING related to split-vpn-webui? [y/N]`
+2. if `No`, asks category-by-category:
+   - binaries
+   - VPNs + their systemd units
+   - config files
+   - statistics data
 
-If you answer `No`, it asks category-by-category (default `No` each):
-
-- `Remove binaries? [y/N]`
-- `Remove VPNs + their systemd units? [y/N]`
-- `Remove config files? [y/N]`
-- `Remove statistics data? [y/N]`
-
-It only removes resources in this app namespace (`/data/split-vpn-webui`, `/data/on_boot.d/10-split-vpn-webui.sh`, `svpn-*` units, `svpn_*` runtime routing artifacts) and never touches `/data/split-vpn`.
-
-## Autostart markers
-
-Autostart selections are saved by creating or removing a `.split-vpn-webui-autostart` file inside each VPN directory. The current UI does not modify these markers, but future releases will re-enable the toggle switches once control workflows are complete.
-
-## Latency and statistics behaviour
-
-- Interface statistics are sampled every two seconds and stored in memory (default history of 120 points).
-- WAN throughput is corrected by subtracting VPN interface usage so the WAN card reflects actual non-tunnel traffic.
-- Latency pings run every 10 seconds **only** while at least one browser tab has the UI visible.
-
-## Development workflow helpers
-
-The codebase is organised for hot-reload friendly tools such as [`air`](https://github.com/cosmtrek/air) or [`reflex`](https://github.com/cespare/reflex). Run your preferred watcher to rebuild `cmd/splitvpnwebui` as files change.
+It only removes app-owned resources and does not touch `/data/split-vpn`.
 
 ## Notes
 
-- All CSS/JS dependencies are vendored locally to remain operational during WAN outages.
-- Bootstrap Icons webfonts are not bundled. Download the latest release from [twbs/icons](https://github.com/twbs/icons/releases), copy the `.woff`/`.woff2` files into `ui/web/static/vendor/bootstrap-icons/fonts/`, and rebuild to embed them.
-
-## Licensing
-
-- Split VPN Web UI is released under the MIT License. Third-party licenses for bundled dependencies are listed in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+- Supports coexistence with `peacey/split-vpn` and UniFi VPN manager (read-only neighbor behavior).
+- API errors use a consistent JSON shape: `{"error":"..."}`.
+- Static UI assets are embedded in the binary (`embed.FS`).

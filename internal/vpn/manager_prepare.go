@@ -1,10 +1,7 @@
 package vpn
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -39,7 +36,7 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	if err != nil {
 		return nil, err
 	}
-	if err := m.ensureInterfaceUniqueLocked(name, iface); err != nil {
+	if err := m.ensureInterfaceUniqueLocked(name, iface, existing); err != nil {
 		return nil, err
 	}
 
@@ -52,6 +49,12 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	if err != nil {
 		if reservedTable > 0 {
 			m.allocator.Release(reservedTable, 0)
+		}
+		return nil, err
+	}
+	if err := m.ensureAllocationNoPeaceyConflictLocked(routeTable, mark); err != nil {
+		if reservedTable > 0 || reservedMark > 0 {
+			m.allocator.Release(reservedTable, reservedMark)
 		}
 		return nil, err
 	}
@@ -159,31 +162,4 @@ func (m *Manager) resolveMarkLocked(existing *VPNProfile) (uint32, uint32, uint3
 		return 0, 0, 0, err
 	}
 	return mark, mark, 0, nil
-}
-
-func (m *Manager) ensureInterfaceUniqueLocked(name, iface string) error {
-	entries, err := os.ReadDir(m.vpnsDir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		otherName := entry.Name()
-		if otherName == name {
-			continue
-		}
-		values, err := parseVPNConf(filepath.Join(m.vpnsDir, otherName, "vpn.conf"))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return err
-		}
-		if strings.TrimSpace(values["DEV"]) == iface {
-			return fmt.Errorf("%w: interface %q already used by vpn %q", ErrVPNValidation, iface, otherName)
-		}
-	}
-	return nil
 }

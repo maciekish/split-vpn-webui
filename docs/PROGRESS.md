@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-21
-**Last session summary:** Sprint 12 completed end-to-end: added interactive uninstall flow (`uninstall.sh`) with full-wipe or category-based removal, runtime routing cleanup, installer deployment of uninstall script, and documentation updates.
+**Last session summary:** Post-sprint remediation completed: fixed resolver timeout refresh behavior, hardened VPN clash prevention (device/route-table/fwmark against managed, system, and peacey scopes), fixed uninstall orphan `svpn-*` symlink cleanup, and reconciled implementation docs/README with current code.
 
 ---
 
@@ -35,7 +35,7 @@
 
 ## Known Issues / Blockers
 
-- Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
+- No known code blockers. A final on-device UDM acceptance run is still recommended for installer/boot-persistence behavior under real firmware update conditions.
 
 ---
 
@@ -64,6 +64,40 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Post-sprint remediation session (review findings closure)
+- Fixed resolver timeout propagation bug:
+  - `internal/routing/resolver.go` now rebuilds default domain/ASN/wildcard resolvers per run from current settings so timeout changes apply immediately (no process restart required).
+  - test-injected custom resolvers remain stable via explicit custom flags.
+- Fixed uninstall orphan symlink cleanup:
+  - `uninstall.sh` now removes orphan `/etc/systemd/system/svpn-*.service` symlinks even when canonical unit files under `units/` are already missing.
+  - stops/disables corresponding units and triggers `daemon-reload` when needed.
+- Hardened VPN uniqueness/clash logic:
+  - Added `internal/vpn/manager_conflicts.go`.
+  - `vpn.Manager` now rejects interface collisions against:
+    - other app-managed VPNs
+    - live system interfaces
+    - existing `wg-quick@*.service` unit-reserved interfaces
+    - peacey profiles discovered in `/data/split-vpn/*/vpn.conf`
+  - `vpn.Manager` now rejects route table / fwmark collisions with peacey profiles.
+  - Allocator now supports additional config-root scanning and `NewManager` seeds allocator with `/data/split-vpn` to avoid route-table/fwmark allocation clashes with peacey profiles.
+- Added/updated tests:
+  - `internal/vpn/manager_test.go`:
+    - system interface conflict rejection
+    - allowed self-update when keeping existing interface
+    - peacey interface conflict rejection
+    - peacey route-table conflict rejection
+  - `internal/vpn/allocator_test.go`:
+    - additional config-root scan conflict coverage
+- Documentation alignment:
+  - Updated `README.md` to current implemented scope and paths (`/data/split-vpn-webui`, full VPN/routing management, resolver/prewarm/auth).
+  - Updated `docs/IMPLEMENTATION_PLAN.md` checklist consistency (Sprint 1 completion, Sprint 9 validation wording, IPv6 parity checklist).
+- Validation run:
+  - `go test ./...`
+  - `go vet ./...`
+  - `bash -n install.sh uninstall.sh deploy/on_boot_hook.sh`
+  - `printf 'n\nn\nn\nn\nn\n' | SKIP_ROOT_CHECK=1 bash uninstall.sh`
+  - all passed locally.
 
 ### 2026-02-21 — Sprint 12 completion session
 - Added `uninstall.sh` in repo root:

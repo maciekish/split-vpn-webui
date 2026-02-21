@@ -107,6 +107,18 @@ remove_vpns_units_category() {
 			daemon_reload_required=1
 		fi
 	done
+
+	for unit_path in "${SYSTEMD_DIR}"/svpn-*.service; do
+		matched=1
+		local unit_name
+		unit_name="$(basename "${unit_path}")"
+		safe_systemctl stop "${unit_name}"
+		safe_systemctl disable "${unit_name}"
+		if remove_path "${unit_path}"; then
+			add_removed "VPN unit symlink removed (${unit_path})"
+			daemon_reload_required=1
+		fi
+	done
 	shopt -u nullglob
 
 	if [[ "${matched}" -eq 0 ]]; then

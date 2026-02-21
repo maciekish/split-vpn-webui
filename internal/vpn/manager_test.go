@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,5 +230,141 @@ abc
 	}
 	if filepath.Ext(profile.ConfigFile) != ".ovpn" {
 		t.Fatalf("expected .ovpn config file, got %q", profile.ConfigFile)
+	}
+}
+
+func TestManagerRejectsSystemInterfaceConflict(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	manager.listInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{{Name: "wg0"}}, nil
+	}
+
+	wgConfig := `[Interface]
+PrivateKey = test
+Address = 10.0.0.2/32
+[Peer]
+PublicKey = peer
+AllowedIPs = 0.0.0.0/0
+Endpoint = host:51820
+`
+	_, err := manager.Create(UpsertRequest{
+		Name:          "wg-system-conflict",
+		Type:          "wireguard",
+		Config:        wgConfig,
+		InterfaceName: "wg0",
+	})
+	if !errors.Is(err, ErrVPNValidation) {
+		t.Fatalf("expected validation error for system interface conflict, got %v", err)
+	}
+}
+
+func TestManagerAllowsUpdateKeepingExistingSystemInterface(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	manager.listInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{}, nil
+	}
+
+	wgConfig := `[Interface]
+PrivateKey = test
+Address = 10.0.0.2/32
+[Peer]
+PublicKey = peer
+AllowedIPs = 0.0.0.0/0
+Endpoint = host:51820
+`
+	_, err := manager.Create(UpsertRequest{
+		Name:          "wg-existing-iface",
+		Type:          "wireguard",
+		Config:        wgConfig,
+		InterfaceName: "wg-existing",
+	})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	manager.listInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{{Name: "wg-existing"}}, nil
+	}
+	_, err = manager.Update("wg-existing-iface", UpsertRequest{
+		Config: strings.ReplaceAll(wgConfig, "host:51820", "updated:51820"),
+	})
+	if err != nil {
+		t.Fatalf("expected update to allow existing interface, got %v", err)
+	}
+}
+
+func TestManagerRejectsPeaceyInterfaceConflict(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	peaceyDir := t.TempDir()
+	manager.peaceyDir = peaceyDir
+	manager.listInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{}, nil
+	}
+
+	if err := os.MkdirAll(filepath.Join(peaceyDir, "peacey-one"), 0o700); err != nil {
+		t.Fatalf("mkdir peacey profile: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(peaceyDir, "peacey-one", "vpn.conf"),
+		[]byte("DEV=wg-peacey\nROUTE_TABLE=300\nMARK=0x300\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write peacey vpn.conf: %v", err)
+	}
+
+	wgConfig := `[Interface]
+PrivateKey = test
+Address = 10.0.0.2/32
+[Peer]
+PublicKey = peer
+AllowedIPs = 0.0.0.0/0
+Endpoint = host:51820
+`
+	_, err := manager.Create(UpsertRequest{
+		Name:          "wg-peacey-iface",
+		Type:          "wireguard",
+		Config:        wgConfig,
+		InterfaceName: "wg-peacey",
+	})
+	if !errors.Is(err, ErrVPNValidation) {
+		t.Fatalf("expected interface validation conflict against peacey profile, got %v", err)
+	}
+}
+
+func TestManagerRejectsPeaceyRouteTableConflict(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	peaceyDir := t.TempDir()
+	manager.peaceyDir = peaceyDir
+	manager.listInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{}, nil
+	}
+
+	if err := os.MkdirAll(filepath.Join(peaceyDir, "peacey-two"), 0o700); err != nil {
+		t.Fatalf("mkdir peacey profile: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(peaceyDir, "peacey-two", "vpn.conf"),
+		[]byte("DEV=wg-other\nROUTE_TABLE=444\nMARK=0x444\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write peacey vpn.conf: %v", err)
+	}
+
+	wgConfig := `[Interface]
+PrivateKey = test
+Address = 10.0.0.2/32
+Table = 444
+[Peer]
+PublicKey = peer
+AllowedIPs = 0.0.0.0/0
+Endpoint = host:51820
+`
+	_, err := manager.Create(UpsertRequest{
+		Name:   "wg-peacey-table",
+		Type:   "wireguard",
+		Config: wgConfig,
+	})
+	if !errors.Is(err, ErrAllocationConflict) {
+		t.Fatalf("expected route table allocation conflict against peacey profile, got %v", err)
 	}
 }

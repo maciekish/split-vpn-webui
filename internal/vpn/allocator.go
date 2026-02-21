@@ -43,6 +43,7 @@ type Allocator struct {
 
 	vpnsDir         string
 	routeTablesPath string
+	configRoots     []string
 	exec            CommandExecutor
 
 	usedTables map[int]struct{}
@@ -51,11 +52,31 @@ type Allocator struct {
 
 // NewAllocator creates an allocator using live system information.
 func NewAllocator(vpnsDir string) (*Allocator, error) {
-	return NewAllocatorWithDeps(vpnsDir, "/etc/iproute2/rt_tables", systemCommandExecutor{})
+	return newAllocator(vpnsDir, "/etc/iproute2/rt_tables", systemCommandExecutor{}, nil)
+}
+
+// NewAllocatorWithConfigRoots creates an allocator that additionally scans
+// external config roots (e.g. peacey /data/split-vpn) for persisted allocations.
+func NewAllocatorWithConfigRoots(vpnsDir string, configRoots []string) (*Allocator, error) {
+	return newAllocator(vpnsDir, "/etc/iproute2/rt_tables", systemCommandExecutor{}, configRoots)
 }
 
 // NewAllocatorWithDeps creates an allocator with custom dependencies for tests.
 func NewAllocatorWithDeps(vpnsDir, routeTablesPath string, executor CommandExecutor) (*Allocator, error) {
+	return newAllocator(vpnsDir, routeTablesPath, executor, nil)
+}
+
+// NewAllocatorWithDepsAndConfigRoots creates an allocator with custom
+// dependencies and additional config roots for tests.
+func NewAllocatorWithDepsAndConfigRoots(
+	vpnsDir, routeTablesPath string,
+	executor CommandExecutor,
+	configRoots []string,
+) (*Allocator, error) {
+	return newAllocator(vpnsDir, routeTablesPath, executor, configRoots)
+}
+
+func newAllocator(vpnsDir, routeTablesPath string, executor CommandExecutor, configRoots []string) (*Allocator, error) {
 	trimmedDir := strings.TrimSpace(vpnsDir)
 	if trimmedDir == "" {
 		return nil, fmt.Errorf("vpns directory is required")
@@ -70,6 +91,7 @@ func NewAllocatorWithDeps(vpnsDir, routeTablesPath string, executor CommandExecu
 	a := &Allocator{
 		vpnsDir:         trimmedDir,
 		routeTablesPath: routeTablesPath,
+		configRoots:     normalizeConfigRoots(trimmedDir, configRoots),
 		exec:            executor,
 		usedTables:      make(map[int]struct{}),
 		usedMarks:       make(map[uint32]struct{}),
@@ -78,6 +100,29 @@ func NewAllocatorWithDeps(vpnsDir, routeTablesPath string, executor CommandExecu
 		return nil, err
 	}
 	return a, nil
+}
+
+func normalizeConfigRoots(primary string, extras []string) []string {
+	roots := make([]string, 0, len(extras)+1)
+	seen := make(map[string]struct{}, len(extras)+1)
+
+	add := func(raw string) {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		roots = append(roots, trimmed)
+	}
+
+	add(primary)
+	for _, root := range extras {
+		add(root)
+	}
+	return roots
 }
 
 // AllocateTable allocates a free route table ID >= 200.
@@ -228,30 +273,32 @@ func (a *Allocator) parseIPRulesOutput(output string) {
 }
 
 func (a *Allocator) seedFromPersistedConfigs() error {
-	entries, err := os.ReadDir(a.vpnsDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(a.vpnsDir, entry.Name(), "vpn.conf")
-		values, err := parseVPNConf(path)
+	for _, root := range a.configRoots {
+		entries, err := os.ReadDir(root)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
 			return err
 		}
-		if table, err := strconv.Atoi(strings.TrimSpace(values["ROUTE_TABLE"])); err == nil && table >= minRouteTableID {
-			a.usedTables[table] = struct{}{}
-		}
-		if mark, ok := parseMarkToken(values["MARK"]); ok && mark >= minFWMark {
-			a.usedMarks[mark] = struct{}{}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(root, entry.Name(), "vpn.conf")
+			values, err := parseVPNConf(path)
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				return err
+			}
+			if table, err := strconv.Atoi(strings.TrimSpace(values["ROUTE_TABLE"])); err == nil && table >= minRouteTableID {
+				a.usedTables[table] = struct{}{}
+			}
+			if mark, ok := parseMarkToken(values["MARK"]); ok && mark >= minFWMark {
+				a.usedMarks[mark] = struct{}{}
+			}
 		}
 	}
 	return nil

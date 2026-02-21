@@ -167,3 +167,38 @@ func TestAllocatorAllocationsAreUnique(t *testing.T) {
 		marks[mark] = struct{}{}
 	}
 }
+
+func TestAllocatorScansAdditionalConfigRoots(t *testing.T) {
+	vpnsDir := t.TempDir()
+	peaceyDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(peaceyDir, "peacey-one"), 0o700); err != nil {
+		t.Fatalf("create peacey profile: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(peaceyDir, "peacey-one", "vpn.conf"),
+		[]byte("ROUTE_TABLE=333\nMARK=0x333\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write peacey vpn.conf: %v", err)
+	}
+
+	routeTables := filepath.Join(t.TempDir(), "rt_tables")
+	if err := os.WriteFile(routeTables, []byte("\n"), 0o644); err != nil {
+		t.Fatalf("write route tables file: %v", err)
+	}
+
+	alloc, err := NewAllocatorWithDepsAndConfigRoots(vpnsDir, routeTables, mockCommandExecutor{
+		outputs: map[string][]byte{},
+		errs: map[string]error{
+			"ip rule show":    errors.New("missing ip"),
+			"ip -6 rule show": errors.New("missing ip"),
+		},
+	}, []string{peaceyDir})
+	if err != nil {
+		t.Fatalf("NewAllocatorWithDepsAndConfigRoots failed: %v", err)
+	}
+
+	if err := alloc.Reserve(333, 0x333); !errors.Is(err, ErrAllocationConflict) {
+		t.Fatalf("expected persisted allocation conflict from additional config root, got %v", err)
+	}
+}

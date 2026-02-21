@@ -3,6 +3,7 @@ package vpn
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,9 +36,12 @@ type Manager struct {
 
 	vpnsDir   string
 	dataDir   string
+	peaceyDir string
 	allocator *Allocator
 	units     UnitManager
 	providers map[string]Provider
+
+	listInterfaces func() ([]net.Interface, error)
 }
 
 // UnitManager captures unit lifecycle operations used by vpn.Manager.
@@ -60,7 +64,7 @@ func NewManager(vpnsDir string, allocator *Allocator, unitManager UnitManager) (
 	}
 	var err error
 	if allocator == nil {
-		allocator, err = NewAllocator(trimmed)
+		allocator, err = NewAllocatorWithConfigRoots(trimmed, []string{"/data/split-vpn"})
 		if err != nil {
 			return nil, err
 		}
@@ -68,12 +72,14 @@ func NewManager(vpnsDir string, allocator *Allocator, unitManager UnitManager) (
 	return &Manager{
 		vpnsDir:   trimmed,
 		dataDir:   filepath.Dir(trimmed),
+		peaceyDir: "/data/split-vpn",
 		allocator: allocator,
 		units:     unitManager,
 		providers: map[string]Provider{
 			"wireguard": NewWireGuardProvider(),
 			"openvpn":   NewOpenVPNProvider(),
 		},
+		listInterfaces: net.Interfaces,
 	}, nil
 }
 
