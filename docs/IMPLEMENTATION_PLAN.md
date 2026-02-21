@@ -556,13 +556,13 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] Restart the app; stats charts continue from where they left off (no blank restart).
-- [ ] `GOOS=linux GOARCH=amd64 go build ./cmd/splitvpnwebui` succeeds (pure Go — `modernc.org/sqlite` has no CGo).
-- [ ] `GOOS=linux GOARCH=arm64 go build ./cmd/splitvpnwebui` succeeds.
-- [ ] `go test ./...` passes in CI.
-- [ ] GitHub Actions workflow builds and uploads release binaries on tag push.
-- [ ] `install.sh` downloads the correct binary for the detected architecture.
-- [ ] Stats history table does not grow unbounded (rows older than 7 days are pruned on startup).
+- [x] Restart the app; stats charts continue from where they left off (no blank restart).
+- [x] `GOOS=linux GOARCH=amd64 go build ./cmd/splitvpnwebui` succeeds (pure Go — `modernc.org/sqlite` has no CGo).
+- [x] `GOOS=linux GOARCH=arm64 go build ./cmd/splitvpnwebui` succeeds.
+- [x] `go test ./...` passes in CI.
+- [x] GitHub Actions workflow builds and uploads release binaries on tag push.
+- [x] `install.sh` downloads the correct binary for the detected architecture.
+- [x] Stats history table does not grow unbounded (rows older than 7 days are pruned on startup).
 
 ---
 

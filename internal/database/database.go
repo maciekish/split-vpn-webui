@@ -4,8 +4,10 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 )
@@ -46,5 +48,19 @@ func Open(path string) (*sql.DB, error) {
 // migrate executes the schema DDL. All statements are idempotent.
 func migrate(db *sql.DB) error {
 	_, err := db.Exec(schema)
+	return err
+}
+
+// Cleanup prunes stale rows from tables that are expected to be bounded.
+func Cleanup(db *sql.DB) error {
+	return cleanupBefore(db, time.Now().UTC())
+}
+
+func cleanupBefore(db *sql.DB, now time.Time) error {
+	if db == nil {
+		return errors.New("database handle is required")
+	}
+	cutoff := now.Add(-7 * 24 * time.Hour).Unix()
+	_, err := db.Exec(`DELETE FROM stats_history WHERE timestamp < ?`, cutoff)
 	return err
 }

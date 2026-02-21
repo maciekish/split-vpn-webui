@@ -57,6 +57,9 @@ func main() {
 		log.Fatalf("failed to open database %s: %v", resolvedDB, err)
 	}
 	defer db.Close()
+	if err := database.Cleanup(db); err != nil {
+		log.Printf("warning: failed to prune stale stats history: %v", err)
+	}
 
 	settingsPath := filepath.Join(*dataDir, "settings.json")
 	settingsManager := settings.NewManager(settingsPath)
@@ -119,6 +122,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to prepare router: %v", err)
 	}
+	if err := collector.LoadHistory(db); err != nil {
+		log.Printf("warning: failed to load persisted stats history: %v", err)
+	}
 
 	stop := make(chan struct{})
 	go collector.Start(stop)
@@ -152,6 +158,9 @@ func main() {
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown error: %v", err)
+	}
+	if err := collector.Persist(db); err != nil {
+		log.Printf("warning: failed to persist stats history: %v", err)
 	}
 }
 

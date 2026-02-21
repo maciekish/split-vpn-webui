@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - claude-code
+    tags:
+      - "v*"
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build amd64 binary
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -o dist/split-vpn-webui-linux-amd64 ./cmd/splitvpnwebui
+
+      - name: Build arm64 binary
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=arm64 go build -o dist/split-vpn-webui-linux-arm64 ./cmd/splitvpnwebui
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: split-vpn-webui-binaries
+          path: dist/split-vpn-webui-linux-*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: split-vpn-webui-binaries
+          path: dist
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/split-vpn-webui-linux-amd64
+            dist/split-vpn-webui-linux-arm64

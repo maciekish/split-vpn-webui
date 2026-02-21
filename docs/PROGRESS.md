@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 10 — Persistent Stats, Build & CI
+**Active sprint:** Sprint 11 — Policy Routing Expansion
 **Last updated:** 2026-02-21
-**Last session summary:** Planning/spec update session: added uninstall requirements and plan for an interactive `uninstall.sh` flow (ask "remove everything" first; if no, prompt per category: binaries, VPNs+units, config files, statistics data), and added Sprint 12 to the implementation plan.
+**Last session summary:** Sprint 10 completed end-to-end: added stats history persist/load with startup retention cleanup, wired startup/shutdown persistence hooks, added cross-build Makefile targets, and added GitHub Actions build/release workflow.
 
 ---
 
@@ -27,15 +27,14 @@
 | **7** — Web UI: Domain Routing | **Complete** | All Sprint 7 deliverables implemented and validated |
 | **8** — Web UI: Pre-Warm, Auth & Settings | **Complete** | All Sprint 8 deliverables implemented and validated |
 | **9** — Install Script & Hardening | **Complete** | Installer + hardening + tests implemented |
-| **10** — Persistent Stats, Build & CI | Not started | Active sprint |
-| **11** — Policy Routing Expansion | Not started | Planned: selector/rule model + runtime resolvers |
+| **10** — Persistent Stats, Build & CI | **Complete** | Stats persistence + cross-build + CI workflow implemented |
+| **11** — Policy Routing Expansion | Not started | Active sprint |
 | **12** — Interactive Uninstall Script | Not started | Planned: full wipe or category-by-category uninstall |
 
 ---
 
 ## Known Issues / Blockers
 
-- Stats history is still in-memory only (Sprint 10 adds SQLite persistence).
 - Device-level verification for Sprint 9 installer reboot/firmware-wipe scenarios still needs execution on a real UDM test system.
 - Policy-routing expansion (source/destination/port/ASN/wildcard) is now captured for Sprint 11 and not implemented yet.
 - Interactive uninstall flow is now captured for Sprint 12 and not implemented yet.
@@ -67,6 +66,49 @@
 ---
 
 ## Session Notes
+
+### 2026-02-21 — Sprint 10 completion session
+- Stats history persistence implemented:
+  - `internal/stats/persistence.go`:
+    - Added `Persist(db *sql.DB) error` for writing in-memory history to `stats_history`.
+    - Added `LoadHistory(db *sql.DB) error` for restoring history on startup.
+    - Added deferred-history application path so history loaded before interface discovery is applied when interfaces are configured.
+  - `internal/stats/stats.go`:
+    - Added hidden byte counters to history datapoints for reliable persist/restore.
+    - Added base-offset recovery logic after restore to keep counters continuous across restarts.
+- Startup retention cleanup implemented:
+  - `internal/database/database.go`:
+    - Added `Cleanup(db *sql.DB) error` to prune `stats_history` rows older than 7 days.
+- App lifecycle integration:
+  - `cmd/splitvpnwebui/main.go`:
+    - Calls `database.Cleanup(db)` on startup.
+    - Calls `collector.LoadHistory(db)` after router/state initialization.
+    - Calls `collector.Persist(db)` on graceful shutdown.
+- Build/CI deliverables implemented:
+  - Added `.github/workflows/build.yml`:
+    - `go test ./...`
+    - Linux amd64/arm64 builds
+    - artifact upload
+    - tag-triggered release asset publishing.
+  - Added `Makefile` targets:
+    - `make test`
+    - `make build-amd64`
+    - `make build-arm64`
+    - `make build`
+    - `make install`
+- New tests:
+  - `internal/stats/stats_persistence_test.go`:
+    - persist/load round-trip
+    - pending history application when interfaces are configured later.
+  - `internal/database/database_test.go`:
+    - retention cleanup removes only rows older than 7 days.
+- Validation run:
+  - `go test ./...`
+  - `GOOS=linux GOARCH=amd64 go build ./cmd/splitvpnwebui`
+  - `GOOS=linux GOARCH=arm64 go build ./cmd/splitvpnwebui`
+  - `make test`
+  - `make build`
+  - All passed locally.
 
 ### 2026-02-21 — Uninstall spec/planning session
 - Updated `AGENTS.md`:

@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 )
 
 func TestOpen_InMemory(t *testing.T) {
@@ -65,5 +66,44 @@ func TestOpen_ForeignKeys(t *testing.T) {
 	db.QueryRow("SELECT COUNT(*) FROM domain_entries WHERE group_id=?", groupID).Scan(&count)
 	if count != 0 {
 		t.Errorf("expected cascade delete, got %d orphan entries", count)
+	}
+}
+
+func TestCleanup_RemovesRowsOlderThanSevenDays(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Unix(1_700_000_000, 0)
+	oldTs := now.Add(-8 * 24 * time.Hour).Unix()
+	recentTs := now.Add(-2 * 24 * time.Hour).Unix()
+
+	if _, err := db.Exec(`
+		INSERT INTO stats_history (interface, timestamp, rx_bytes, tx_bytes)
+		VALUES ('WAN', ?, 100, 100), ('WAN', ?, 200, 200)
+	`, oldTs, recentTs); err != nil {
+		t.Fatalf("seed stats_history: %v", err)
+	}
+
+	if err := cleanupBefore(db, now); err != nil {
+		t.Fatalf("cleanupBefore: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM stats_history`).Scan(&count); err != nil {
+		t.Fatalf("count stats_history: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 remaining row after cleanup, got %d", count)
+	}
+
+	var ts int64
+	if err := db.QueryRow(`SELECT timestamp FROM stats_history LIMIT 1`).Scan(&ts); err != nil {
+		t.Fatalf("select remaining row: %v", err)
+	}
+	if ts != recentTs {
+		t.Fatalf("expected recent row to remain (%d), got %d", recentTs, ts)
 	}
 }

@@ -24,6 +24,8 @@ type datapoint struct {
 	RxThroughput    float64   `json:"rxThroughput"`
 	TxThroughput    float64   `json:"txThroughput"`
 	TotalThroughput float64   `json:"totalThroughput"`
+	RxBytes         uint64    `json:"-"`
+	TxBytes         uint64    `json:"-"`
 }
 
 // InterfaceStats summarises live metrics for a network interface.
@@ -56,20 +58,22 @@ type Snapshot struct {
 
 // Collector monitors interface statistics.
 type Collector struct {
-	mu            sync.RWMutex
-	interfaces    map[string]*InterfaceStats
-	historyLength int
-	pollInterval  time.Duration
-	wanInterface  string
+	mu             sync.RWMutex
+	interfaces     map[string]*InterfaceStats
+	pendingHistory map[string][]historyRow
+	historyLength  int
+	pollInterval   time.Duration
+	wanInterface   string
 }
 
 // NewCollector instantiates a collector.
 func NewCollector(wanInterface string, pollInterval time.Duration, historyLength int) *Collector {
 	return &Collector{
-		interfaces:    make(map[string]*InterfaceStats),
-		historyLength: historyLength,
-		pollInterval:  pollInterval,
-		wanInterface:  wanInterface,
+		interfaces:     make(map[string]*InterfaceStats),
+		pendingHistory: make(map[string][]historyRow),
+		historyLength:  historyLength,
+		pollInterval:   pollInterval,
+		wanInterface:   wanInterface,
 	}
 }
 
@@ -118,6 +122,10 @@ func (c *Collector) ensureInterface(name, iface string, ifaceType InterfaceType)
 			existing.History = existing.History[:0]
 		}
 		existing.Type = ifaceType
+		if pending, hasPending := c.pendingHistory[name]; hasPending {
+			c.applyHistoryLocked(existing, pending)
+			delete(c.pendingHistory, name)
+		}
 		return
 	}
 	c.interfaces[name] = &InterfaceStats{
@@ -125,6 +133,10 @@ func (c *Collector) ensureInterface(name, iface string, ifaceType InterfaceType)
 		Interface: iface,
 		Type:      ifaceType,
 		History:   make([]datapoint, 0, c.historyLength),
+	}
+	if pending, hasPending := c.pendingHistory[name]; hasPending {
+		c.applyHistoryLocked(c.interfaces[name], pending)
+		delete(c.pendingHistory, name)
 	}
 }
 
@@ -164,6 +176,14 @@ func (c *Collector) update(now time.Time) {
 		if stats.baseRx == 0 && stats.baseTx == 0 && !stats.Available {
 			stats.baseRx = rx
 			stats.baseTx = tx
+		}
+		if stats.baseRx == 0 && stats.baseTx == 0 && stats.Available {
+			if rx >= stats.RxBytes {
+				stats.baseRx = rx - stats.RxBytes
+			}
+			if tx >= stats.TxBytes {
+				stats.baseTx = tx - stats.TxBytes
+			}
 		}
 		if rx < stats.baseRx {
 			stats.baseRx = rx
@@ -208,6 +228,8 @@ func (c *Collector) update(now time.Time) {
 			RxThroughput:    currentRx,
 			TxThroughput:    currentTx,
 			TotalThroughput: stats.CurrentThroughput,
+			RxBytes:         adjRx,
+			TxBytes:         adjTx,
 		})
 		if len(stats.History) > c.historyLength {
 			stats.History = stats.History[len(stats.History)-c.historyLength:]
