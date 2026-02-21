@@ -170,6 +170,14 @@ textarea#vpn-config-editor {
   font-family: var(--bs-font-monospace);
 }
 
+#prewarm-progress-bar {
+  min-width: 3rem;
+}
+
+#api-token {
+  font-size: 0.85rem;
+}
+
 @media (max-width: 768px) {
   body {
     background: #090a0f;

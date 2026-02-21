@@ -492,13 +492,13 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ### Deliverables / Definition of Done
 
-- [ ] "Run Now" triggers pre-warm; live progress bar updates via SSE `prewarm` events.
-- [ ] After run completes, last run stats (timestamp, duration, IPs inserted) are displayed.
-- [ ] Schedule field allows setting run interval; saved to settings.
-- [ ] Settings modal "Change Password" works: requires current password, sets new one.
-- [ ] Settings modal shows API token with a "Copy" button and a "Regenerate" button.
-- [ ] `POST /api/auth/password` validates current password before accepting the change (prevents CSRF-style resets).
-- [ ] `GET /api/auth/token` only returns the token to authenticated users (already behind auth middleware).
+- [x] "Run Now" triggers pre-warm; live progress bar updates via SSE `prewarm` events.
+- [x] After run completes, last run stats (timestamp, duration, IPs inserted) are displayed.
+- [x] Schedule field allows setting run interval; saved to settings.
+- [x] Settings modal "Change Password" works: requires current password, sets new one.
+- [x] Settings modal shows API token with a "Copy" button and a "Regenerate" button.
+- [x] `POST /api/auth/password` validates current password before accepting the change (prevents CSRF-style resets).
+- [x] `GET /api/auth/token` only returns the token to authenticated users (already behind auth middleware).
 
 ---
 

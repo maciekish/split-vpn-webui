@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Active sprint:** Sprint 8 — Web UI: Pre-Warm, Auth & Settings
+**Active sprint:** Sprint 9 — Install Script & Hardening
 **Last updated:** 2026-02-20
-**Last session summary:** Sprint 7 completed end-to-end: added full Domain Routing UI (group list, add/edit modal, delete confirmation, and live egress VPN dropdown), wired all group actions to `/api/groups`, and added dedicated status feedback in the section. Full test suite passing.
+**Last session summary:** Sprint 8 completed end-to-end: added DNS pre-warm control panel with Run Now, live SSE progress, last-run stats, and schedule persistence; added authenticated auth APIs for password change and token management; and extended settings modal with change-password and API token copy/regenerate controls. Full test suite passing.
 
 ---
 
@@ -25,8 +25,8 @@
 | **5** — DNS Pre-Warm | **Complete** | All Sprint 5 deliverables implemented and validated |
 | **6** — Web UI: VPN Management | **Complete** | All Sprint 6 deliverables implemented and validated |
 | **7** — Web UI: Domain Routing | **Complete** | All Sprint 7 deliverables implemented and validated |
-| **8** — Web UI: Pre-Warm, Auth & Settings | Not started | Active sprint |
-| **9** — Install Script & Hardening | Not started | Blocked until Sprint 8 complete |
+| **8** — Web UI: Pre-Warm, Auth & Settings | **Complete** | All Sprint 8 deliverables implemented and validated |
+| **9** — Install Script & Hardening | Not started | Active sprint |
 | **10** — Persistent Stats, Build & CI | Not started | Blocked until Sprint 9 complete |
 
 ---
@@ -63,6 +63,41 @@
 ---
 
 ## Session Notes
+
+### 2026-02-20 — Sprint 8 completion session
+- Backend auth API expansion in `internal/server/handlers_auth.go`:
+  - Added `POST /api/auth/password` with strict current-password validation before password change.
+  - Added `GET /api/auth/token` for authenticated token retrieval.
+  - Added `POST /api/auth/token` for token regeneration (with updated session cookie to keep UI logged in).
+- Router integration in `internal/server/server.go`:
+  - Added authenticated routes:
+    - `GET /api/auth/token`
+    - `POST /api/auth/token`
+    - `POST /api/auth/password`
+- UI additions in `ui/web/templates/layout.html`:
+  - New DNS Pre-Warm section with:
+    - last-run metadata panel
+    - Run Now button
+    - progress bar area
+    - schedule (minutes) input + save button
+  - Settings modal auth section:
+    - current/new password fields + change button
+    - API token display + copy/regenerate buttons
+- New frontend module `ui/web/static/js/prewarm-auth.js`:
+  - `loadPrewarmStatus()`, `triggerPrewarm()`, `renderPrewarmProgress()` via SSE `event: prewarm`.
+  - Schedule persistence through `/api/settings` (`prewarmIntervalSeconds`).
+  - Auth actions:
+    - password change via `/api/auth/password`
+    - token fetch via `/api/auth/token`
+    - token regenerate via `/api/auth/token` (POST)
+    - token copy helper.
+- Styling updates in `ui/web/static/css/app.css` for prewarm progress and token display.
+- Validation run:
+  - `node --check ui/web/static/js/app.js`
+  - `node --check ui/web/static/js/domain-routing.js`
+  - `node --check ui/web/static/js/prewarm-auth.js`
+  - `go test ./...`
+  - All passed.
 
 ### 2026-02-20 — Sprint 7 completion session
 - Added Domain Routing UI in `ui/web/templates/layout.html`:

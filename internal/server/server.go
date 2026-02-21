@@ -146,6 +146,9 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Delete("/groups/{id}", s.handleDeleteGroup)
 			api.Get("/prewarm/status", s.handlePrewarmStatus)
 			api.Post("/prewarm/run", s.handlePrewarmRun)
+			api.Get("/auth/token", s.handleGetAuthToken)
+			api.Post("/auth/token", s.handleRegenerateAuthToken)
+			api.Post("/auth/password", s.handleChangePassword)
 
 			api.Get("/vpns", s.handleListVPNs)
 			api.Post("/vpns", s.handleCreateVPN)
