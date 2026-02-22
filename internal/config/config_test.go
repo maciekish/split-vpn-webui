@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,5 +44,33 @@ func TestConfigPathRejectsEscapingDirectory(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "escapes base path") {
 		t.Fatalf("expected escape-path error, got %v", err)
+	}
+}
+
+func TestDiscoverKeepsConfiguredWireGuardInterface(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "vpns")
+	vpnDir := filepath.Join(base, "wg-sgp")
+	if err := os.MkdirAll(vpnDir, 0o700); err != nil {
+		t.Fatalf("mkdir vpn dir: %v", err)
+	}
+
+	vpnConf := "VPN_PROVIDER=external\nDEV=wg-legacy\nCONFIG_FILE=dreammachine.conf\n"
+	if err := os.WriteFile(filepath.Join(vpnDir, "vpn.conf"), []byte(vpnConf), 0o644); err != nil {
+		t.Fatalf("write vpn.conf: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vpnDir, "dreammachine.conf"), []byte("[Interface]\n"), 0o600); err != nil {
+		t.Fatalf("write wireguard config: %v", err)
+	}
+
+	m := NewManager(base)
+	configs, err := m.Discover()
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+	if len(configs) != 1 {
+		t.Fatalf("expected one config, got %d", len(configs))
+	}
+	if configs[0].InterfaceName != "wg-legacy" {
+		t.Fatalf("expected configured DEV value wg-legacy, got %q", configs[0].InterfaceName)
 	}
 }

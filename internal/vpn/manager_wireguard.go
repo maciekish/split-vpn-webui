@@ -2,10 +2,17 @@ package vpn
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
+	"sync"
 )
 
-func sanitizeWireGuardConfig(raw string, routeTable int) (string, []string, error) {
+var (
+	resolvconfCheckOnce sync.Once
+	resolvconfAvailable bool
+)
+
+func sanitizeWireGuardConfig(raw string, routeTable int, dnsSupported bool) (string, []string, error) {
 	lines := strings.Split(raw, "\n")
 	out := make([]string, 0, len(lines)+2)
 	warnings := make([]string, 0, 2)
@@ -40,6 +47,13 @@ func sanitizeWireGuardConfig(raw string, routeTable int) (string, []string, erro
 				if lowerKey == "table" {
 					seenTable = true
 				}
+				if lowerKey == "dns" && !dnsSupported {
+					if _, exists := warningSeen["dns"]; !exists {
+						warnings = append(warnings, "Removed WireGuard DNS directive because resolvconf is unavailable on this system")
+						warningSeen["dns"] = struct{}{}
+					}
+					continue
+				}
 				if (lowerKey == "postup" || lowerKey == "predown" || lowerKey == "postdown") && containsLegacyUpDownScript(value) {
 					if _, exists := warningSeen[lowerKey]; !exists {
 						warnings = append(warnings, fmt.Sprintf("Removed legacy peacey/split-vpn %s hook from WireGuard config", key))
@@ -66,4 +80,12 @@ func sanitizeWireGuardConfig(raw string, routeTable int) (string, []string, erro
 func containsLegacyUpDownScript(value string) bool {
 	lower := strings.ToLower(value)
 	return strings.Contains(lower, "split-vpn/vpn/updown.sh")
+}
+
+func hasResolvconfBinary() bool {
+	resolvconfCheckOnce.Do(func() {
+		_, err := exec.LookPath("resolvconf")
+		resolvconfAvailable = err == nil
+	})
+	return resolvconfAvailable
 }

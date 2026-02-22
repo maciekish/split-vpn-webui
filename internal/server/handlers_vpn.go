@@ -57,6 +57,12 @@ func (s *Server) handleCreateVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if s.routingManager != nil {
+		if err := s.routingManager.Apply(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	s.broadcastUpdate(nil)
 	writeJSON(w, http.StatusCreated, map[string]any{"vpn": profile})
 }
@@ -84,6 +90,12 @@ func (s *Server) handleUpdateVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if s.routingManager != nil {
+		if err := s.routingManager.Apply(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	s.broadcastUpdate(nil)
 	writeJSON(w, http.StatusOK, map[string]any{"vpn": profile})
 }
@@ -104,6 +116,12 @@ func (s *Server) handleDeleteVPN(w http.ResponseWriter, r *http.Request) {
 	if err := s.refreshState(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if s.routingManager != nil {
+		if err := s.routingManager.Apply(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	s.broadcastUpdate(nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

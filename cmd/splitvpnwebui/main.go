@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -23,28 +24,61 @@ import (
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
 	"split-vpn-webui/internal/systemd"
+	"split-vpn-webui/internal/update"
 	"split-vpn-webui/internal/util"
+	"split-vpn-webui/internal/version"
 	"split-vpn-webui/internal/vpn"
 )
 
 const defaultDataDir = "/data/split-vpn-webui"
 
 func main() {
-	addr := flag.String("addr", ":8091", "listen address (host:port)")
+	addr := flag.String("addr", "127.0.0.1:8091", "listen address (host:port)")
 	dataDir := flag.String("data-dir", defaultDataDir, "persistent data directory")
 	dbPath := flag.String("db", "", "SQLite database path (defaults to <data-dir>/stats.db)")
 	poll := flag.Duration("poll", 2*time.Second, "statistics poll interval")
 	history := flag.Int("history", 120, "number of samples to retain for charts")
 	latencyInterval := flag.Duration("latency-interval", 10*time.Second, "latency refresh interval")
 	systemdMode := flag.Bool("systemd", false, "indicate the process is managed by systemd")
+	versionOnly := flag.Bool("version", false, "print version and exit")
+	versionJSON := flag.Bool("version-json", false, "print version metadata as JSON and exit")
+	selfUpdateRun := flag.Bool("self-update-run", false, "run pending self-update job and exit")
 	flag.Parse()
 
+	if *versionJSON {
+		payload, err := version.Current().JSON()
+		if err != nil {
+			log.Fatalf("failed to encode version JSON: %v", err)
+		}
+		fmt.Println(string(payload))
+		return
+	}
+	if *versionOnly {
+		fmt.Println(version.Current().String())
+		return
+	}
+
 	// Ensure the data directory tree exists.
-	for _, sub := range []string{"", "vpns", "units", "logs"} {
+	for _, sub := range []string{"", "vpns", "units", "logs", "updates"} {
 		dir := filepath.Join(*dataDir, sub)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			log.Fatalf("failed to create directory %s: %v", dir, err)
 		}
+	}
+	if *selfUpdateRun {
+		updater, err := update.NewManager(update.Options{
+			DataDir:    *dataDir,
+			BinaryPath: filepath.Join(*dataDir, "split-vpn-webui"),
+		})
+		if err != nil {
+			log.Fatalf("failed to initialize updater for self-update mode: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if err := updater.RunPendingJob(ctx); err != nil {
+			log.Fatalf("self-update run failed: %v", err)
+		}
+		return
 	}
 
 	resolvedDB := *dbPath
@@ -75,6 +109,14 @@ func main() {
 	systemdManager := systemd.NewManager(*dataDir)
 	if err := systemdManager.WriteBootHook(); err != nil {
 		log.Printf("warning: failed to write boot hook: %v", err)
+	}
+	updater, err := update.NewManager(update.Options{
+		DataDir:    *dataDir,
+		BinaryPath: filepath.Join(*dataDir, "split-vpn-webui"),
+		Systemd:    systemdManager,
+	})
+	if err != nil {
+		log.Fatalf("failed to initialize updater: %v", err)
 	}
 	vpnManager, err := vpn.NewManager(vpnsDir, nil, systemdManager)
 	if err != nil {
@@ -109,7 +151,7 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, vpnManager, routingManager, resolverScheduler, prewarmScheduler, systemdManager, collector, latencyMonitor, settingsManager, authManager, *systemdMode)
+	srv, err := server.New(cfgManager, vpnManager, routingManager, resolverScheduler, prewarmScheduler, systemdManager, collector, latencyMonitor, settingsManager, authManager, updater, *systemdMode)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}
@@ -188,6 +230,11 @@ func resolveListenAddress(defaultAddr, listenInterface string) string {
 		host = ""
 	}
 	if listenInterface == "" {
+		if defaultAddr == "127.0.0.1:8091" && isLoopbackHost(host) {
+			if lanIP, err := util.DetectLANIPv4(); err == nil && lanIP != "" {
+				return net.JoinHostPort(lanIP, port)
+			}
+		}
 		if host == "" {
 			return ":" + port
 		}
@@ -202,4 +249,16 @@ func resolveListenAddress(defaultAddr, listenInterface string) string {
 		return net.JoinHostPort(host, port)
 	}
 	return net.JoinHostPort(ip, port)
+}
+
+func isLoopbackHost(host string) bool {
+	trimmed := strings.TrimSpace(strings.Trim(host, "[]"))
+	if trimmed == "" {
+		return false
+	}
+	if strings.EqualFold(trimmed, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(trimmed)
+	return ip != nil && ip.IsLoopback()
 }

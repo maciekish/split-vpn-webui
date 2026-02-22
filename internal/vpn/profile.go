@@ -9,6 +9,7 @@ type VPNProfile struct {
 	Type           string           `json:"type"`
 	RawConfig      string           `json:"rawConfig"`
 	ConfigFile     string           `json:"configFile"`
+	SupportingFiles []string        `json:"supportingFiles,omitempty"`
 	RouteTable     int              `json:"routeTable"`
 	FWMark         uint32           `json:"fwMark"`
 	InterfaceName  string           `json:"interfaceName"`

@@ -2,12 +2,27 @@ package vpn
 
 import (
 	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
 var configFilePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+func sanitizeSupportingFileName(raw string) (string, error) {
+	name := strings.Trim(strings.TrimSpace(raw), `"'`)
+	if name == "" {
+		return "", fmt.Errorf("%w: supporting file name is required", ErrVPNValidation)
+	}
+	if filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+		return "", fmt.Errorf("%w: supporting file %q must be a base file name", ErrVPNValidation, raw)
+	}
+	if !configFilePattern.MatchString(name) {
+		return "", fmt.Errorf("%w: supporting file name %q is invalid", ErrVPNValidation, raw)
+	}
+	return name, nil
+}
 
 func validateCreateName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
@@ -43,17 +58,21 @@ func providerConfigValue(vpnType string) string {
 	return "openvpn"
 }
 
-func resolveConfigFileName(raw string, existing *VPNProfile, name, vpnType string) (string, error) {
+func resolveConfigFileName(raw string, existing *VPNProfile, name, vpnType, interfaceName string) (string, error) {
+	if vpnType == "wireguard" {
+		iface := strings.TrimSpace(interfaceName)
+		if err := validateInterfaceName(iface); err != nil {
+			return "", fmt.Errorf("%w: %v", ErrVPNValidation, err)
+		}
+		return iface + ".conf", nil
+	}
+
 	requested := strings.TrimSpace(raw)
 	if requested == "" && existing != nil && existing.ConfigFile != "" {
 		requested = existing.ConfigFile
 	}
 	if requested == "" {
-		if vpnType == "wireguard" {
-			requested = name + ".wg"
-		} else {
-			requested = name + ".ovpn"
-		}
+		requested = name + ".ovpn"
 	}
 	if filepath.Base(requested) != requested || strings.ContainsAny(requested, `/\\`) {
 		return "", fmt.Errorf("%w: invalid config file name", ErrVPNValidation)
@@ -61,25 +80,33 @@ func resolveConfigFileName(raw string, existing *VPNProfile, name, vpnType strin
 	if !configFilePattern.MatchString(requested) {
 		return "", fmt.Errorf("%w: config file name %q is invalid", ErrVPNValidation, requested)
 	}
-	if vpnType == "wireguard" {
-		ext := strings.ToLower(filepath.Ext(requested))
-		if ext == "" {
-			requested += ".wg"
-		} else if ext != ".wg" && ext != ".conf" {
-			return "", fmt.Errorf("%w: wireguard config must use .wg or .conf", ErrVPNValidation)
-		}
-	} else {
-		ext := strings.ToLower(filepath.Ext(requested))
-		if ext == "" {
-			requested += ".ovpn"
-		} else if ext != ".ovpn" {
-			return "", fmt.Errorf("%w: openvpn config must use .ovpn", ErrVPNValidation)
-		}
+	ext := strings.ToLower(filepath.Ext(requested))
+	if ext == "" {
+		requested += ".ovpn"
+	} else if ext != ".ovpn" {
+		return "", fmt.Errorf("%w: openvpn config must use .ovpn", ErrVPNValidation)
 	}
 	return requested, nil
 }
 
 func resolveInterfaceName(raw string, existing *VPNProfile, parsed *VPNProfile, name string) (string, error) {
+	if parsed != nil && parsed.Type == "wireguard" {
+		iface := inferInterfaceFromType(parsed.Type, name)
+		requested := strings.TrimSpace(raw)
+		if requested != "" && !strings.EqualFold(requested, iface) {
+			return "", fmt.Errorf(
+				"%w: wireguard interface %q does not match managed interface %q derived from vpn name",
+				ErrVPNValidation,
+				requested,
+				iface,
+			)
+		}
+		if err := validateInterfaceName(iface); err != nil {
+			return "", fmt.Errorf("%w: %v", ErrVPNValidation, err)
+		}
+		return iface, nil
+	}
+
 	iface := strings.TrimSpace(raw)
 	if iface == "" && existing != nil {
 		iface = strings.TrimSpace(existing.InterfaceName)
@@ -112,11 +139,33 @@ func inferInterfaceFromType(vpnType, name string) string {
 		}
 		return "tun" + string(sanitized)
 	}
-	maxSuffix := 12
-	if len(sanitized) > maxSuffix {
-		sanitized = sanitized[:maxSuffix]
+	const prefix = "wg-sv-"
+	const maxLength = 15
+	maxSuffix := maxLength - len(prefix)
+	suffix := string(sanitized)
+	if len(suffix) > maxSuffix {
+		// Keep names human-readable while avoiding collisions when truncating.
+		const hashWidth = 3
+		baseLen := maxSuffix - hashWidth
+		if baseLen < 1 {
+			baseLen = maxSuffix
+		}
+		suffix = suffix[:baseLen] + shortHashHex(suffix, hashWidth)
 	}
-	return "wg-" + string(sanitized)
+	return prefix + suffix
+}
+
+func shortHashHex(input string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(input))
+	sum := fmt.Sprintf("%08x", h.Sum32())
+	if width >= len(sum) {
+		return sum
+	}
+	return sum[:width]
 }
 
 func validateInterfaceName(name string) error {

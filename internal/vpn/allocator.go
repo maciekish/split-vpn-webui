@@ -46,8 +46,10 @@ type Allocator struct {
 	configRoots     []string
 	exec            CommandExecutor
 
-	usedTables map[int]struct{}
-	usedMarks  map[uint32]struct{}
+	usedTables   map[int]struct{}
+	usedMarks    map[uint32]struct{}
+	stickyTables map[int]struct{}
+	stickyMarks  map[uint32]struct{}
 }
 
 // NewAllocator creates an allocator using live system information.
@@ -95,6 +97,8 @@ func newAllocator(vpnsDir, routeTablesPath string, executor CommandExecutor, con
 		exec:            executor,
 		usedTables:      make(map[int]struct{}),
 		usedMarks:       make(map[uint32]struct{}),
+		stickyTables:    make(map[int]struct{}),
+		stickyMarks:     make(map[uint32]struct{}),
 	}
 	if err := a.seedUsedValues(); err != nil {
 		return nil, err
@@ -129,6 +133,7 @@ func normalizeConfigRoots(primary string, extras []string) []string {
 func (a *Allocator) AllocateTable() (int, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.refreshLiveReservationsLocked()
 
 	for candidate := minRouteTableID; candidate <= maxRouteTableID; candidate++ {
 		if _, used := a.usedTables[candidate]; used {
@@ -144,6 +149,7 @@ func (a *Allocator) AllocateTable() (int, error) {
 func (a *Allocator) AllocateMark() (uint32, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.refreshLiveReservationsLocked()
 
 	for candidate := uint32(minFWMark); candidate <= uint32(maxFWMark); candidate++ {
 		if _, used := a.usedMarks[candidate]; used {
@@ -159,6 +165,7 @@ func (a *Allocator) AllocateMark() (uint32, error) {
 func (a *Allocator) Reserve(table int, mark uint32) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.refreshLiveReservationsLocked()
 
 	if table > 0 {
 		if table < minRouteTableID {
@@ -194,10 +201,14 @@ func (a *Allocator) Release(table int, mark uint32) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if table > 0 {
-		delete(a.usedTables, table)
+		if _, sticky := a.stickyTables[table]; !sticky {
+			delete(a.usedTables, table)
+		}
 	}
 	if mark > 0 {
-		delete(a.usedMarks, mark)
+		if _, sticky := a.stickyMarks[mark]; !sticky {
+			delete(a.usedMarks, mark)
+		}
 	}
 }
 
@@ -206,10 +217,18 @@ func (a *Allocator) seedUsedValues() error {
 		return err
 	}
 	a.seedFromIPRules()
+	a.seedFromIPRoutes()
 	if err := a.seedFromPersistedConfigs(); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (a *Allocator) refreshLiveReservationsLocked() {
+	// Keep allocations current even when UniFi updates route/rule state after app startup.
+	_ = a.seedFromRouteTables()
+	a.seedFromIPRules()
+	a.seedFromIPRoutes()
 }
 
 func (a *Allocator) seedFromRouteTables() error {
@@ -236,7 +255,7 @@ func (a *Allocator) seedFromRouteTables() error {
 		if err != nil || tableID < minRouteTableID {
 			continue
 		}
-		a.usedTables[tableID] = struct{}{}
+		a.markTableUsed(tableID, true)
 	}
 	return scanner.Err()
 }
@@ -259,15 +278,42 @@ func (a *Allocator) parseIPRulesOutput(output string) {
 			switch fields[i] {
 			case "fwmark":
 				if mark, ok := parseMarkToken(fields[i+1]); ok && mark >= minFWMark {
-					a.usedMarks[mark] = struct{}{}
+					a.markMarkUsed(mark, true)
 				}
 			case "lookup", "table":
-				tableID, err := strconv.Atoi(fields[i+1])
-				if err != nil || tableID < minRouteTableID {
+				tableID, ok := parseTableToken(fields[i+1])
+				if !ok || tableID < minRouteTableID {
 					continue
 				}
-				a.usedTables[tableID] = struct{}{}
+				a.markTableUsed(tableID, true)
 			}
+		}
+	}
+}
+
+func (a *Allocator) seedFromIPRoutes() {
+	for _, args := range [][]string{{"route", "show", "table", "all"}, {"-6", "route", "show", "table", "all"}} {
+		output, err := a.exec.CombinedOutput("ip", args...)
+		if err != nil {
+			continue
+		}
+		a.parseIPRoutesOutput(string(output))
+	}
+}
+
+func (a *Allocator) parseIPRoutesOutput(output string) {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		for i := 0; i < len(fields)-1; i++ {
+			if fields[i] != "table" {
+				continue
+			}
+			tableID, ok := parseTableToken(fields[i+1])
+			if !ok || tableID < minRouteTableID {
+				continue
+			}
+			a.markTableUsed(tableID, true)
 		}
 	}
 }
@@ -281,6 +327,7 @@ func (a *Allocator) seedFromPersistedConfigs() error {
 			}
 			return err
 		}
+		sticky := root != a.vpnsDir
 		for _, entry := range entries {
 			if !entry.IsDir() {
 				continue
@@ -294,10 +341,10 @@ func (a *Allocator) seedFromPersistedConfigs() error {
 				return err
 			}
 			if table, err := strconv.Atoi(strings.TrimSpace(values["ROUTE_TABLE"])); err == nil && table >= minRouteTableID {
-				a.usedTables[table] = struct{}{}
+				a.markTableUsed(table, sticky)
 			}
 			if mark, ok := parseMarkToken(values["MARK"]); ok && mark >= minFWMark {
-				a.usedMarks[mark] = struct{}{}
+				a.markMarkUsed(mark, sticky)
 			}
 		}
 	}
@@ -317,4 +364,43 @@ func parseMarkToken(raw string) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(value), true
+}
+
+func parseTableToken(raw string) (int, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false
+	}
+	end := 0
+	for end < len(trimmed) && trimmed[end] >= '0' && trimmed[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(trimmed[:end])
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func (a *Allocator) markTableUsed(table int, sticky bool) {
+	if table <= 0 {
+		return
+	}
+	a.usedTables[table] = struct{}{}
+	if sticky {
+		a.stickyTables[table] = struct{}{}
+	}
+}
+
+func (a *Allocator) markMarkUsed(mark uint32, sticky bool) {
+	if mark == 0 {
+		return
+	}
+	a.usedMarks[mark] = struct{}{}
+	if sticky {
+		a.stickyMarks[mark] = struct{}{}
+	}
 }

@@ -45,9 +45,27 @@ func TestCollectResolverJobsDedupesSelectors(t *testing.T) {
 			},
 		},
 	}
-	jobs := collectResolverJobs(groups)
+	jobs := collectResolverJobs(groups, resolverProviderFlags{Domain: true, ASN: true, Wildcard: true})
 	if len(jobs) != 3 {
 		t.Fatalf("expected 3 deduped jobs, got %d (%#v)", len(jobs), jobs)
+	}
+}
+
+func TestCollectResolverJobsHonorsProviderFlags(t *testing.T) {
+	groups := []DomainGroup{
+		{
+			Name: "A",
+			Rules: []RoutingRule{
+				{Domains: []string{"example.com"}, WildcardDomains: []string{"*.apple.com"}, DestinationASNs: []string{"AS13335"}},
+			},
+		},
+	}
+	jobs := collectResolverJobs(groups, resolverProviderFlags{Domain: false, ASN: true, Wildcard: false})
+	if len(jobs) != 1 {
+		t.Fatalf("expected only ASN jobs when domain/wildcard disabled, got %d", len(jobs))
+	}
+	if jobs[0].Selector.Type != "asn" {
+		t.Fatalf("expected ASN selector, got %q", jobs[0].Selector.Type)
 	}
 }
 

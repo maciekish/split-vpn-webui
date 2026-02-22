@@ -62,6 +62,7 @@ The following is **already fully implemented** and must not regress:
 | **10** | Persistent stats, build & CI | SQLite stats history, cross-compile, GitHub Actions |
 | **11** | Policy routing expansion | Source/destination IP rules, destination ports, ASNs, wildcard subdomain discovery, periodic runtime resolver refresh |
 | **12** | Uninstall workflow | Interactive `uninstall.sh` with full wipe or granular category removal |
+| **13** | Versioning & update management | GitHub tag-release automation, checksum-verified installer updates, in-webUI self-update orchestration |
 
 ---
 
@@ -692,6 +693,45 @@ For development/testing on macOS, the DoH client interface binding must be behin
 - [x] Service/unit cleanup and `daemon-reload` behavior is correct.
 - [x] Runtime routing artifacts in app namespace are removed when requested.
 - [x] Script prints a clear final summary of removed vs kept items.
+
+---
+
+## Sprint 13 — Versioning & Update Management
+
+**Goal:** Provide production-grade version visibility and update flow from both installer and web UI, using GitHub release binaries with integrity verification and robust self-update orchestration.
+
+### Files to modify/create
+
+| File | Change |
+|---|---|
+| `internal/version/version.go` | Build metadata (`Version`, `Commit`, `BuildTime`) and JSON/string rendering |
+| `internal/update/*.go` | New updater subsystem: GitHub release checks, checksum verification, staged job writing, updater status persistence, self-update runner with rollback path |
+| `internal/server/server.go` | Add update API routes under `/api/update/*` |
+| `internal/server/handlers_update.go` | Add `status`, `check`, `apply` handlers with structured JSON errors |
+| `cmd/splitvpnwebui/main.go` | Add `--version`, `--version-json`, `--self-update-run`; wire updater into server and dedicated updater execution mode |
+| `ui/web/templates/layout.html` | Add update controls in Settings modal |
+| `ui/web/static/js/app-updates.js` | UI controller for update status/check/apply |
+| `ui/web/static/js/app.js` | Integrate update controller in settings flow |
+| `install.sh` | Existing-install detection + update prompt; release checksum verification; release tag reporting |
+| `.github/workflows/build.yml` | Embed version metadata in binaries, generate/upload `SHA256SUMS`, auto-generated release notes, optional AI summary step |
+| `.github/release.yml` | Configure GitHub generated release note categories/exclusions |
+| `uninstall.sh` | Remove updater unit/status/job/staging artifacts in relevant categories |
+| `deploy/dev-uninstall.sh` | Remove updater unit artifacts in iterative/complete cleanup paths |
+
+### Deliverables / Definition of Done
+
+- [x] Binary reports build metadata via `--version` and `--version-json`.
+- [x] Tag builds embed version/commit/build-time metadata.
+- [x] Release artifacts include arch binaries and `SHA256SUMS`.
+- [x] Installer verifies binary checksum before replacing installed binary.
+- [x] Installer detects existing install and prompts before update/reinstall.
+- [x] Web UI can view current/latest version state and manually check for updates.
+- [x] Web UI can trigger update apply to latest or explicit target tag.
+- [x] Update apply uses staged download + checksum validation + dedicated updater systemd worker.
+- [x] Updater worker performs binary swap and service restart; rollback path is attempted on restart failure.
+- [x] API responses remain structured JSON with `{"error":"..."}` on failures.
+- [x] Uninstall/development cleanup paths remove updater-specific artifacts.
+- [x] Test suite remains green (`go test ./...`).
 
 ---
 

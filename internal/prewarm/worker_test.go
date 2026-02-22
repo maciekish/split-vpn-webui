@@ -193,3 +193,51 @@ func TestWorkerRespectsContextCancellation(t *testing.T) {
 		t.Fatalf("expected context cancellation error")
 	}
 }
+
+func TestWorkerFallsBackToActiveManagedWireGuardInterfaces(t *testing.T) {
+	groups := &mockGroupSource{
+		groups: []routing.DomainGroup{
+			{Name: "Fallback", EgressVPN: "rbx.swic.name", Domains: []string{"example.com"}},
+		},
+	}
+	vpns := &mockVPNSource{
+		profiles: []*vpn.VPNProfile{
+			{Name: "rbx.swic.name", InterfaceName: "wg-sv-stale"},
+		},
+	}
+	doh := &mockDoH{
+		data: map[string][]string{
+			"wg-sv-rbxswi9ac|example.com|CNAME": {},
+			"wg-sv-rbxswi9ac|example.com|A":     {"203.0.113.10"},
+			"wg-sv-rbxswi9ac|example.com|AAAA":  {},
+		},
+	}
+	ipset := &mockIPSet{}
+
+	worker, err := NewWorker(groups, vpns, doh, ipset, WorkerOptions{
+		InterfaceActive: func(name string) (bool, error) {
+			return name == "wg-sv-rbxswi9ac", nil
+		},
+		InterfaceList: func() ([]string, error) {
+			return []string{"br0", "wg-sv-rbxswi9ac"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
+
+	stats, err := worker.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if stats.DomainsDone != 1 {
+		t.Fatalf("expected one processed domain, got %d", stats.DomainsDone)
+	}
+	callSet := make(map[string]struct{}, len(doh.calls))
+	for _, call := range doh.calls {
+		callSet[call] = struct{}{}
+	}
+	if _, ok := callSet["wg-sv-rbxswi9ac|example.com|A"]; !ok {
+		t.Fatalf("expected fallback interface to be used, calls=%#v", doh.calls)
+	}
+}

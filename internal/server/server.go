@@ -19,6 +19,7 @@ import (
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
 	"split-vpn-webui/internal/systemd"
+	"split-vpn-webui/internal/update"
 	"split-vpn-webui/internal/vpn"
 	"split-vpn-webui/ui"
 )
@@ -55,6 +56,7 @@ type Server struct {
 	latency        *latency.Monitor
 	settings       *settings.Manager
 	auth           *auth.Manager
+	updater        *update.Manager
 	templates      *template.Template
 
 	systemdManaged bool
@@ -79,6 +81,7 @@ func New(
 	latencyMonitor *latency.Monitor,
 	settingsManager *settings.Manager,
 	authManager *auth.Manager,
+	updateManager *update.Manager,
 	systemdManaged bool,
 ) (*Server, error) {
 	tmpl, err := template.ParseFS(ui.Assets, "web/templates/*.html")
@@ -96,6 +99,7 @@ func New(
 		latency:           latencyMonitor,
 		settings:          settingsManager,
 		auth:              authManager,
+		updater:           updateManager,
 		templates:         tmpl,
 		systemdManaged:    systemdManaged,
 		watchers:          make(map[chan streamMessage]struct{}),
@@ -178,6 +182,9 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/stream", s.handleStream)
 			api.Get("/settings", s.handleGetSettings)
 			api.Put("/settings", s.handleSaveSettings)
+			api.Get("/update/status", s.handleUpdateStatus)
+			api.Post("/update/check", s.handleCheckUpdates)
+			api.Post("/update/apply", s.handleApplyUpdate)
 		})
 	})
 

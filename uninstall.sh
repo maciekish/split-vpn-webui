@@ -11,8 +11,13 @@ BOOT_HOOK="${BOOT_HOOK:-/data/on_boot.d/10-split-vpn-webui.sh}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 SERVICE_NAME="${SERVICE_NAME:-split-vpn-webui.service}"
 SERVICE_SYMLINK="${SYSTEMD_DIR}/${SERVICE_NAME}"
+UPDATER_SERVICE_NAME="${UPDATER_SERVICE_NAME:-split-vpn-webui-updater.service}"
+UPDATER_SERVICE_SYMLINK="${SYSTEMD_DIR}/${UPDATER_SERVICE_NAME}"
 BINARY_PATH="${BINARY_PATH:-${DATA_DIR}/split-vpn-webui}"
 UNINSTALL_PATH="${UNINSTALL_PATH:-${DATA_DIR}/uninstall.sh}"
+UPDATE_STATUS_FILE="${UPDATE_STATUS_FILE:-${DATA_DIR}/update-status.json}"
+UPDATE_JOB_FILE="${UPDATE_JOB_FILE:-${DATA_DIR}/update-job.json}"
+UPDATES_DIR="${UPDATES_DIR:-${DATA_DIR}/updates}"
 DNSMASQ_DROPIN_PRIMARY="${DNSMASQ_DROPIN_PRIMARY:-/run/dnsmasq.d/split-vpn-webui.conf}"
 DNSMASQ_DROPIN_SECONDARY="${DNSMASQ_DROPIN_SECONDARY:-/run/dnsmasq.dhcp.conf.d/split-vpn-webui.conf}"
 IPRULE_PRIORITY="${IPRULE_PRIORITY:-100}"
@@ -66,6 +71,8 @@ safe_systemctl() {
 remove_binaries_category() {
 	safe_systemctl stop "${SERVICE_NAME}"
 	safe_systemctl disable "${SERVICE_NAME}"
+	safe_systemctl stop "${UPDATER_SERVICE_NAME}"
+	safe_systemctl disable "${UPDATER_SERVICE_NAME}"
 
 	if remove_path "${BINARY_PATH}"; then
 		add_removed "Binary removed (${BINARY_PATH})"
@@ -85,6 +92,19 @@ remove_binaries_category() {
 		daemon_reload_required=1
 	else
 		add_kept "App unit symlink kept (not present)"
+	fi
+
+	if remove_path "${UNITS_DIR}/${UPDATER_SERVICE_NAME}"; then
+		add_removed "Updater unit removed (${UNITS_DIR}/${UPDATER_SERVICE_NAME})"
+		daemon_reload_required=1
+	else
+		add_kept "Updater unit kept (not present)"
+	fi
+	if remove_path "${UPDATER_SERVICE_SYMLINK}"; then
+		add_removed "Updater unit symlink removed (${UPDATER_SERVICE_SYMLINK})"
+		daemon_reload_required=1
+	else
+		add_kept "Updater unit symlink kept (not present)"
 	fi
 }
 
@@ -151,6 +171,22 @@ remove_config_category() {
 		add_removed "Boot hook removed (${BOOT_HOOK})"
 	else
 		add_kept "Boot hook not present (${BOOT_HOOK})"
+	fi
+
+	if remove_path "${UPDATE_STATUS_FILE}"; then
+		add_removed "Updater status file removed (${UPDATE_STATUS_FILE})"
+	else
+		add_kept "Updater status file not present (${UPDATE_STATUS_FILE})"
+	fi
+	if remove_path "${UPDATE_JOB_FILE}"; then
+		add_removed "Updater job file removed (${UPDATE_JOB_FILE})"
+	else
+		add_kept "Updater job file not present (${UPDATE_JOB_FILE})"
+	fi
+	if remove_path "${UPDATES_DIR}"; then
+		add_removed "Updater staging directory removed (${UPDATES_DIR})"
+	else
+		add_kept "Updater staging directory not present (${UPDATES_DIR})"
 	fi
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -192,4 +193,63 @@ func firstToken(value string) string {
 		return ""
 	}
 	return fields[0]
+}
+
+func requiredOpenVPNFiles(config *OpenVPNConfig) ([]string, error) {
+	if config == nil {
+		return nil, nil
+	}
+	needsFile := map[string]bool{
+		"ca":            true,
+		"cert":          true,
+		"key":           true,
+		"pkcs12":        true,
+		"tls-auth":      true,
+		"tls-crypt":     true,
+		"tls-crypt-v2":  true,
+		"auth-user-pass": true,
+		"secret":        true,
+		"crl-verify":    true,
+	}
+	inlineBlock := map[string]bool{
+		"ca":           true,
+		"cert":         true,
+		"key":          true,
+		"tls-auth":     true,
+		"tls-crypt":    true,
+		"tls-crypt-v2": true,
+		"secret":       true,
+	}
+
+	seen := make(map[string]struct{})
+	for directive, values := range config.Directives {
+		key := strings.ToLower(strings.TrimSpace(directive))
+		if !needsFile[key] {
+			continue
+		}
+		if inlineBlock[key] && config.InlineBlocks[key] != "" {
+			continue
+		}
+		for _, raw := range values {
+			token := strings.Trim(strings.TrimSpace(firstToken(raw)), `"'`)
+			if key == "auth-user-pass" && token == "" {
+				// auth-user-pass without an argument uses interactive prompts.
+				continue
+			}
+			if token == "" {
+				return nil, fmt.Errorf("openvpn directive %q requires a supporting file", key)
+			}
+			name, err := sanitizeSupportingFileName(token)
+			if err != nil {
+				return nil, err
+			}
+			seen[name] = struct{}{}
+		}
+	}
+	required := make([]string, 0, len(seen))
+	for name := range seen {
+		required = append(required, name)
+	}
+	sort.Strings(required)
+	return required, nil
 }

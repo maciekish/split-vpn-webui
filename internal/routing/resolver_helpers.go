@@ -8,37 +8,49 @@ import (
 	"split-vpn-webui/internal/settings"
 )
 
-func collectResolverJobs(groups []DomainGroup) []resolverJob {
+type resolverProviderFlags struct {
+	Domain   bool
+	ASN      bool
+	Wildcard bool
+}
+
+func collectResolverJobs(groups []DomainGroup, enabled resolverProviderFlags) []resolverJob {
 	seen := make(map[ResolverSelector]struct{})
 	jobs := make([]resolverJob, 0)
 	for _, group := range groups {
 		for _, rule := range group.Rules {
-			for _, domain := range rule.Domains {
-				selector := ResolverSelector{Type: "domain", Key: domain}
-				if _, exists := seen[selector]; exists {
-					continue
+			if enabled.Domain {
+				for _, domain := range rule.Domains {
+					selector := ResolverSelector{Type: "domain", Key: domain}
+					if _, exists := seen[selector]; exists {
+						continue
+					}
+					seen[selector] = struct{}{}
+					jobs = append(jobs, resolverJob{Selector: selector, Label: "domain:" + domain})
 				}
-				seen[selector] = struct{}{}
-				jobs = append(jobs, resolverJob{Selector: selector, Label: "domain:" + domain})
 			}
-			for _, wildcard := range rule.WildcardDomains {
-				selector := ResolverSelector{Type: "wildcard", Key: wildcard}
-				if _, exists := seen[selector]; exists {
-					continue
+			if enabled.Wildcard {
+				for _, wildcard := range rule.WildcardDomains {
+					selector := ResolverSelector{Type: "wildcard", Key: wildcard}
+					if _, exists := seen[selector]; exists {
+						continue
+					}
+					seen[selector] = struct{}{}
+					jobs = append(jobs, resolverJob{Selector: selector, Label: "wildcard:" + wildcard})
 				}
-				seen[selector] = struct{}{}
-				jobs = append(jobs, resolverJob{Selector: selector, Label: "wildcard:" + wildcard})
 			}
-			for _, asn := range rule.DestinationASNs {
-				selector := ResolverSelector{Type: "asn", Key: normalizeASNKey(asn)}
-				if selector.Key == "" {
-					continue
+			if enabled.ASN {
+				for _, asn := range rule.DestinationASNs {
+					selector := ResolverSelector{Type: "asn", Key: normalizeASNKey(asn)}
+					if selector.Key == "" {
+						continue
+					}
+					if _, exists := seen[selector]; exists {
+						continue
+					}
+					seen[selector] = struct{}{}
+					jobs = append(jobs, resolverJob{Selector: selector, Label: "asn:" + selector.Key})
 				}
-				if _, exists := seen[selector]; exists {
-					continue
-				}
-				seen[selector] = struct{}{}
-				jobs = append(jobs, resolverJob{Selector: selector, Label: "asn:" + selector.Key})
 			}
 		}
 	}
@@ -78,7 +90,7 @@ func (s *ResolverScheduler) emitProgress(progress ResolverProgress) {
 	handler := s.progressHandler
 	s.mu.RUnlock()
 	if handler != nil {
-		handler(progress)
+		handler(progress.Clone())
 	}
 }
 
@@ -102,6 +114,68 @@ func resolverTimeoutFromSettings(current settings.Settings) time.Duration {
 		seconds = maxResolverTimeoutSeconds
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func resolverDomainTimeoutFromSettings(current settings.Settings) time.Duration {
+	seconds := current.ResolverDomainTimeoutSeconds
+	if seconds <= 0 {
+		seconds = current.ResolverTimeoutSeconds
+	}
+	if seconds <= 0 {
+		seconds = defaultResolverTimeoutSeconds
+	}
+	if seconds > maxResolverTimeoutSeconds {
+		seconds = maxResolverTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func resolverASNTimeoutFromSettings(current settings.Settings) time.Duration {
+	seconds := current.ResolverASNTimeoutSeconds
+	if seconds <= 0 {
+		seconds = current.ResolverTimeoutSeconds
+	}
+	if seconds <= 0 {
+		seconds = defaultResolverTimeoutSeconds
+	}
+	if seconds > maxResolverTimeoutSeconds {
+		seconds = maxResolverTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func resolverWildcardTimeoutFromSettings(current settings.Settings) time.Duration {
+	seconds := current.ResolverWildcardTimeoutSeconds
+	if seconds <= 0 {
+		seconds = current.ResolverTimeoutSeconds
+	}
+	if seconds <= 0 {
+		seconds = defaultResolverTimeoutSeconds
+	}
+	if seconds > maxResolverTimeoutSeconds {
+		seconds = maxResolverTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func resolverProviderFlagsFromSettings(current settings.Settings) resolverProviderFlags {
+	domain := true
+	asn := true
+	wildcard := true
+	if current.ResolverDomainEnabled != nil {
+		domain = *current.ResolverDomainEnabled
+	}
+	if current.ResolverASNEnabled != nil {
+		asn = *current.ResolverASNEnabled
+	}
+	if current.ResolverWildcardEnabled != nil {
+		wildcard = *current.ResolverWildcardEnabled
+	}
+	return resolverProviderFlags{
+		Domain:   domain,
+		ASN:      asn,
+		Wildcard: wildcard,
+	}
 }
 
 func resolverParallelismFromSettings(current settings.Settings) int {

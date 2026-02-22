@@ -18,6 +18,34 @@ type InterfaceInfo struct {
 	Addresses []string `json:"addresses"`
 }
 
+// DetectLANInterface returns the best LAN interface candidate.
+// Preference order favors UniFi bridge interfaces (br0, then br*), while
+// explicitly excluding tunnel-style interface names.
+func DetectLANInterface() (string, error) {
+	interfaces, err := InterfacesWithAddrs()
+	if err != nil {
+		return "", err
+	}
+	name, _ := selectLANInterfaceAndIPv4(interfaces)
+	if name == "" {
+		return "", errors.New("lan interface not found")
+	}
+	return name, nil
+}
+
+// DetectLANIPv4 returns the private IPv4 address of the best LAN candidate.
+func DetectLANIPv4() (string, error) {
+	interfaces, err := InterfacesWithAddrs()
+	if err != nil {
+		return "", err
+	}
+	_, ip := selectLANInterfaceAndIPv4(interfaces)
+	if ip == "" {
+		return "", errors.New("lan ipv4 address not found")
+	}
+	return ip, nil
+}
+
 // DetectWANInterface attempts to determine the default WAN interface by reading /proc/net/route.
 func DetectWANInterface() (string, error) {
 	file, err := os.Open("/proc/net/route")
@@ -106,12 +134,30 @@ func InterfaceOperState(name string) (bool, string, error) {
 		}
 		return false, "error", err
 	}
+	flagUp := false
+	iface, err := net.InterfaceByName(trimmed)
+	if err == nil {
+		flagUp = iface.Flags&net.FlagUp != 0
+	}
 	data, err := os.ReadFile(filepath.Join(base, "operstate"))
 	if err != nil {
-		return true, "unknown", err
+		// Some firmware/kernel combinations expose interface state inconsistently;
+		// use interface flags as a practical fallback for tunnel interfaces.
+		return flagUp, "unknown", nil
 	}
 	state := strings.TrimSpace(string(data))
-	return state == "up", state, nil
+	return interfaceStateConnected(state, flagUp), state, nil
+}
+
+func interfaceStateConnected(state string, flagUp bool) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "up":
+		return true
+	case "unknown", "dormant":
+		return flagUp
+	default:
+		return false
+	}
 }
 
 // DetectInterfaceGateway attempts to determine the gateway for an interface.
@@ -171,4 +217,96 @@ func guessGatewayFromIP(interfaceName, ipStr string) (string, error) {
 		guess[3] = 1
 	}
 	return guess.String(), nil
+}
+
+type lanCandidate struct {
+	name  string
+	ip    string
+	score int
+}
+
+func selectLANInterfaceAndIPv4(interfaces []InterfaceInfo) (string, string) {
+	best := lanCandidate{score: 1 << 30}
+	found := false
+
+	for _, iface := range interfaces {
+		name := strings.TrimSpace(iface.Name)
+		if name == "" {
+			continue
+		}
+		score, ok := lanInterfaceScore(name)
+		if !ok {
+			continue
+		}
+		ip := firstPrivateIPv4(iface.Addresses)
+		if ip == "" {
+			continue
+		}
+		candidate := lanCandidate{name: name, ip: ip, score: score}
+		if !found || candidate.score < best.score || (candidate.score == best.score && candidate.name < best.name) {
+			best = candidate
+			found = true
+		}
+	}
+	if !found {
+		return "", ""
+	}
+	return best.name, best.ip
+}
+
+func lanInterfaceScore(name string) (int, bool) {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return 0, false
+	}
+	if strings.HasPrefix(lower, "wg") ||
+		strings.HasPrefix(lower, "tun") ||
+		strings.HasPrefix(lower, "tap") ||
+		strings.HasPrefix(lower, "ppp") ||
+		strings.HasPrefix(lower, "vpn") {
+		return 0, false
+	}
+	switch {
+	case lower == "br0":
+		return 0, true
+	case strings.HasPrefix(lower, "br"):
+		return 1, true
+	case strings.HasPrefix(lower, "lan"):
+		return 2, true
+	case strings.HasPrefix(lower, "eth"), strings.HasPrefix(lower, "en"):
+		return 3, true
+	default:
+		return 4, true
+	}
+}
+
+func firstPrivateIPv4(addresses []string) string {
+	for _, value := range addresses {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		var ip net.IP
+		if strings.Contains(trimmed, "/") {
+			parsed, _, err := net.ParseCIDR(trimmed)
+			if err != nil {
+				continue
+			}
+			ip = parsed
+		} else {
+			ip = net.ParseIP(trimmed)
+		}
+		if ip == nil {
+			continue
+		}
+		v4 := ip.To4()
+		if v4 == nil {
+			continue
+		}
+		if !v4.IsPrivate() {
+			continue
+		}
+		return v4.String()
+	}
+	return ""
 }

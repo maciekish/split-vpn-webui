@@ -34,17 +34,19 @@ type WorkerOptions struct {
 	Parallelism      int
 	ProgressCallback func(Progress)
 	InterfaceActive  func(name string) (bool, error)
+	InterfaceList    func() ([]string, error)
 }
 
 // Worker executes one DNS pre-warm pass.
 type Worker struct {
-	groups   GroupSource
-	vpns     VPNSource
-	doh      DoHClient
-	ipset    routing.IPSetOperator
-	parallel int
-	progress func(Progress)
-	ifaceUp  func(name string) (bool, error)
+	groups    GroupSource
+	vpns      VPNSource
+	doh       DoHClient
+	ipset     routing.IPSetOperator
+	parallel  int
+	progress  func(Progress)
+	ifaceUp   func(name string) (bool, error)
+	ifaceList func() ([]string, error)
 }
 
 type domainTask struct {
@@ -89,14 +91,19 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 			return up, err
 		}
 	}
+	ifaceList := opts.InterfaceList
+	if ifaceList == nil {
+		ifaceList = listInterfaceNames
+	}
 	return &Worker{
-		groups:   groups,
-		vpns:     vpns,
-		doh:      doh,
-		ipset:    ipset,
-		parallel: parallelism,
-		progress: opts.ProgressCallback,
-		ifaceUp:  ifaceActive,
+		groups:    groups,
+		vpns:      vpns,
+		doh:       doh,
+		ipset:     ipset,
+		parallel:  parallelism,
+		progress:  opts.ProgressCallback,
+		ifaceUp:   ifaceActive,
+		ifaceList: ifaceList,
 	}, nil
 }
 
@@ -253,11 +260,65 @@ func (w *Worker) activeInterfaces() ([]string, error) {
 		seen[iface] = struct{}{}
 		active = append(active, iface)
 	}
+	if len(active) == 0 {
+		fallback, err := w.activeManagedWireGuardInterfaces()
+		if err == nil && len(fallback) > 0 {
+			active = append(active, fallback...)
+		}
+	}
 	sort.Strings(active)
 	if len(active) == 0 {
 		return nil, fmt.Errorf("no active vpn interfaces found")
 	}
 	return active, nil
+}
+
+func (w *Worker) activeManagedWireGuardInterfaces() ([]string, error) {
+	if w.ifaceList == nil {
+		return nil, nil
+	}
+	names, err := w.ifaceList()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(names))
+	active := make([]string, 0, len(names))
+	for _, rawName := range names {
+		iface := strings.TrimSpace(rawName)
+		if iface == "" {
+			continue
+		}
+		if !strings.HasPrefix(strings.ToLower(iface), "wg-sv-") {
+			continue
+		}
+		if _, exists := seen[iface]; exists {
+			continue
+		}
+		up, err := w.ifaceUp(iface)
+		if err != nil || !up {
+			continue
+		}
+		seen[iface] = struct{}{}
+		active = append(active, iface)
+	}
+	sort.Strings(active)
+	return active, nil
+}
+
+func listInterfaceNames() ([]string, error) {
+	infos, err := util.InterfacesWithAddrs()
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(infos))
+	for _, info := range infos {
+		name := strings.TrimSpace(info.Name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 func buildTasks(groups []routing.DomainGroup) ([]domainTask, error) {

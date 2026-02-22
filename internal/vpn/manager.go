@@ -26,8 +26,15 @@ type UpsertRequest struct {
 	Type           string `json:"type"`
 	Config         string `json:"config"`
 	ConfigFile     string `json:"configFile,omitempty"`
+	SupportingFiles []SupportingFileUpload `json:"supportingFiles,omitempty"`
 	InterfaceName  string `json:"interfaceName,omitempty"`
 	BoundInterface string `json:"boundInterface,omitempty"`
+}
+
+// SupportingFileUpload represents one uploaded OpenVPN support file.
+type SupportingFileUpload struct {
+	Name          string `json:"name"`
+	ContentBase64 string `json:"contentBase64"`
 }
 
 // Manager manages persisted VPN profiles.
@@ -140,12 +147,26 @@ func (m *Manager) Create(req UpsertRequest) (*VPNProfile, error) {
 	if err != nil {
 		return nil, err
 	}
+	uploads, err := parseSupportingUploads(req.SupportingFiles)
+	if err != nil {
+		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+		return nil, err
+	}
+	if err := validateRequiredSupportingFiles("", prepared.requiredSupportingFiles, uploads); err != nil {
+		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+		return nil, err
+	}
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
 		return nil, err
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
+		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	if err := writeSupportingUploads(dir, uploads); err != nil {
 		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
 		_ = os.RemoveAll(dir)
 		return nil, err
@@ -201,6 +222,19 @@ func (m *Manager) Update(name string, req UpsertRequest) (*VPNProfile, error) {
 	}
 
 	dir := filepath.Join(m.vpnsDir, validatedName)
+	uploads, err := parseSupportingUploads(req.SupportingFiles)
+	if err != nil {
+		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+		return nil, err
+	}
+	if err := validateRequiredSupportingFiles(dir, prepared.requiredSupportingFiles, uploads); err != nil {
+		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+		return nil, err
+	}
+	if err := writeSupportingUploads(dir, uploads); err != nil {
+		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
+		return nil, err
+	}
 	if err := writeFileAtomic(filepath.Join(dir, prepared.configFileName), []byte(prepared.rawConfig), 0o600); err != nil {
 		m.allocator.Release(prepared.routeTableReserved, prepared.markReserved)
 		return nil, err
@@ -211,6 +245,9 @@ func (m *Manager) Update(name string, req UpsertRequest) (*VPNProfile, error) {
 	}
 	if m.units != nil {
 		if err := m.units.WriteUnit(prepared.unitName, prepared.unitContent); err != nil {
+			if prepared.releaseTable > 0 || prepared.releaseMark > 0 {
+				m.allocator.Release(prepared.releaseTable, prepared.releaseMark)
+			}
 			return nil, err
 		}
 	}
@@ -259,6 +296,7 @@ type preparedProfile struct {
 	rawConfig      string
 	configFileName string
 	warnings       []string
+	requiredSupportingFiles []string
 
 	routeTableReserved int
 	markReserved       uint32

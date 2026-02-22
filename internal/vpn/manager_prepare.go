@@ -27,11 +27,6 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	parsed.Name = name
 	parsed.Type = vpnType
 
-	configFileName, err := resolveConfigFileName(req.ConfigFile, existing, name, vpnType)
-	if err != nil {
-		return nil, err
-	}
-
 	iface, err := resolveInterfaceName(req.InterfaceName, existing, parsed, name)
 	if err != nil {
 		return nil, err
@@ -39,6 +34,12 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	if err := m.ensureInterfaceUniqueLocked(name, iface, existing); err != nil {
 		return nil, err
 	}
+
+	configFileName, err := resolveConfigFileName(req.ConfigFile, existing, name, vpnType, iface)
+	if err != nil {
+		return nil, err
+	}
+	parsed.ConfigFile = configFileName
 
 	routeTable, reservedTable, releaseTable, err := m.resolveRouteTableLocked(parsed, existing)
 	if err != nil {
@@ -61,8 +62,17 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 
 	sanitizedConfig := rawConfig
 	warnings := []string{}
+	requiredSupportingFiles := []string{}
 	if vpnType == "wireguard" {
-		sanitizedConfig, warnings, err = sanitizeWireGuardConfig(rawConfig, routeTable)
+		sanitizedConfig, warnings, err = sanitizeWireGuardConfig(rawConfig, routeTable, hasResolvconfBinary())
+		if err != nil {
+			if reservedTable > 0 || reservedMark > 0 {
+				m.allocator.Release(reservedTable, reservedMark)
+			}
+			return nil, fmt.Errorf("%w: %v", ErrVPNValidation, err)
+		}
+	} else if vpnType == "openvpn" {
+		requiredSupportingFiles, err = requiredOpenVPNFiles(parsed.OpenVPN)
 		if err != nil {
 			if reservedTable > 0 || reservedMark > 0 {
 				m.allocator.Release(reservedTable, reservedMark)
@@ -102,16 +112,17 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	}
 
 	return &preparedProfile{
-		meta:               meta,
-		rawConfig:          sanitizedConfig,
-		configFileName:     configFileName,
-		warnings:           warnings,
-		routeTableReserved: reservedTable,
-		markReserved:       reservedMark,
-		releaseTable:       releaseTable,
-		releaseMark:        releaseMark,
-		unitName:           vpnServiceUnitName(name),
-		unitContent:        provider.GenerateUnit(unitProfile, m.dataDir),
+		meta:                    meta,
+		rawConfig:               sanitizedConfig,
+		configFileName:          configFileName,
+		warnings:                warnings,
+		requiredSupportingFiles: requiredSupportingFiles,
+		routeTableReserved:      reservedTable,
+		markReserved:            reservedMark,
+		releaseTable:            releaseTable,
+		releaseMark:             releaseMark,
+		unitName:                vpnServiceUnitName(name),
+		unitContent:             provider.GenerateUnit(unitProfile, m.dataDir),
 	}, nil
 }
 

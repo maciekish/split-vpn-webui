@@ -9,9 +9,16 @@
   const resolverProgressBar = document.getElementById('resolver-progress-bar');
   const resolverProgressLabel = document.getElementById('resolver-progress-label');
   const resolverProgressMeta = document.getElementById('resolver-progress-meta');
+  const resolverProviderProgress = document.getElementById('resolver-provider-progress');
   const resolverIntervalMinutes = document.getElementById('resolver-interval-minutes');
   const resolverTimeoutSeconds = document.getElementById('resolver-timeout-seconds');
   const resolverParallelism = document.getElementById('resolver-parallelism');
+  const resolverDomainTimeoutSeconds = document.getElementById('resolver-domain-timeout-seconds');
+  const resolverAsnTimeoutSeconds = document.getElementById('resolver-asn-timeout-seconds');
+  const resolverWildcardTimeoutSeconds = document.getElementById('resolver-wildcard-timeout-seconds');
+  const resolverDomainEnabled = document.getElementById('resolver-domain-enabled');
+  const resolverAsnEnabled = document.getElementById('resolver-asn-enabled');
+  const resolverWildcardEnabled = document.getElementById('resolver-wildcard-enabled');
   const saveResolverSettingsButton = document.getElementById('save-resolver-settings');
   const groupsStatus = document.getElementById('domain-groups-status');
   const refreshButton = document.getElementById('refresh-configs');
@@ -27,9 +34,16 @@
     !resolverProgressBar ||
     !resolverProgressLabel ||
     !resolverProgressMeta ||
+    !resolverProviderProgress ||
     !resolverIntervalMinutes ||
     !resolverTimeoutSeconds ||
     !resolverParallelism ||
+    !resolverDomainTimeoutSeconds ||
+    !resolverAsnTimeoutSeconds ||
+    !resolverWildcardTimeoutSeconds ||
+    !resolverDomainEnabled ||
+    !resolverAsnEnabled ||
+    !resolverWildcardEnabled ||
     !saveResolverSettingsButton
   ) {
     return;
@@ -113,6 +127,8 @@
       resolverProgressBar.style.width = '0%';
       resolverProgressBar.textContent = '';
       resolverProgressMeta.textContent = '';
+      resolverProviderProgress.innerHTML = '';
+      resolverProviderProgress.classList.add('d-none');
       return;
     }
     renderResolverProgress(progress);
@@ -127,6 +143,40 @@
     resolverProgressBar.textContent = `${percent}%`;
     resolverProgressLabel.textContent = progress.currentSelector || 'Resolving selectors...';
     resolverProgressMeta.textContent = `${done}/${total} selectors • ${progress.prefixesResolved || 0} prefixes`;
+    renderProviderProgress(progress.perProvider || {});
+  }
+
+  function renderProviderProgress(perProvider) {
+    const entries = Object.entries(perProvider || {});
+    if (entries.length === 0) {
+      resolverProviderProgress.innerHTML = '';
+      resolverProviderProgress.classList.add('d-none');
+      return;
+    }
+    const labels = {
+      domain: 'Domains',
+      asn: 'ASNs',
+      wildcard: 'Wildcards',
+    };
+    resolverProviderProgress.classList.remove('d-none');
+    resolverProviderProgress.innerHTML = entries
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, value]) => {
+        const total = Number(value?.selectorsTotal || 0);
+        const done = Number(value?.selectorsDone || 0);
+        const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
+        const prefixes = Number(value?.prefixesResolved || 0);
+        return `
+          <div class="col-12 col-md-4">
+            <div class="small text-body-secondary mb-1">${labels[key] || key}</div>
+            <div class="progress mb-1" role="progressbar" aria-label="${labels[key] || key} progress">
+              <div class="progress-bar bg-secondary" style="width: ${pct}%">${pct}%</div>
+            </div>
+            <div class="small text-body-secondary">${done}/${total} selectors • ${prefixes} prefixes</div>
+          </div>
+        `;
+      })
+      .join('');
   }
 
   function schedulePoll(running) {
@@ -180,15 +230,27 @@
     const intervalSeconds = Number(current.resolverIntervalSeconds || 0);
     const timeout = Number(current.resolverTimeoutSeconds || 0);
     const parallelism = Number(current.resolverParallelism || 0);
+    const domainTimeout = Number(current.resolverDomainTimeoutSeconds || 0);
+    const asnTimeout = Number(current.resolverAsnTimeoutSeconds || 0);
+    const wildcardTimeout = Number(current.resolverWildcardTimeoutSeconds || 0);
     resolverIntervalMinutes.value = intervalSeconds > 0 ? Math.max(1, Math.round(intervalSeconds / 60)) : 60;
     resolverTimeoutSeconds.value = timeout > 0 ? timeout : 10;
     resolverParallelism.value = parallelism > 0 ? parallelism : 6;
+    resolverDomainTimeoutSeconds.value = domainTimeout > 0 ? domainTimeout : (timeout > 0 ? timeout : 10);
+    resolverAsnTimeoutSeconds.value = asnTimeout > 0 ? asnTimeout : (timeout > 0 ? timeout : 10);
+    resolverWildcardTimeoutSeconds.value = wildcardTimeout > 0 ? wildcardTimeout : (timeout > 0 ? timeout : 10);
+    resolverDomainEnabled.checked = current.resolverDomainEnabled !== false;
+    resolverAsnEnabled.checked = current.resolverAsnEnabled !== false;
+    resolverWildcardEnabled.checked = current.resolverWildcardEnabled !== false;
   }
 
   async function saveResolverSettings() {
     const intervalMinutes = Number(resolverIntervalMinutes.value || 0);
     const timeout = Number(resolverTimeoutSeconds.value || 0);
     const parallelism = Number(resolverParallelism.value || 0);
+    const domainTimeout = Number(resolverDomainTimeoutSeconds.value || 0);
+    const asnTimeout = Number(resolverAsnTimeoutSeconds.value || 0);
+    const wildcardTimeout = Number(resolverWildcardTimeoutSeconds.value || 0);
     if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
       throw new Error('Resolver interval must be a positive number of minutes.');
     }
@@ -197,6 +259,15 @@
     }
     if (!Number.isFinite(parallelism) || parallelism <= 0) {
       throw new Error('Resolver parallelism must be a positive number.');
+    }
+    if (!Number.isFinite(domainTimeout) || domainTimeout <= 0) {
+      throw new Error('Domain resolver timeout must be a positive number of seconds.');
+    }
+    if (!Number.isFinite(asnTimeout) || asnTimeout <= 0) {
+      throw new Error('ASN resolver timeout must be a positive number of seconds.');
+    }
+    if (!Number.isFinite(wildcardTimeout) || wildcardTimeout <= 0) {
+      throw new Error('Wildcard resolver timeout must be a positive number of seconds.');
     }
 
     const data = await fetchJSON('/api/settings');
@@ -210,6 +281,12 @@
       resolverParallelism: Math.round(parallelism),
       resolverTimeoutSeconds: Math.round(timeout),
       resolverIntervalSeconds: Math.round(intervalMinutes * 60),
+      resolverDomainTimeoutSeconds: Math.round(domainTimeout),
+      resolverAsnTimeoutSeconds: Math.round(asnTimeout),
+      resolverWildcardTimeoutSeconds: Math.round(wildcardTimeout),
+      resolverDomainEnabled: resolverDomainEnabled.checked,
+      resolverAsnEnabled: resolverAsnEnabled.checked,
+      resolverWildcardEnabled: resolverWildcardEnabled.checked,
     };
     await fetchJSON('/api/settings', {
       method: 'PUT',
@@ -234,7 +311,13 @@
       if (parsed && typeof parsed.error === 'string' && parsed.error) {
         throw new Error(parsed.error);
       }
-      throw new Error(response.statusText || 'Request failed');
+      let text = '';
+      try {
+        text = await response.text();
+      } catch (err) {
+        text = '';
+      }
+      throw new Error(text || response.statusText || 'Request failed');
     }
     return parsed || {};
   }

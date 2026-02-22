@@ -51,6 +51,11 @@ func (m *Manager) readProfileLocked(name string) (*VPNProfile, error) {
 	parsed.Type = vpnType
 	parsed.ConfigFile = configFileName
 	parsed.RawConfig = rawConfig
+	supportingFiles, err := listSupportingFiles(filepath.Join(m.vpnsDir, name), configFileName)
+	if err != nil {
+		return nil, err
+	}
+	parsed.SupportingFiles = supportingFiles
 	parsed.InterfaceName = strings.TrimSpace(values["DEV"])
 	if parsed.InterfaceName == "" {
 		parsed.InterfaceName = inferInterfaceFromType(vpnType, name)

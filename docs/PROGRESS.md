@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** None (all planned sprints complete)
-**Last updated:** 2026-02-21
-**Last session summary:** Post-sprint remediation completed: fixed resolver timeout refresh behavior, hardened VPN clash prevention (device/route-table/fwmark against managed, system, and peacey scopes), fixed uninstall orphan `svpn-*` symlink cleanup, and reconciled implementation docs/README with current code.
+**Last updated:** 2026-02-22
+**Last session summary:** Implemented version/update management end-to-end: build metadata, checksum-verified release installs, existing-install update prompts, web UI update check/apply APIs and controls, dedicated self-update worker flow, release workflow enhancements, and updater cleanup coverage.
 
 ---
 
@@ -30,6 +30,7 @@
 | **10** — Persistent Stats, Build & CI | **Complete** | Stats persistence + cross-build + CI workflow implemented |
 | **11** — Policy Routing Expansion | **Complete** | Rule-based selectors + resolver scheduler + UI/API + tests implemented |
 | **12** — Interactive Uninstall Script | **Complete** | Interactive full-wipe + category uninstall flow implemented |
+| **13** — Versioning & Update Management | **Complete** | Version metadata + release checksums + installer update prompts + webUI self-update orchestration |
 
 ---
 
@@ -64,6 +65,229 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Sprint 13 completion (version/update management)
+- Added build metadata subsystem:
+  - `internal/version/version.go` with runtime metadata accessors and JSON/human output.
+  - `cmd/splitvpnwebui/main.go` now supports `--version` and `--version-json`.
+- Added updater subsystem:
+  - new `internal/update/` package with:
+    - GitHub release metadata lookup (`latest`/tag),
+    - binary/checksum asset selection,
+    - SHA256 verification,
+    - staged update job persistence,
+    - updater status persistence (`update-status.json`) with file locking,
+    - dedicated self-update runner (`--self-update-run`) for binary swap + restart + rollback attempt.
+  - Added updater tests:
+    - `internal/update/manager_test.go`
+    - `internal/update/semver_test.go`
+    - `internal/update/github_test.go`
+- Added web API support:
+  - `internal/server/handlers_update.go`:
+    - `GET /api/update/status`
+    - `POST /api/update/check`
+    - `POST /api/update/apply`
+  - `internal/server/server.go` route wiring + updater injection.
+  - Added handler coverage in `internal/server/server_test.go` for update payload parsing/status-unavailable path.
+- Added web UI update controls:
+  - `ui/web/templates/layout.html` now includes software update section in settings modal.
+  - `ui/web/static/js/app-updates.js` implements status rendering and check/apply actions.
+  - `ui/web/static/js/app.js` integrates update controller in settings load flow.
+- Installer improvements (`install.sh`):
+  - now fetches release metadata first, resolves release tag, and detects existing installation.
+  - prompts user before update/reinstall (with non-interactive fallback and `ASSUME_YES=1` override).
+  - enforces checksum verification via release checksum asset before binary install.
+  - prints installed target release tag.
+- Release automation improvements:
+  - `.github/workflows/build.yml` now embeds build metadata via ldflags,
+    generates `SHA256SUMS`,
+    uploads checksum with binaries,
+    enables generated release notes,
+    and attempts AI summary generation with safe fallback.
+  - `.github/release.yml` added for generated-release-note categorization.
+- Cleanup/uninstall coverage:
+  - `uninstall.sh` now removes updater unit/symlink, updater status/job, and staged update directory.
+  - `deploy/dev-uninstall.sh` iterative/complete modes now also remove updater unit artifacts.
+- Validation run (all passed):
+  - `go test ./...`
+  - `go test ./internal/server ./internal/update`
+  - `node --check ui/web/static/js/app-updates.js ui/web/static/js/app.js`
+  - `bash -n install.sh uninstall.sh deploy/dev-uninstall.sh`
+
+### 2026-02-22 — Version/update management research (tentative plan, no code changes)
+- Audited current repository state:
+  - `.github/workflows/build.yml` already builds on tag push (`v*`) and publishes Linux `amd64`/`arm64` binaries to GitHub Releases.
+  - `install.sh` already resolves release assets from GitHub (`latest` by default, `VERSION=<tag>` override) and installs per-arch binaries.
+- Collected current GitHub capability references for:
+  - tag-triggered Actions workflows (`on.push.tags`),
+  - release creation and auto-generated release notes (`generate_release_notes` / `gh release create --generate-notes`),
+  - release-note customization (`.github/release.yml` categories/exclusions),
+  - optional AI-generated release-note synthesis via GitHub Models from workflows (`permissions: models: read` with `GITHUB_TOKEN`).
+- Prepared a phased tentative plan (pending approval) to add:
+  - explicit semantic version metadata in binary/UI,
+  - release-channel semantics (`latest` vs pinned tag),
+  - in-webUI update checks + one-click update trigger using installer logic,
+  - checksum/signature validation and optional attestations,
+  - AI-assisted changelog draft generation with deterministic fallback to GitHub auto-notes.
+
+### 2026-02-22 — Prewarm interface-alignment hardening (`wg-sv-*` support)
+- Fixed false-negative VPN activity detection for prewarm and status paths:
+  - `internal/util/network.go` now treats `operstate=unknown|dormant` as active when the interface has `IFF_UP`, which is common for WireGuard/tunnel interfaces.
+  - `InterfaceOperState` now falls back to interface flags when `operstate` cannot be read, instead of returning an error-only path that suppressed interfaces in callers.
+- Added prewarm fallback discovery path for managed interfaces:
+  - `internal/prewarm/worker.go` `WorkerOptions` now supports `InterfaceList` injection and defaults to live interface listing.
+  - when no active interfaces are found from VPN profiles, prewarm now falls back to active live interfaces matching the managed `wg-sv-*` namespace.
+  - this allows prewarm to proceed when profile interface metadata is stale but managed WireGuard interfaces are actually up.
+- Added regression tests:
+  - `internal/prewarm/worker_test.go` adds `TestWorkerFallsBackToActiveManagedWireGuardInterfaces`.
+  - `internal/util/network_test.go` adds `TestInterfaceStateConnected` for `up/unknown/dormant/down` behavior.
+- Validation run (all passed):
+  - `go test ./internal/prewarm ./internal/util -count=1`
+  - `go test ./internal/server ./internal/vpn ./internal/config -count=1`
+  - `go test ./... -count=1`
+  - `go vet ./...`
+
+### 2026-02-22 — systemd unit lifecycle hardening (autostart + self-heal)
+- Root-cause fix for `Unit svpn-<name>.service not loaded` after autostart toggles:
+  - `internal/server/handlers_config.go` `handleAutostart` now updates only the app autostart marker file and no longer calls `systemctl enable/disable` for VPN units.
+  - This avoids disable-time removal of linked `/etc/systemd/system/svpn-*.service` unit links.
+- Added self-healing of managed unit links before all service actions:
+  - `internal/systemd/manager.go` now calls `ensureLinkedUnit` from `runSystemctl` before `start/stop/restart/enable/disable`.
+  - If canonical unit file exists under `units/` but `/etc/systemd/system/<unit>.service` link is missing or stale, it re-creates the symlink and runs `systemctl daemon-reload` automatically.
+  - This makes runtime actions resilient to link drift or partial cleanup.
+- Added regression coverage:
+  - `internal/systemd/manager_test.go` adds `TestSystemctlSelfHealsMissingSymlink`.
+  - `internal/server/server_test.go` adds `TestHandleAutostartDoesNotCallSystemdEnableDisable`.
+- Validation run (all passed):
+  - `go test ./internal/systemd ./internal/server -count=1`
+  - `go test ./internal/config ./internal/vpn -count=1`
+  - `go test ./... -count=1`
+  - `go vet ./...`
+
+### 2026-02-22 — WireGuard interface alignment + stop-action usability
+- Implemented managed WireGuard interface naming by profile name instead of config filename:
+  - `internal/vpn/manager_helpers.go` now generates WireGuard interfaces in `wg-sv-*` format from the sanitized VPN profile name, with 15-char kernel limit enforcement and hash-suffix collision reduction for long names.
+  - `internal/vpn/manager_helpers.go` now canonicalizes WireGuard config filenames to `<interface>.conf` so `wg-quick` always creates the intended managed interface regardless of uploaded filename.
+  - `internal/vpn/manager_prepare.go` now resolves interface first, then WireGuard config filename from that interface, ensuring `DEV` and `CONFIG_FILE` stay in lockstep.
+  - `internal/vpn/manager_storage.go` and `internal/config/config.go` now trust persisted `DEV` as the source of interface identity (no runtime inference from arbitrary config filenames).
+- Fixed UI control behavior:
+  - `ui/web/static/js/app-vpn-helpers.js` stop button is no longer disabled when UI thinks a VPN is disconnected; stop can always be issued.
+- Added/updated regression tests:
+  - `internal/vpn/manager_test.go` now validates WireGuard interface naming and canonical filename behavior (`wg-sv-*` and `<interface>.conf`) even when user-supplied config file names differ.
+  - WireGuard interface-conflict tests now assert conflicts against the managed `wg-sv-*` naming model derived from profile names.
+  - `internal/config/config_test.go` now validates discovery preserves configured WireGuard `DEV` (no filename-derived override).
+- Validation run (all passed):
+  - `go test ./internal/config ./internal/vpn -count=1`
+  - `node --check ui/web/static/js/app-vpn-helpers.js`
+  - `go test ./... -count=1`
+  - `go vet ./...`
+
+### 2026-02-21 — UniFi route-table collision completion (201.eth8 hardening)
+- Finalized allocator behavior to prevent collisions with UniFi-owned policy-routing tables that appear as suffixed names (for example `lookup 201.eth8`):
+  - allocator seeds used tables/marks from `ip rule` and `ip route show table all` (IPv4 + IPv6) and parses numeric prefixes from suffixed table tokens.
+  - externally discovered allocations are tracked as sticky reservations and are not released on VPN profile deletion, preventing accidental reuse during delete/recreate iterations.
+  - allocator now refreshes live route/rule reservations on every table/mark allocation and explicit reserve call, preventing stale startup snapshots from reusing a table claimed later by UniFi.
+- Added regression coverage:
+  - `internal/vpn/allocator_test.go` now includes `TestAllocatorReleaseDoesNotFreeStickyExternalReservations` to prove table/mark `201` stays unavailable even after `Release(201, 201)`.
+  - `internal/vpn/allocator_test.go` now includes `TestAllocatorRefreshesLiveReservationsOnAllocation` to prove runtime-discovered `lookup 201.eth8` is honored even when it appears after allocator initialization.
+- Validation run (all passed):
+  - `go test ./internal/vpn -run Allocator -count=1`
+  - `go test ./... -count=1`
+
+### 2026-02-21 — First on-device runtime fixes (WireGuard start failures + UX error handling)
+- Fixed WireGuard startup failures on systems without `resolvconf`:
+  - `internal/vpn/manager_wireguard.go` now strips `DNS =` directives during sanitize when `resolvconf` is unavailable, and returns a warning in the create/update response.
+  - Added tests in `internal/vpn/manager_wireguard_test.go` for legacy hook stripping and DNS removal behavior.
+- Hardened route-table collision avoidance:
+  - `internal/vpn/allocator.go` now also scans live route tables via `ip route show table all` and `ip -6 route show table all` so allocator avoids IDs already carrying routes even when absent from `ip rule`.
+  - allocator parsing now recognizes suffixed table tokens (e.g. `201.eth8`) from `ip rule`/`ip route` outputs, preventing collisions with UniFi-named route tables.
+  - Added coverage in `internal/vpn/allocator_test.go` (`TestAllocatorAvoidsCollisionsFromExistingRouteEntries`).
+- Improved VPN action error handling path end-to-end:
+  - `internal/server/handlers_config.go` now runs start/stop/restart synchronously and returns immediate JSON errors when `systemctl` fails (instead of fire-and-forget background calls).
+  - `internal/systemd/manager.go` now captures `systemctl` command output on failures and includes it in returned error text.
+  - Added regression coverage in `internal/systemd/manager_test.go` (`TestStartIncludesSystemctlOutputOnFailure`).
+- Improved frontend error visibility:
+  - `ui/web/static/js/app.js` now surfaces backend error updates even during transient status-lock windows.
+  - `ui/web/static/js/domain-routing.js`, `ui/web/static/js/prewarm-auth.js`, and `ui/web/static/js/routing-resolver.js` now include HTTP response body fallback in fetch error handling.
+  - `ui/web/static/js/app-vpn-helpers.js` action status text updated to match synchronous action completion (`Started/Stopped/Restarted`).
+  - `ui/web/static/js/app-vpn-helpers.js` now surfaces backend create/update warnings returned in `vpn.warnings`.
+- Validation run (all passed):
+  - `go test ./...`
+  - `go vet ./...`
+  - `bash -n install.sh uninstall.sh deploy/on_boot_hook.sh deploy/dev-deploy.sh deploy/dev-uninstall.sh deploy/dev-cleanup.sh`
+  - `node --check ui/web/static/js/app.js ui/web/static/js/app-chart-helpers.js ui/web/static/js/app-vpn-helpers.js ui/web/static/js/domain-routing.js ui/web/static/js/routing-resolver.js ui/web/static/js/prewarm-auth.js`
+
+### 2026-02-21 — Pre-flight hardening review (gateway first-run readiness)
+- Performed a full code-vs-`AGENTS.md`/`docs/IMPLEMENTATION_PLAN.md` review plus full verification rerun.
+- Fixed first-run access mismatch:
+  - `cmd/splitvpnwebui/main.go` now auto-binds to detected LAN IPv4 when running with default listen address (`127.0.0.1:8091`) and no explicit `listenInterface`.
+  - Added LAN-detection helpers in `internal/util/network.go` (`DetectLANInterface`, `DetectLANIPv4`) with deterministic bridge-first candidate selection and private-IPv4 filtering.
+  - Added LAN selector tests in `internal/util/network_test.go`.
+- Fixed routing consistency after VPN profile changes:
+  - `internal/server/handlers_vpn.go` now re-applies routing state (`routingManager.Apply`) after VPN create/update/delete to keep fwmark/table/interface rules synchronized immediately.
+- Fixed API error-envelope consistency:
+  - `internal/server/stream.go` now returns JSON error payloads for `/api/stream` startup failures instead of plain text `http.Error`.
+- Validation run (all passed):
+  - `go test ./...`
+  - `go vet ./...`
+  - `bash -n install.sh uninstall.sh deploy/on_boot_hook.sh deploy/dev-deploy.sh deploy/dev-uninstall.sh deploy/dev-cleanup.sh`
+  - `node --check ui/web/static/js/app.js ui/web/static/js/app-chart-helpers.js ui/web/static/js/app-vpn-helpers.js ui/web/static/js/domain-routing.js ui/web/static/js/routing-resolver.js ui/web/static/js/prewarm-auth.js`
+
+### 2026-02-21 — Dev iteration deploy/cleanup scripts (no reboot flow)
+- Added `deploy/dev-deploy.sh`:
+  - targets `root@10.0.0.1` by default (override via `--host`/`--port`).
+  - builds binary for remote architecture automatically (`amd64`/`arm64`) unless `--no-build`.
+  - copies binary + canonical app unit via SCP into `/data/split-vpn-webui/`.
+  - links `/etc/systemd/system/split-vpn-webui.service`, runs `systemctl daemon-reload`, and restarts only `split-vpn-webui.service` (unless `--no-restart`).
+  - optional flags to also copy boot hook and uninstall script.
+- Added `deploy/dev-cleanup.sh`:
+  - now acts as a compatibility wrapper around `deploy/dev-uninstall.sh`.
+- Added `deploy/dev-uninstall.sh` with two explicit modes:
+  - `iterative` (default):
+    - stops/disables `split-vpn-webui.service`.
+    - removes app binary, app service unit/symlink, and boot hook (unless `--keep-boot-hook`).
+    - intentionally keeps VPN profiles/units/config/stats/runtime routing for fast iteration.
+  - `complete`:
+    - first attempts `printf 'y\n' | /data/split-vpn-webui/uninstall.sh`.
+    - if unavailable, runs fallback full cleanup:
+      - stops/disables app + managed `svpn-*` units
+      - removes canonical/systemd unit links
+      - removes app data dir (`/data/split-vpn-webui`)
+      - removes runtime routing artifacts in app namespace (`SVPN_*` chains, `svpn_*` ipsets, app dnsmasq drop-ins, app-marked ip rules).
+    - no reboot performed.
+- Added Makefile shortcuts:
+  - `make dev-deploy`
+  - `make dev-cleanup`
+  - `make dev-uninstall`
+  - with configurable `DEV_HOST` and `DEV_PORT`.
+- Updated `README.md` with a “Fast Dev Deploy (no reboot)” section and iterative/complete uninstall examples.
+- Validation run:
+  - `bash -n deploy/dev-deploy.sh deploy/dev-cleanup.sh deploy/dev-uninstall.sh install.sh uninstall.sh deploy/on_boot_hook.sh`
+  - `go test ./...`
+  - all passed locally.
+
+### 2026-02-21 — Omission closure follow-up (size-policy + modularization)
+- Closed remaining file-size policy omissions:
+  - `ui/web/static/js/app.js` reduced from 1247 lines to 425 lines.
+  - `internal/routing/resolver.go` reduced from 535 lines to 448 lines.
+  - Verified no source file exceeds ~500 lines under `cmd/`, `internal/`, or `ui/`.
+- Frontend modularization:
+  - Added `ui/web/static/js/app-vpn-helpers.js` to isolate VPN CRUD/table/modal logic.
+  - Reworked `ui/web/static/js/app-chart-helpers.js` to own gauge + interface-card rendering/formatting logic.
+  - Updated `ui/web/templates/layout.html` script load order:
+    - `app-chart-helpers.js`
+    - `app-vpn-helpers.js`
+    - `app.js`
+  - Updated `ui/web/static/js/app.js` to act as the lean orchestration layer (SSE/update loop/settings) and delegate VPN/chart responsibilities to helper modules.
+- Resolver split:
+  - Added `internal/routing/resolver_types.go` for resolver provider/status/progress/run type definitions and shared clone helpers.
+  - Kept runtime behavior unchanged; only structural split for maintainability and policy compliance.
+- Validation run:
+  - `gofmt -w internal/routing/resolver.go internal/routing/resolver_types.go`
+  - `node --check ui/web/static/js/app-chart-helpers.js ui/web/static/js/app-vpn-helpers.js ui/web/static/js/app.js ui/web/static/js/domain-routing.js ui/web/static/js/routing-resolver.js ui/web/static/js/prewarm-auth.js`
+  - `go test ./...`
+  - line-count audit across `cmd/`, `internal/`, `ui/`
+  - all passed locally.
 
 ### 2026-02-21 — Post-sprint remediation session (review findings closure)
 - Fixed resolver timeout propagation bug:

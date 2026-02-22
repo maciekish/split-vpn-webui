@@ -134,6 +134,7 @@
             <div class="progress" role="progressbar" aria-label="Resolver progress">
               <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" id="resolver-progress-bar" style="width: 0%"></div>
             </div>
+            <div class="row g-2 mt-2 d-none" id="resolver-provider-progress"></div>
           </div>
           <div class="row g-2 align-items-end mb-3">
             <div class="col-12 col-md-3">
@@ -152,6 +153,40 @@
               <button class="btn btn-outline-primary btn-sm w-100" id="save-resolver-settings" type="button">
                 <i class="bi bi-save me-1"></i>Save Resolver Settings
               </button>
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-12 col-md-4">
+              <label class="form-label small text-body-secondary mb-1" for="resolver-domain-timeout-seconds">Domain Timeout (seconds)</label>
+              <input class="form-control form-control-sm" id="resolver-domain-timeout-seconds" type="number" min="1" step="1" placeholder="10">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label small text-body-secondary mb-1" for="resolver-asn-timeout-seconds">ASN Timeout (seconds)</label>
+              <input class="form-control form-control-sm" id="resolver-asn-timeout-seconds" type="number" min="1" step="1" placeholder="10">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label small text-body-secondary mb-1" for="resolver-wildcard-timeout-seconds">Wildcard Timeout (seconds)</label>
+              <input class="form-control form-control-sm" id="resolver-wildcard-timeout-seconds" type="number" min="1" step="1" placeholder="10">
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-12 col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="resolver-domain-enabled" checked>
+                <label class="form-check-label small" for="resolver-domain-enabled">Enable Domain Resolver</label>
+              </div>
+            </div>
+            <div class="col-12 col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="resolver-asn-enabled" checked>
+                <label class="form-check-label small" for="resolver-asn-enabled">Enable ASN Resolver</label>
+              </div>
+            </div>
+            <div class="col-12 col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="resolver-wildcard-enabled" checked>
+                <label class="form-check-label small" for="resolver-wildcard-enabled">Enable Wildcard Resolver</label>
+              </div>
             </div>
           </div>
           <div class="domain-groups-grid" id="domain-groups-list"></div>
@@ -207,6 +242,7 @@
             <div class="progress" role="progressbar" aria-label="Prewarm progress">
               <div class="progress-bar progress-bar-striped progress-bar-animated" id="prewarm-progress-bar" style="width: 0%"></div>
             </div>
+            <div class="row g-2 mt-2 d-none" id="prewarm-per-vpn-progress"></div>
           </div>
         </div>
       </div>
@@ -237,6 +273,13 @@
           <div class="col-12 col-md-4">
             <label class="form-label" for="vpn-config-file">Config File</label>
             <input class="form-control" id="vpn-config-file" type="file" accept=".wg,.conf,.ovpn,text/plain">
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-12">
+            <label class="form-label" for="vpn-supporting-files">OpenVPN Supporting Files</label>
+            <input class="form-control" id="vpn-supporting-files" type="file" multiple>
+            <div class="form-text" id="vpn-supporting-files-meta">Upload files referenced by `.ovpn` directives (for example `ca`, `cert`, `key`, `auth-user-pass`).</div>
           </div>
         </div>
         <div class="small text-body-secondary mb-2" id="vpn-editor-meta"></div>
@@ -383,6 +426,41 @@
             </div>
           </div>
         </div>
+        <hr class="my-4">
+        <h6 class="mb-3"><i class="bi bi-cloud-arrow-down me-2"></i>Software Updates</h6>
+        <div class="row g-2 mb-2">
+          <div class="col-12 col-md-4">
+            <div class="small text-body-secondary">Current</div>
+            <div class="fw-semibold" id="update-current-version">–</div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="small text-body-secondary">Latest</div>
+            <div class="fw-semibold" id="update-latest-version">–</div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="small text-body-secondary">Last Checked</div>
+            <div class="fw-semibold" id="update-last-checked">Never</div>
+          </div>
+          <div class="col-12">
+            <div class="small text-body-secondary">Updater State</div>
+            <div class="fw-semibold" id="update-state">Idle</div>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="update-target-version">Target Version (optional)</label>
+            <input class="form-control font-monospace" id="update-target-version" type="text" placeholder="v1.2.3">
+          </div>
+          <div class="col-12 col-md-6 d-flex align-items-end gap-2">
+            <button class="btn btn-outline-primary flex-fill" type="button" id="check-updates">
+              <i class="bi bi-search me-1"></i>Check
+            </button>
+            <button class="btn btn-outline-success flex-fill" type="button" id="apply-update">
+              <i class="bi bi-arrow-repeat me-1"></i>Update
+            </button>
+          </div>
+          <div class="col-12">
+            <div class="form-text">Updating restarts the web UI service. Your session may reconnect automatically after a short interruption.</div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -396,6 +474,9 @@
 
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
+<script src="/static/js/app-chart-helpers.js"></script>
+<script src="/static/js/app-vpn-helpers.js"></script>
+<script src="/static/js/app-updates.js"></script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/domain-routing.js"></script>
 <script src="/static/js/routing-resolver.js"></script>

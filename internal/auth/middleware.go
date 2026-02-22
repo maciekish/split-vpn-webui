@@ -30,11 +30,12 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if strings.HasPrefix(path, "/api/") {
-			w.Header().Set("Content-Type", "application/json")
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
+			if strings.HasPrefix(path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
 
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})

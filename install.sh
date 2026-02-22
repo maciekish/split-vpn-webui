@@ -10,6 +10,10 @@ SERVICE_PATH="${UNITS_DIR}/${SERVICE_NAME}"
 BOOT_SCRIPT_PATH="/data/on_boot.d/10-split-vpn-webui.sh"
 UNINSTALL_PATH="${DATA_DIR}/uninstall.sh"
 GITHUB_API="https://api.github.com/repos/${REPO}"
+RELEASE_JSON=""
+RELEASE_TAG=""
+RELEASE_ASSET_URL=""
+RELEASE_CHECKSUM_URL=""
 
 need_cmd() {
 	if ! command -v "$1" >/dev/null 2>&1; then
@@ -39,16 +43,6 @@ detect_arch() {
 
 resolve_release_asset() {
 	local arch="$1"
-	local release_ref
-	if [[ -n "${VERSION:-}" ]]; then
-		release_ref="tags/${VERSION}"
-	else
-		release_ref="latest"
-	fi
-
-	local json
-	json="$(curl -fsSL -H 'Accept: application/vnd.github+json' "${GITHUB_API}/releases/${release_ref}")"
-
 	local url
 	while IFS= read -r url; do
 		local lower
@@ -62,20 +56,175 @@ resolve_release_asset() {
 			echo "${url}"
 			return 0
 		fi
-	done < <(printf '%s\n' "${json}" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\(.*\)",\{0,1\}[[:space:]]*$/\1/p')
+	done < <(printf '%s\n' "${RELEASE_JSON}" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\(.*\)",\{0,1\}[[:space:]]*$/\1/p')
 
 	fail "no linux/${arch} release asset found for ${REPO}"
 }
 
+resolve_release_checksum_asset() {
+	local url
+	while IFS= read -r url; do
+		local lower
+		lower="$(printf '%s' "${url}" | tr '[:upper:]' '[:lower:]')"
+		if [[ "${lower}" == *sha256* || "${lower}" == *checksum* ]]; then
+			echo "${url}"
+			return 0
+		fi
+	done < <(printf '%s\n' "${RELEASE_JSON}" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\(.*\)",\{0,1\}[[:space:]]*$/\1/p')
+	fail "no checksum asset found for release ${RELEASE_TAG}"
+}
+
+fetch_release_metadata() {
+	local release_ref
+	if [[ -n "${VERSION:-}" ]]; then
+		release_ref="tags/${VERSION}"
+	else
+		release_ref="latest"
+	fi
+	RELEASE_JSON="$(curl -fsSL -H 'Accept: application/vnd.github+json' "${GITHUB_API}/releases/${release_ref}")"
+	RELEASE_TAG="$(printf '%s\n' "${RELEASE_JSON}" | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*$/\1/p' | head -n1)"
+	[[ -n "${RELEASE_TAG}" ]] || fail "unable to determine release tag from GitHub response"
+}
+
+sha256_file() {
+	local path="$1"
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "${path}" | awk '{print tolower($1)}'
+		return 0
+	fi
+	if command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "${path}" | awk '{print tolower($1)}'
+		return 0
+	fi
+	fail "neither sha256sum nor shasum is available for checksum verification"
+}
+
+verify_asset_checksum() {
+	local asset_url="$1"
+	local checksum_url="$2"
+	local binary_path="$3"
+	local checksum_tmp
+	checksum_tmp="$(mktemp)"
+	curl -fsSL "${checksum_url}" -o "${checksum_tmp}"
+
+	local asset_name
+	asset_name="$(basename "${asset_url}")"
+	local expected
+	expected="$(
+		awk -v file="${asset_name}" '
+		{
+			sum=tolower($1)
+			name=$NF
+			gsub(/^\*/, "", name)
+			sub(/^\.\//, "", name)
+			n=split(name, parts, "/")
+			if (n > 0) {
+				name=parts[n]
+			}
+			if (name==file) {
+				print sum
+				exit
+			}
+		}
+		' "${checksum_tmp}"
+	)"
+	if [[ -z "${expected}" ]]; then
+		rm -f "${checksum_tmp}"
+		fail "checksum entry for ${asset_name} not found in ${checksum_url}"
+	fi
+
+	local actual
+	actual="$(sha256_file "${binary_path}")"
+	rm -f "${checksum_tmp}"
+	[[ "${expected}" == "${actual}" ]] || fail "checksum mismatch for ${asset_name} (expected ${expected}, got ${actual})"
+}
+
 install_binary_from_asset() {
 	local asset_url="$1"
+	local checksum_url="$2"
 	local tmp
 	tmp="$(mktemp)"
-	trap 'rm -f "${tmp}"' RETURN
 
 	echo "Downloading release binary: ${asset_url}"
 	curl -fsSL "${asset_url}" -o "${tmp}"
+	echo "Verifying checksum..."
+	verify_asset_checksum "${asset_url}" "${checksum_url}" "${tmp}"
 	install -m 0755 "${tmp}" "${BINARY_PATH}"
+	rm -f "${tmp}"
+}
+
+extract_installed_version() {
+	if [[ ! -x "${BINARY_PATH}" ]]; then
+		return 0
+	fi
+	local info
+	info="$("${BINARY_PATH}" --version-json 2>/dev/null || true)"
+	printf '%s\n' "${info}" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
+}
+
+prompt_yes_no() {
+	local question="$1"
+	local default_answer="$2"
+	local prompt
+	local answer
+
+	if [[ "${ASSUME_YES:-0}" == "1" || "${AUTO_UPDATE:-0}" == "1" ]]; then
+		return 0
+	fi
+	if [[ ! -r /dev/tty ]]; then
+		echo "No interactive terminal available; proceeding automatically."
+		return 0
+	fi
+
+	if [[ "${default_answer}" == "y" ]]; then
+		prompt="[Y/n]"
+	else
+		prompt="[y/N]"
+	fi
+	while true; do
+		printf '%s %s ' "${question}" "${prompt}" > /dev/tty
+		IFS= read -r answer < /dev/tty || answer=""
+		answer="$(printf '%s' "${answer}" | tr '[:upper:]' '[:lower:]')"
+		if [[ -z "${answer}" ]]; then
+			answer="${default_answer}"
+		fi
+		case "${answer}" in
+			y|yes)
+				return 0
+				;;
+			n|no)
+				return 1
+				;;
+		esac
+	done
+}
+
+confirm_existing_installation() {
+	if [[ ! -e "${BINARY_PATH}" ]]; then
+		return 0
+	fi
+	local installed_version
+	installed_version="$(extract_installed_version)"
+	if [[ -z "${installed_version}" ]]; then
+		installed_version="unknown"
+	fi
+	echo "Existing installation detected at ${BINARY_PATH} (current: ${installed_version}, target: ${RELEASE_TAG})"
+
+	if [[ "${installed_version}" == "${RELEASE_TAG}" ]]; then
+		if [[ "${FORCE_REINSTALL:-0}" == "1" ]]; then
+			return 0
+		fi
+		if prompt_yes_no "This version is already installed. Reinstall anyway?" "n"; then
+			return 0
+		fi
+		echo "Keeping existing installation unchanged."
+		exit 0
+	fi
+	if prompt_yes_no "Update split-vpn-webui from ${installed_version} to ${RELEASE_TAG}?" "y"; then
+		return 0
+	fi
+	echo "Update cancelled by user."
+	exit 0
 }
 
 resolve_uninstall_script_url() {
@@ -184,15 +333,17 @@ MSG
 
 	local arch
 	arch="$(detect_arch)"
-	local asset_url
-	asset_url="$(resolve_release_asset "${arch}")"
+	fetch_release_metadata
+	RELEASE_ASSET_URL="$(resolve_release_asset "${arch}")"
+	RELEASE_CHECKSUM_URL="$(resolve_release_checksum_asset)"
+	confirm_existing_installation
 
 	install -d -m 0700 "${DATA_DIR}"
 	install -d -m 0755 "${DATA_DIR}/logs" "${UNITS_DIR}"
 	install -d -m 0700 "${DATA_DIR}/vpns"
 	install -d -m 0755 "/data/on_boot.d"
 
-	install_binary_from_asset "${asset_url}"
+	install_binary_from_asset "${RELEASE_ASSET_URL}" "${RELEASE_CHECKSUM_URL}"
 	install_uninstall_script
 	write_service_unit
 	write_boot_hook
@@ -202,6 +353,7 @@ MSG
 
 	echo
 	echo "split-vpn-webui installed successfully"
+	echo "Version: ${RELEASE_TAG}"
 	echo "Binary: ${BINARY_PATH}"
 	echo "Service unit: ${SERVICE_PATH}"
 	echo "Boot hook: ${BOOT_SCRIPT_PATH}"

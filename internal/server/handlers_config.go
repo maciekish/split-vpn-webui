@@ -64,8 +64,16 @@ func (s *Server) handleStartVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	go s.startVPN(cfg)
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "starting"})
+	if err := s.systemd.Start(vpnServiceUnitName(cfg.Name)); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.refreshState(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.broadcastUpdate(nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 }
 
 func (s *Server) handleStopVPN(w http.ResponseWriter, r *http.Request) {
@@ -82,8 +90,16 @@ func (s *Server) handleStopVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	go s.stopVPN(cfg)
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "stopping"})
+	if err := s.systemd.Stop(vpnServiceUnitName(cfg.Name)); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.refreshState(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.broadcastUpdate(nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
 func (s *Server) handleAutostart(w http.ResponseWriter, r *http.Request) {
@@ -106,18 +122,6 @@ func (s *Server) handleAutostart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	unitName := vpnServiceUnitName(name)
-	if payload.Enabled {
-		if err := s.systemd.Enable(unitName); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-	} else {
-		if err := s.systemd.Disable(unitName); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-	}
 	if err := s.configManager.SetAutostart(name, payload.Enabled); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -138,8 +142,16 @@ func (s *Server) handleRestartVPN(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	go s.restartVPN(name)
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "restarting"})
+	if err := s.systemd.Restart(vpnServiceUnitName(name)); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.refreshState(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.broadcastUpdate(nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted"})
 }
 
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {

@@ -168,8 +168,16 @@ func (m *Manager) runSystemctl(action, unitName string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.runner.Run("systemctl", action, resolved); err != nil {
-		return fmt.Errorf("systemctl %s %s: %w", action, resolved, err)
+	if err := m.ensureLinkedUnit(resolved); err != nil {
+		return err
+	}
+	output, err := m.runner.Output("systemctl", action, resolved)
+	if err != nil {
+		details := strings.TrimSpace(string(output))
+		if details == "" {
+			return fmt.Errorf("systemctl %s %s: %w", action, resolved, err)
+		}
+		return fmt.Errorf("systemctl %s %s: %s: %w", action, resolved, details, err)
 	}
 	return nil
 }
@@ -177,6 +185,52 @@ func (m *Manager) runSystemctl(action, unitName string) error {
 func (m *Manager) daemonReload() error {
 	if err := m.runner.Run("systemctl", "daemon-reload"); err != nil {
 		return fmt.Errorf("systemctl daemon-reload: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) ensureLinkedUnit(resolvedUnit string) error {
+	// For managed canonical units, restore missing /etc/systemd/system symlink
+	// before issuing runtime actions. This recovers from disable/link drift.
+	canonicalPath := filepath.Join(m.unitsDir, resolvedUnit)
+	info, err := os.Stat(canonicalPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("canonical unit path is a directory: %s", canonicalPath)
+	}
+	symlinkPath := filepath.Join(m.systemdDir, resolvedUnit)
+	linkFixed := false
+	if existingTarget, linkErr := os.Readlink(symlinkPath); linkErr == nil {
+		if existingTarget != canonicalPath {
+			if err := os.Remove(symlinkPath); err != nil {
+				return err
+			}
+			if err := os.Symlink(canonicalPath, symlinkPath); err != nil {
+				return err
+			}
+			linkFixed = true
+		}
+	} else if os.IsNotExist(linkErr) {
+		if err := os.Symlink(canonicalPath, symlinkPath); err != nil {
+			return err
+		}
+		linkFixed = true
+	} else {
+		if err := os.Remove(symlinkPath); err != nil {
+			return err
+		}
+		if err := os.Symlink(canonicalPath, symlinkPath); err != nil {
+			return err
+		}
+		linkFixed = true
+	}
+	if linkFixed {
+		return m.daemonReload()
 	}
 	return nil
 }

@@ -149,3 +149,45 @@ func TestValidateOVPNConfig_ReferenceSample(t *testing.T) {
 		t.Fatalf("expected inline blocks to be parsed, got %d", len(profile.OpenVPN.InlineBlocks))
 	}
 }
+
+func TestRequiredOpenVPNFiles_ExternalReferences(t *testing.T) {
+	raw := `client
+remote vpn.example.com 1194
+dev tun
+ca ca.crt
+cert client.crt
+key client.key
+auth-user-pass creds.txt
+`
+	profile, err := NewOpenVPNProvider().ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("ParseConfig failed: %v", err)
+	}
+	files, err := requiredOpenVPNFiles(profile.OpenVPN)
+	if err != nil {
+		t.Fatalf("requiredOpenVPNFiles failed: %v", err)
+	}
+	want := []string{"ca.crt", "client.crt", "client.key", "creds.txt"}
+	if strings.Join(files, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected supporting file list: got %v want %v", files, want)
+	}
+}
+
+func TestRequiredOpenVPNFiles_RejectsEscapingPath(t *testing.T) {
+	raw := `client
+remote vpn.example.com 1194
+dev tun
+ca ../ca.crt
+`
+	profile, err := NewOpenVPNProvider().ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("ParseConfig failed: %v", err)
+	}
+	_, err = requiredOpenVPNFiles(profile.OpenVPN)
+	if err == nil {
+		t.Fatalf("expected invalid supporting file path error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "supporting file") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

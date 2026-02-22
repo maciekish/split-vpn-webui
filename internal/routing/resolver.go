@@ -2,7 +2,6 @@ package routing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,42 +18,6 @@ const (
 	defaultResolverParallelism     = 6
 	maxResolverParallelism         = 64
 )
-
-var (
-	// ErrResolverRunInProgress indicates one resolver run is already active.
-	ErrResolverRunInProgress = errors.New("resolver run already in progress")
-)
-
-// DomainResolver resolves one domain to IPv4/IPv6 prefixes.
-type DomainResolver interface {
-	Resolve(ctx context.Context, domain string) (ResolverValues, error)
-}
-
-// ASNResolver resolves one ASN to IPv4/IPv6 prefixes.
-type ASNResolver interface {
-	Resolve(ctx context.Context, asn string) (ResolverValues, error)
-}
-
-// WildcardResolver discovers known subdomains for one wildcard selector.
-type WildcardResolver interface {
-	Resolve(ctx context.Context, wildcard string) ([]string, error)
-}
-
-// ResolverProgress is the live status emitted while resolver runs.
-type ResolverProgress struct {
-	StartedAt        int64  `json:"startedAt"`
-	SelectorsTotal   int    `json:"selectorsTotal"`
-	SelectorsDone    int    `json:"selectorsDone"`
-	PrefixesResolved int    `json:"prefixesResolved"`
-	CurrentSelector  string `json:"currentSelector,omitempty"`
-}
-
-// ResolverStatus is returned by resolver status endpoints.
-type ResolverStatus struct {
-	Running  bool               `json:"running"`
-	LastRun  *ResolverRunRecord `json:"lastRun,omitempty"`
-	Progress *ResolverProgress  `json:"progress,omitempty"`
-}
 
 // ResolverScheduler executes periodic/manual resolver refresh runs.
 type ResolverScheduler struct {
@@ -108,15 +71,14 @@ func NewResolverScheduler(manager *Manager, settingsManager *settings.Manager) (
 	if err != nil {
 		current = settings.Settings{}
 	}
-	timeout := resolverTimeoutFromSettings(current)
 	lastRun, _ := manager.store.LastResolverRun(context.Background())
 
 	return &ResolverScheduler{
 		manager:          manager,
 		settings:         settingsManager,
-		domainResolver:   newDoHDomainResolver(timeout),
-		asnResolver:      newRIPEASNResolver(timeout),
-		wildcardResolver: newCRTSHWildcardResolver(timeout),
+		domainResolver:   newDoHDomainResolver(resolverDomainTimeoutFromSettings(current)),
+		asnResolver:      newRIPEASNResolver(resolverASNTimeoutFromSettings(current)),
+		wildcardResolver: newCRTSHWildcardResolver(resolverWildcardTimeoutFromSettings(current)),
 		now:              time.Now,
 		defaultInterval:  resolverIntervalFromSettings(current),
 		lastRun:          lastRun,
@@ -258,7 +220,7 @@ func (s *ResolverScheduler) Status(ctx context.Context) (ResolverStatus, error) 
 		LastRun: cloneResolverRun(lastRun),
 	}
 	if progress != nil {
-		cloned := *progress
+		cloned := progress.Clone()
 		status.Progress = &cloned
 	}
 	return status, nil
@@ -298,32 +260,34 @@ func (s *ResolverScheduler) executeRun(ctx context.Context, current settings.Set
 		SelectorsTotal:   stats.SelectorsTotal,
 		SelectorsDone:    stats.SelectorsDone,
 		PrefixesResolved: stats.PrefixesResolved,
+		PerProvider:      stats.PerProvider,
 	}
 	s.progress = &finalProgress
 	s.mu.Unlock()
 	s.emitProgress(finalProgress)
 }
 
-type resolverStats struct {
-	SelectorsTotal   int
-	SelectorsDone    int
-	PrefixesResolved int
-}
-
 func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settings.Settings) (resolverStats, error) {
-	resolvers := s.resolversForRun(current)
+	enabled := resolverProviderFlagsFromSettings(current)
+	resolvers := s.resolversForRun(current, enabled)
 	groups, err := s.manager.store.List(ctx)
 	if err != nil {
 		return resolverStats{}, err
 	}
-	jobs := collectResolverJobs(groups)
+	jobs := collectResolverJobs(groups, enabled)
 	progress := ResolverProgress{
 		StartedAt:      s.now().Unix(),
 		SelectorsTotal: len(jobs),
+		PerProvider:    make(map[string]ResolverProviderProgress),
+	}
+	for _, job := range jobs {
+		entry := progress.PerProvider[job.Selector.Type]
+		entry.SelectorsTotal++
+		progress.PerProvider[job.Selector.Type] = entry
 	}
 	s.emitProgress(progress)
 	if len(jobs) == 0 {
-		return resolverStats{}, nil
+		return resolverStats{PerProvider: cloneResolverProviderProgress(progress.PerProvider)}, nil
 	}
 
 	parallelism := resolverParallelismFromSettings(current)
@@ -379,8 +343,13 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 		}
 
 		progress.SelectorsDone++
-		progress.PrefixesResolved += len(result.values.V4) + len(result.values.V6)
+		resolvedCount := len(result.values.V4) + len(result.values.V6)
+		progress.PrefixesResolved += resolvedCount
 		progress.CurrentSelector = result.job.Label
+		providerProgress := progress.PerProvider[result.job.Selector.Type]
+		providerProgress.SelectorsDone++
+		providerProgress.PrefixesResolved += resolvedCount
+		progress.PerProvider[result.job.Selector.Type] = providerProgress
 		s.emitProgress(progress)
 	}
 	if firstErr != nil {
@@ -388,6 +357,7 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 			SelectorsTotal:   progress.SelectorsTotal,
 			SelectorsDone:    progress.SelectorsDone,
 			PrefixesResolved: progress.PrefixesResolved,
+			PerProvider:      cloneResolverProviderProgress(progress.PerProvider),
 		}, firstErr
 	}
 
@@ -402,22 +372,26 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 		SelectorsTotal:   progress.SelectorsTotal,
 		SelectorsDone:    progress.SelectorsDone,
 		PrefixesResolved: progress.PrefixesResolved,
+		PerProvider:      cloneResolverProviderProgress(progress.PerProvider),
 	}, nil
-}
-
-type runResolvers struct {
-	domain   DomainResolver
-	asn      ASNResolver
-	wildcard WildcardResolver
 }
 
 func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob, resolvers runResolvers) (ResolverValues, error) {
 	switch job.Selector.Type {
 	case "domain":
+		if resolvers.domain == nil {
+			return ResolverValues{}, nil
+		}
 		return resolvers.domain.Resolve(ctx, job.Selector.Key)
 	case "asn":
+		if resolvers.asn == nil {
+			return ResolverValues{}, nil
+		}
 		return resolvers.asn.Resolve(ctx, job.Selector.Key)
 	case "wildcard":
+		if resolvers.wildcard == nil || resolvers.domain == nil {
+			return ResolverValues{}, nil
+		}
 		domains, err := resolvers.wildcard.Resolve(ctx, job.Selector.Key)
 		if err != nil {
 			return ResolverValues{}, err
@@ -445,24 +419,28 @@ func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob, res
 	}
 }
 
-func (s *ResolverScheduler) resolversForRun(current settings.Settings) runResolvers {
-	timeout := resolverTimeoutFromSettings(current)
-	// Non-custom resolvers are rebuilt per run so timeout setting changes
-	// are applied immediately without requiring a process restart.
-	result := runResolvers{
-		domain:   newDoHDomainResolver(timeout),
-		asn:      newRIPEASNResolver(timeout),
-		wildcard: newCRTSHWildcardResolver(timeout),
+func (s *ResolverScheduler) resolversForRun(current settings.Settings, enabled resolverProviderFlags) runResolvers {
+	// Non-custom resolvers are rebuilt per run so timeout setting changes are
+	// applied immediately without requiring a process restart.
+	result := runResolvers{}
+	if enabled.Domain || enabled.Wildcard {
+		result.domain = newDoHDomainResolver(resolverDomainTimeoutFromSettings(current))
+	}
+	if enabled.ASN {
+		result.asn = newRIPEASNResolver(resolverASNTimeoutFromSettings(current))
+	}
+	if enabled.Wildcard {
+		result.wildcard = newCRTSHWildcardResolver(resolverWildcardTimeoutFromSettings(current))
 	}
 
 	s.mu.RLock()
-	if s.customDomain && s.domainResolver != nil {
+	if (enabled.Domain || enabled.Wildcard) && s.customDomain && s.domainResolver != nil {
 		result.domain = s.domainResolver
 	}
-	if s.customASN && s.asnResolver != nil {
+	if enabled.ASN && s.customASN && s.asnResolver != nil {
 		result.asn = s.asnResolver
 	}
-	if s.customWildcard && s.wildcardResolver != nil {
+	if enabled.Wildcard && s.customWildcard && s.wildcardResolver != nil {
 		result.wildcard = s.wildcardResolver
 	}
 	s.mu.RUnlock()

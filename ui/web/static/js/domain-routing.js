@@ -471,7 +471,13 @@
       if (parsed && typeof parsed.error === 'string' && parsed.error) {
         throw new Error(parsed.error);
       }
-      throw new Error(response.statusText || 'Request failed');
+      let text = '';
+      try {
+        text = await response.text();
+      } catch (err) {
+        text = '';
+      }
+      throw new Error(text || response.statusText || 'Request failed');
     }
     return parsed || {};
   }

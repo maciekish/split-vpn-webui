@@ -109,7 +109,19 @@ func TestRemoveUnitRemovesCanonicalAndSymlink(t *testing.T) {
 
 func TestServiceCommands(t *testing.T) {
 	runner := &recordingRunner{outputs: map[string][]byte{"systemctl is-active svpn-test.service": []byte("active\n")}}
-	m := NewManagerWithDeps("/data/split-vpn-webui", "/data/split-vpn-webui/units", "/etc/systemd/system", "/data/on_boot.d/10-split-vpn-webui.sh", runner)
+	tempDir := t.TempDir()
+	unitsDir := filepath.Join(tempDir, "units")
+	systemdDir := filepath.Join(tempDir, "etc-systemd")
+	if err := os.MkdirAll(unitsDir, 0o755); err != nil {
+		t.Fatalf("mkdir units dir: %v", err)
+	}
+	if err := os.MkdirAll(systemdDir, 0o755); err != nil {
+		t.Fatalf("mkdir systemd dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unitsDir, "svpn-test.service"), []byte("[Unit]\nDescription=test\n"), 0o644); err != nil {
+		t.Fatalf("write canonical unit: %v", err)
+	}
+	m := NewManagerWithDeps(filepath.Join(tempDir, "data"), unitsDir, systemdDir, filepath.Join(tempDir, "boot.sh"), runner)
 
 	if err := m.Start("svpn-test"); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -152,6 +164,47 @@ func TestServiceCommands(t *testing.T) {
 		if !found {
 			t.Fatalf("expected command %q in calls %#v", expected, runner.calls)
 		}
+	}
+}
+
+func TestSystemctlSelfHealsMissingSymlink(t *testing.T) {
+	tempDir := t.TempDir()
+	unitsDir := filepath.Join(tempDir, "units")
+	systemdDir := filepath.Join(tempDir, "etc-systemd")
+	if err := os.MkdirAll(unitsDir, 0o755); err != nil {
+		t.Fatalf("mkdir units dir: %v", err)
+	}
+	if err := os.MkdirAll(systemdDir, 0o755); err != nil {
+		t.Fatalf("mkdir systemd dir: %v", err)
+	}
+	canonicalPath := filepath.Join(unitsDir, "svpn-test.service")
+	if err := os.WriteFile(canonicalPath, []byte("[Unit]\nDescription=test\n"), 0o644); err != nil {
+		t.Fatalf("write canonical unit: %v", err)
+	}
+
+	runner := &recordingRunner{}
+	m := NewManagerWithDeps(filepath.Join(tempDir, "data"), unitsDir, systemdDir, filepath.Join(tempDir, "boot.sh"), runner)
+	if err := m.Start("svpn-test"); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	linkPath := filepath.Join(systemdDir, "svpn-test.service")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("expected symlink to be recreated: %v", err)
+	}
+	if target != canonicalPath {
+		t.Fatalf("expected symlink target %q, got %q", canonicalPath, target)
+	}
+
+	if len(runner.calls) < 2 {
+		t.Fatalf("expected daemon-reload then start calls, got %#v", runner.calls)
+	}
+	if got := joinCall(runner.calls[0]); got != "systemctl daemon-reload" {
+		t.Fatalf("expected first call daemon-reload, got %s", got)
+	}
+	if got := joinCall(runner.calls[1]); got != "systemctl start svpn-test.service" {
+		t.Fatalf("expected second call start, got %s", got)
 	}
 }
 
@@ -206,5 +259,21 @@ func TestStatusReturnsOutputOnFailure(t *testing.T) {
 	}
 	if status != "inactive" {
 		t.Fatalf("expected status inactive, got %q", status)
+	}
+}
+
+func TestStartIncludesSystemctlOutputOnFailure(t *testing.T) {
+	runner := &recordingRunner{
+		outputErrs: map[string]error{"systemctl start broken.service": errors.New("exit 1")},
+		outputs:    map[string][]byte{"systemctl start broken.service": []byte("Job for broken.service failed\n")},
+	}
+	m := NewManagerWithDeps("/data", "/data/units", "/etc/systemd/system", "/data/on_boot.d/10-split-vpn-webui.sh", runner)
+
+	err := m.Start("broken")
+	if err == nil {
+		t.Fatalf("expected start error")
+	}
+	if !strings.Contains(err.Error(), "Job for broken.service failed") {
+		t.Fatalf("expected systemctl output in error, got %v", err)
 	}
 }

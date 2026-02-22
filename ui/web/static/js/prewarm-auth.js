@@ -11,6 +11,7 @@
   const prewarmProgressBar = document.getElementById('prewarm-progress-bar');
   const prewarmProgressLabel = document.getElementById('prewarm-progress-label');
   const prewarmProgressMeta = document.getElementById('prewarm-progress-meta');
+  const prewarmPerVPNProgress = document.getElementById('prewarm-per-vpn-progress');
 
   const settingsModalElement = document.getElementById('settingsModal');
   const currentPasswordInput = document.getElementById('current-password');
@@ -33,6 +34,7 @@
     !prewarmProgressBar ||
     !prewarmProgressLabel ||
     !prewarmProgressMeta ||
+    !prewarmPerVPNProgress ||
     !settingsModalElement ||
     !currentPasswordInput ||
     !newPasswordInput ||
@@ -155,6 +157,8 @@
       return;
     }
     prewarmProgressWrap.classList.add('d-none');
+    prewarmPerVPNProgress.classList.add('d-none');
+    prewarmPerVPNProgress.innerHTML = '';
   }
 
   function connectPrewarmStream() {
@@ -195,6 +199,7 @@
     prewarmProgressBar.textContent = `${pct}%`;
     prewarmProgressLabel.textContent = total > 0 ? `Domains ${processed}/${total}` : 'Preparing run...';
     prewarmProgressMeta.textContent = `IPs inserted: ${ips}`;
+    renderPerVPNProgress(progress?.perVpn || {});
 
     const completed = total > 0 && processed >= total;
     if (completed) {
@@ -204,6 +209,35 @@
         await loadPrewarmStatus();
       }, 1000);
     }
+  }
+
+  function renderPerVPNProgress(perVpn) {
+    const entries = Object.entries(perVpn || {});
+    if (entries.length === 0) {
+      prewarmPerVPNProgress.classList.add('d-none');
+      prewarmPerVPNProgress.innerHTML = '';
+      return;
+    }
+    prewarmPerVPNProgress.classList.remove('d-none');
+    prewarmPerVPNProgress.innerHTML = entries
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([iface, item]) => {
+        const total = Number(item?.totalDomains || 0);
+        const done = Number(item?.domainsProcessed || 0);
+        const inserted = Number(item?.ipsInserted || 0);
+        const errors = Number(item?.errors || 0);
+        const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
+        return `
+          <div class="col-12 col-md-4">
+            <div class="small text-body-secondary mb-1">${iface}</div>
+            <div class="progress mb-1" role="progressbar" aria-label="${iface} progress">
+              <div class="progress-bar bg-secondary" style="width: ${pct}%">${pct}%</div>
+            </div>
+            <div class="small text-body-secondary">${done}/${total} domains • ${inserted} IPs • ${errors} errors</div>
+          </div>
+        `;
+      })
+      .join('');
   }
 
   async function loadScheduleFromSettings() {
@@ -230,6 +264,12 @@
       resolverParallelism: Number(current.resolverParallelism || 0),
       resolverTimeoutSeconds: Number(current.resolverTimeoutSeconds || 0),
       resolverIntervalSeconds: Number(current.resolverIntervalSeconds || 0),
+      resolverDomainTimeoutSeconds: Number(current.resolverDomainTimeoutSeconds || 0),
+      resolverAsnTimeoutSeconds: Number(current.resolverAsnTimeoutSeconds || 0),
+      resolverWildcardTimeoutSeconds: Number(current.resolverWildcardTimeoutSeconds || 0),
+      resolverDomainEnabled: current.resolverDomainEnabled !== false,
+      resolverAsnEnabled: current.resolverAsnEnabled !== false,
+      resolverWildcardEnabled: current.resolverWildcardEnabled !== false,
     };
     await fetchJSON('/api/settings', {
       method: 'PUT',
@@ -312,7 +352,13 @@
       if (parsed && typeof parsed.error === 'string' && parsed.error) {
         throw new Error(parsed.error);
       }
-      throw new Error(response.statusText || 'Request failed');
+      let text = '';
+      try {
+        text = await response.text();
+      } catch (err) {
+        text = '';
+      }
+      throw new Error(text || response.statusText || 'Request failed');
     }
     return parsed || {};
   }

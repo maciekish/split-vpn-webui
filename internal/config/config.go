@@ -182,7 +182,7 @@ func (m *Manager) parseConfig(path string) (*VPNConfig, error) {
 	cfg := &VPNConfig{
 		Name:          name,
 		Path:          dir,
-		InterfaceName: values["DEV"],
+		InterfaceName: strings.TrimSpace(values["DEV"]),
 		VPNType:       vpnType,
 		Gateway:       gateway,
 		RawValues:     values,
