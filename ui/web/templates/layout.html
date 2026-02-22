@@ -462,6 +462,30 @@
             <div class="form-text">Updating restarts the web UI service. Your session may reconnect automatically after a short interruption.</div>
           </div>
         </div>
+        <hr class="my-4">
+        <h6 class="mb-3"><i class="bi bi-archive me-2"></i>Backup & Restore</h6>
+        <div class="row g-2">
+          <div class="col-12">
+            <button class="btn btn-outline-primary w-100" type="button" id="download-backup">
+              <i class="bi bi-download me-1"></i>Download Full Backup
+            </button>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="restore-backup-file">Restore Backup File</label>
+            <input class="form-control" id="restore-backup-file" type="file" accept=".json,application/json">
+            <div class="form-text">
+              Restores VPN configs (including secrets), policy groups/rules, resolver cache, auth token/password hash, and settings. Statistics are intentionally excluded.
+            </div>
+            <div class="form-text text-warning">
+              Restore replaces current VPN and policy configuration. Use only trusted backup files.
+            </div>
+          </div>
+          <div class="col-12">
+            <button class="btn btn-outline-danger w-100" type="button" id="restore-backup">
+              <i class="bi bi-upload me-1"></i>Restore Backup
+            </button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>

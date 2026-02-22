@@ -410,8 +410,8 @@
           <div class="small text-body-secondary">
             Normal Domains match both the exact domain and its subdomains in dnsmasq, but pre-warm only queries domains explicitly listed here.
           </div>
-          <div class="small text-warning mt-1">
-            Wildcard Domains discover known subdomains from public data and pre-warm those discovered hosts. Use with care: large domains can create many routing entries.
+          <div class="small text-danger mt-1">
+            Wildcard Domains discover known subdomains from public data and pre-warm those discovered hosts. Use large top domains (for example <code>*.microsoft.com</code> / <code>microsoft.com</code>) with great care: they can expand into huge domain lists and create massive IPv4/IPv6 ipsets.
           </div>
         </div>
       </div>

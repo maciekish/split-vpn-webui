@@ -209,6 +209,77 @@ func (s *Store) List(ctx context.Context) ([]DomainGroup, error) {
 	return groups, nil
 }
 
+// ReplaceAll atomically replaces all persisted groups and resolver cache rows.
+func (s *Store) ReplaceAll(
+	ctx context.Context,
+	groups []DomainGroup,
+	snapshot map[ResolverSelector]ResolverValues,
+) error {
+	normalizedGroups := make([]DomainGroup, 0, len(groups))
+	for _, group := range groups {
+		normalized, err := NormalizeAndValidate(group)
+		if err != nil {
+			return err
+		}
+		normalizedGroups = append(normalizedGroups, normalized)
+	}
+	sort.Slice(normalizedGroups, func(i, j int) bool { return normalizedGroups[i].Name < normalizedGroups[j].Name })
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_groups`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM resolver_cache`); err != nil {
+		return err
+	}
+
+	for _, group := range normalizedGroups {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO domain_groups (name, egress_vpn)
+			VALUES (?, ?)
+		`, group.Name, group.EgressVPN)
+		if err != nil {
+			return err
+		}
+		groupID, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := replaceRulesTx(ctx, tx, groupID, group.Rules); err != nil {
+			return err
+		}
+		if err := replaceLegacyDomainsTx(ctx, tx, groupID, group.Domains); err != nil {
+			return err
+		}
+	}
+
+	for selector, values := range snapshot {
+		for _, cidr := range values.V4 {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
+				VALUES (?, ?, 'inet', ?, strftime('%s','now'))
+			`, selector.Type, selector.Key, cidr); err != nil {
+				return err
+			}
+		}
+		for _, cidr := range values.V6 {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
+				VALUES (?, ?, 'inet6', ?, strftime('%s','now'))
+			`, selector.Type, selector.Key, cidr); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 func replaceRulesTx(ctx context.Context, tx *sql.Tx, groupID int64, rules []RoutingRule) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM routing_rules WHERE group_id = ?`, groupID); err != nil {
 		return err

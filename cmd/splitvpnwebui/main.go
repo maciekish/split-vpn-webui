@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"split-vpn-webui/internal/auth"
+	"split-vpn-webui/internal/backup"
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/database"
 	"split-vpn-webui/internal/latency"
@@ -129,6 +130,10 @@ func main() {
 	if err := routingManager.Apply(context.Background()); err != nil {
 		log.Printf("warning: failed to apply routing state on startup: %v", err)
 	}
+	backupManager, err := backup.NewManager(cfgManager, settingsManager, vpnManager, routingManager, systemdManager)
+	if err != nil {
+		log.Fatalf("failed to initialize backup manager: %v", err)
+	}
 	resolverScheduler, err := routing.NewResolverScheduler(routingManager, settingsManager)
 	if err != nil {
 		log.Fatalf("failed to initialize resolver scheduler: %v", err)
@@ -151,7 +156,21 @@ func main() {
 
 	listenAddr := resolveListenAddress(*addr, storedSettings.ListenInterface)
 
-	srv, err := server.New(cfgManager, vpnManager, routingManager, resolverScheduler, prewarmScheduler, systemdManager, collector, latencyMonitor, settingsManager, authManager, updater, *systemdMode)
+	srv, err := server.New(
+		cfgManager,
+		vpnManager,
+		routingManager,
+		resolverScheduler,
+		prewarmScheduler,
+		systemdManager,
+		collector,
+		latencyMonitor,
+		settingsManager,
+		authManager,
+		backupManager,
+		updater,
+		*systemdMode,
+	)
 	if err != nil {
 		log.Fatalf("failed to build server: %v", err)
 	}

@@ -80,6 +80,10 @@ func (m *Manager) ListGroups(ctx context.Context) ([]DomainGroup, error) {
 	return m.store.List(ctx)
 }
 
+func (m *Manager) LoadResolverSnapshot(ctx context.Context) (map[ResolverSelector]ResolverValues, error) {
+	return m.store.LoadResolverSnapshot(ctx)
+}
+
 func (m *Manager) GetGroup(ctx context.Context, id int64) (*DomainGroup, error) {
 	return m.store.Get(ctx, id)
 }
@@ -137,6 +141,26 @@ func (m *Manager) DeleteGroup(ctx context.Context, id int64) error {
 func (m *Manager) Apply(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.applyLocked(ctx)
+}
+
+// ReplaceState replaces persisted groups and resolver snapshot, then applies runtime state once.
+func (m *Manager) ReplaceState(
+	ctx context.Context,
+	groups []DomainGroup,
+	snapshot map[ResolverSelector]ResolverValues,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, group := range groups {
+		if err := m.validateEgressVPN(group.EgressVPN); err != nil {
+			return err
+		}
+	}
+	if err := m.store.ReplaceAll(ctx, groups, snapshot); err != nil {
+		return err
+	}
 	return m.applyLocked(ctx)
 }
 

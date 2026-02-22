@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Added wildcard subdomain discovery support to prewarm, added per-VPN IPv4/IPv6 routing set size visibility in the VPN table, and clarified domain vs wildcard behavior in the policy-rule editor UI.
+**Last session summary:** Added versioned config backup/restore with monolithic JSON export and API-style restore, including VPN source payload recreation (config + secrets), policy groups/rules, resolver cache, and settings (statistics excluded).
 
 ---
 
@@ -65,6 +65,45 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Wildcard domain warning hardening
+- Strengthened wildcard-rule warning copy in the policy rule editor:
+  - `ui/web/static/js/domain-routing.js` now explicitly warns that broad top domains such as `*.microsoft.com` / `microsoft.com` can expand into very large discovered domain sets and create massive IPv4/IPv6 ipsets.
+  - Warning style changed from `text-warning` to `text-danger` for higher visibility.
+- Validation run:
+  - `node --check ui/web/static/js/domain-routing.js`
+
+### 2026-02-22 — Config backup/restore feature (post-sprint enhancement)
+- Added new backup subsystem:
+  - `internal/backup/` with versioned snapshot schema and manager orchestration.
+  - Export captures source-style data for forward-compatible restore:
+    - settings (including auth hash/token)
+    - VPN source payloads (`name/type/config/configFile/interface/boundInterface`) plus supporting files as base64
+    - autostart flags
+    - routing groups/rules
+    - resolver cache snapshot
+  - Explicitly excludes traffic statistics/history tables.
+- Added API endpoints:
+  - `GET /api/backup/export` returns downloadable monolithic JSON backup file.
+  - `POST /api/backup/import` accepts JSON body or multipart file upload (`file` field).
+  - Import flow pauses resolver/prewarm schedulers, restores data, then resumes schedulers.
+- Restore behavior:
+  - Recreates VPNs through manager create/delete flows (API-style/source-data restore), not raw file replay.
+  - Clears then restores routing state in controlled phases.
+  - Restores autostart markers and settings.
+  - Includes best-effort rollback to pre-import snapshot on failure.
+- Routing manager/store enhancements for restore orchestration:
+  - `routing.Manager.LoadResolverSnapshot`
+  - `routing.Manager.ReplaceState`
+  - `routing.Store.ReplaceAll` (atomic group + resolver cache replacement)
+- Web UI additions (Settings modal):
+  - "Download Full Backup" button.
+  - Restore file picker + "Restore Backup" button with warning text.
+  - Restore triggers reload to handle auth/session changes safely.
+- Tests added:
+  - `internal/backup/manager_test.go` (export fidelity, validation failure, import recreation flow).
+- Validation run (all passed):
+  - `go test ./...`
 
 ### 2026-02-22 — Wildcard prewarm + routing size visibility polish
 - Wildcard prewarm behavior aligned with intended UX:

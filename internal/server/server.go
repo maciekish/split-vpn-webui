@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"split-vpn-webui/internal/auth"
+	"split-vpn-webui/internal/backup"
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/prewarm"
@@ -58,6 +59,7 @@ type Server struct {
 	latency        *latency.Monitor
 	settings       *settings.Manager
 	auth           *auth.Manager
+	backup         *backup.Manager
 	updater        *update.Manager
 	templates      *template.Template
 
@@ -83,6 +85,7 @@ func New(
 	latencyMonitor *latency.Monitor,
 	settingsManager *settings.Manager,
 	authManager *auth.Manager,
+	backupManager *backup.Manager,
 	updateManager *update.Manager,
 	systemdManaged bool,
 ) (*Server, error) {
@@ -101,6 +104,7 @@ func New(
 		latency:           latencyMonitor,
 		settings:          settingsManager,
 		auth:              authManager,
+		backup:            backupManager,
 		updater:           updateManager,
 		templates:         tmpl,
 		systemdManaged:    systemdManaged,
@@ -187,6 +191,8 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/update/status", s.handleUpdateStatus)
 			api.Post("/update/check", s.handleCheckUpdates)
 			api.Post("/update/apply", s.handleApplyUpdate)
+			api.Get("/backup/export", s.handleExportBackup)
+			api.Post("/backup/import", s.handleImportBackup)
 		})
 	})
 

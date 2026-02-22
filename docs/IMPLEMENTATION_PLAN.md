@@ -739,6 +739,56 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 ---
 
+## Post-Sprint Enhancement — Config Backup & Restore
+
+**Goal:** Provide full configuration backup/restore through the web UI with a single downloadable file that restores functional behavior without including traffic statistics.
+
+### Files to modify/create
+
+| File | Change |
+|---|---|
+| `internal/backup/types.go` | Define versioned monolithic backup schema (`format`, `version`, settings, VPN source payloads, groups/rules, resolver snapshot) |
+| `internal/backup/manager.go` | Implement export/import orchestration with validation, API-style VPN recreation, autostart restore, and rollback safety |
+| `internal/backup/manager_test.go` | Add coverage for export fidelity, validation errors, and import flow |
+| `internal/routing/store.go` | Add atomic replace helper for groups + resolver cache (`ReplaceAll`) |
+| `internal/routing/manager.go` | Add `LoadResolverSnapshot` and `ReplaceState` helpers for restore orchestration |
+| `internal/server/handlers_backup.go` | Add `/api/backup/export` and `/api/backup/import` handlers |
+| `internal/server/server.go` | Route wiring and server dependency injection for backup manager |
+| `cmd/splitvpnwebui/main.go` | Initialize backup manager and pass into HTTP server |
+| `ui/web/templates/layout.html` | Add Backup/Restore controls in Settings modal |
+| `ui/web/static/js/prewarm-auth.js` | Implement backup download and restore upload UX |
+| `docs/PROGRESS.md` | Record implementation and validation notes |
+
+### Backup payload rules
+
+- Use a single versioned JSON document for download/import.
+- Preserve VPN configurations as source-style API payload fields:
+  - `name`, `type`, `config`, `configFile`, `interfaceName`, `boundInterface`
+  - `supportingFiles[]` with base64 content (avoids binary/newline escaping issues).
+- Include:
+  - all VPN definitions + secrets,
+  - autostart state,
+  - all policy groups/rules,
+  - resolver cache snapshot,
+  - all settings/auth state needed for functional parity.
+- Exclude:
+  - statistics/traffic history (`stats_history` and related throughput history concerns).
+
+### Deliverables / Definition of Done
+
+- [x] `GET /api/backup/export` returns a downloadable monolithic JSON backup.
+- [x] `POST /api/backup/import` accepts JSON and multipart file upload.
+- [x] Import recreates VPNs through manager create/delete flow (API-style restore), not raw file replay.
+- [x] Import restores groups/rules + resolver snapshot atomically and reapplies runtime routing.
+- [x] Import restores autostart markers and settings/auth values.
+- [x] Scheduler interference is prevented during import (resolver/prewarm pause + resume).
+- [x] Backup schema is versioned and validated with structured errors.
+- [x] Restore includes rollback attempt to pre-import snapshot on failure.
+- [x] UI exposes download/restore controls with explicit warning text.
+- [x] Test suite remains green (`go test ./...`).
+
+---
+
 ## Cross-Cutting Concerns & Audit Notes
 
 > Added 2026-02-20 after a comprehensive codebase audit against CLAUDE.md and the reference implementation.

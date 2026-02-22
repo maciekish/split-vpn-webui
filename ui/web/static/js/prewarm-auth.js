@@ -20,6 +20,9 @@
   const tokenInput = document.getElementById('api-token');
   const copyTokenButton = document.getElementById('copy-token');
   const regenerateTokenButton = document.getElementById('regenerate-token');
+  const downloadBackupButton = document.getElementById('download-backup');
+  const restoreBackupFileInput = document.getElementById('restore-backup-file');
+  const restoreBackupButton = document.getElementById('restore-backup');
 
   if (
     !runNowButton ||
@@ -41,7 +44,10 @@
     !changePasswordButton ||
     !tokenInput ||
     !copyTokenButton ||
-    !regenerateTokenButton
+    !regenerateTokenButton ||
+    !downloadBackupButton ||
+    !restoreBackupFileInput ||
+    !restoreBackupButton
   ) {
     return;
   }
@@ -107,6 +113,45 @@
       showPrewarmStatus('API token copied.', false);
     } catch (err) {
       showPrewarmStatus('Failed to copy API token.', true);
+    }
+  });
+
+  downloadBackupButton.addEventListener('click', async () => {
+    downloadBackupButton.disabled = true;
+    try {
+      await downloadBackup();
+      showPrewarmStatus('Backup downloaded.', false);
+    } catch (err) {
+      showPrewarmStatus(err.message, true);
+    } finally {
+      downloadBackupButton.disabled = false;
+    }
+  });
+
+  restoreBackupButton.addEventListener('click', async () => {
+    const file = restoreBackupFileInput.files && restoreBackupFileInput.files[0];
+    if (!file) {
+      showPrewarmStatus('Choose a backup file first.', true);
+      return;
+    }
+    if (!window.confirm('Restore this backup? Current VPN and policy configuration will be replaced.')) {
+      return;
+    }
+    restoreBackupButton.disabled = true;
+    try {
+      const payload = await restoreBackup(file);
+      const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+      if (warnings.length > 0) {
+        showPrewarmStatus(`Restore complete with warnings: ${warnings.join(' | ')}`, true);
+      } else {
+        showPrewarmStatus('Restore complete. Reloading session…', false);
+      }
+      restoreBackupFileInput.value = '';
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      showPrewarmStatus(err.message, true);
+    } finally {
+      restoreBackupButton.disabled = false;
     }
   });
 
@@ -306,6 +351,34 @@
     showPrewarmStatus('API token regenerated.', false);
   }
 
+  async function downloadBackup() {
+    const response = await fetch('/api/backup/export');
+    if (!response.ok) {
+      throw await responseError(response);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filenameFromContentDisposition(response.headers.get('content-disposition')) || 'split-vpn-webui-backup.json';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } finally {
+      window.URL.revokeObjectURL(url);
+    }
+  }
+
+  async function restoreBackup(file) {
+    const body = new FormData();
+    body.append('file', file, file.name || 'backup.json');
+    return fetchJSON('/api/backup/import', {
+      method: 'POST',
+      body,
+    });
+  }
+
   async function copyToken() {
     const token = tokenInput.value || '';
     if (!token) {
@@ -361,6 +434,38 @@
       throw new Error(text || response.statusText || 'Request failed');
     }
     return parsed || {};
+  }
+
+  async function responseError(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      try {
+        const payload = await response.json();
+        if (payload && typeof payload.error === 'string' && payload.error) {
+          return new Error(payload.error);
+        }
+      } catch (err) {
+        // Fall back to text.
+      }
+    }
+    try {
+      const text = await response.text();
+      if (text) {
+        return new Error(text);
+      }
+    } catch (err) {
+      // Ignore and fall back to status.
+    }
+    return new Error(response.statusText || 'Request failed');
+  }
+
+  function filenameFromContentDisposition(raw) {
+    const value = String(raw || '');
+    const match = value.match(/filename="([^"]+)"/i) || value.match(/filename=([^;]+)/i);
+    if (!match || !match[1]) {
+      return '';
+    }
+    return match[1].trim();
   }
 
   function formatDateTime(unixSeconds) {
