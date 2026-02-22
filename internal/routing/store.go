@@ -233,6 +233,20 @@ func replaceRulesTx(ctx context.Context, tx *sql.Tx, groupID int64, rules []Rout
 				return err
 			}
 		}
+		for _, iface := range rule.SourceInterfaces {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_source_interfaces (rule_id, iface) VALUES (?, ?)
+			`, ruleID, iface); err != nil {
+				return err
+			}
+		}
+		for _, mac := range rule.SourceMACs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_source_macs (rule_id, mac) VALUES (?, ?)
+			`, ruleID, mac); err != nil {
+				return err
+			}
+		}
 		for _, cidr := range rule.DestinationCIDRs {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO routing_rule_destination_cidrs (rule_id, cidr) VALUES (?, ?)
@@ -342,6 +356,14 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 	if err != nil {
 		return nil, err
 	}
+	sourceInterfacesByRule, err := listRuleSourceInterfaces(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	sourceMACsByRule, err := listRuleSourceMACs(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
 	destByRule, err := listRuleCIDRs(ctx, s.db, "routing_rule_destination_cidrs", ruleIDs)
 	if err != nil {
 		return nil, err
@@ -361,7 +383,9 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 
 	for _, entry := range stored {
 		rule := entry.rule
+		rule.SourceInterfaces = append([]string(nil), sourceInterfacesByRule[entry.ruleID]...)
 		rule.SourceCIDRs = append([]string(nil), sourceByRule[entry.ruleID]...)
+		rule.SourceMACs = append([]string(nil), sourceMACsByRule[entry.ruleID]...)
 		rule.DestinationCIDRs = append([]string(nil), destByRule[entry.ruleID]...)
 		rule.DestinationPorts = append([]PortRange(nil), portsByRule[entry.ruleID]...)
 		rule.DestinationASNs = append([]string(nil), asnByRule[entry.ruleID]...)
@@ -370,103 +394,4 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 		rulesByGroup[entry.groupID] = append(rulesByGroup[entry.groupID], rule)
 	}
 	return rulesByGroup, nil
-}
-
-func listRuleCIDRs(ctx context.Context, db *sql.DB, table string, ruleIDs []int64) (map[int64][]string, error) {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT rule_id, cidr FROM %s ORDER BY rule_id ASC, cidr ASC`, table))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[int64][]string)
-	for rows.Next() {
-		var ruleID int64
-		var cidr string
-		if err := rows.Scan(&ruleID, &cidr); err != nil {
-			return nil, err
-		}
-		result[ruleID] = append(result[ruleID], cidr)
-	}
-	return result, rows.Err()
-}
-
-func listRulePorts(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]PortRange, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT rule_id, protocol, start_port, end_port
-		FROM routing_rule_ports
-		ORDER BY rule_id ASC, protocol ASC, start_port ASC, end_port ASC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[int64][]PortRange)
-	for rows.Next() {
-		var ruleID int64
-		var protocol string
-		var start int
-		var end int
-		if err := rows.Scan(&ruleID, &protocol, &start, &end); err != nil {
-			return nil, err
-		}
-		result[ruleID] = append(result[ruleID], PortRange{Protocol: protocol, Start: start, End: end})
-	}
-	return result, rows.Err()
-}
-
-func listRuleASNs(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT rule_id, asn
-		FROM routing_rule_asns
-		ORDER BY rule_id ASC, asn ASC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[int64][]string)
-	for rows.Next() {
-		var ruleID int64
-		var asn string
-		if err := rows.Scan(&ruleID, &asn); err != nil {
-			return nil, err
-		}
-		result[ruleID] = append(result[ruleID], asn)
-	}
-	return result, rows.Err()
-}
-
-func listRuleDomains(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, map[int64][]string, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT rule_id, domain, is_wildcard
-		FROM routing_rule_domains
-		ORDER BY rule_id ASC, is_wildcard ASC, domain ASC
-	`)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-
-	domains := make(map[int64][]string)
-	wildcards := make(map[int64][]string)
-	for rows.Next() {
-		var ruleID int64
-		var domain string
-		var isWildcard int
-		if err := rows.Scan(&ruleID, &domain, &isWildcard); err != nil {
-			return nil, nil, err
-		}
-		if isWildcard == 1 {
-			wildcards[ruleID] = append(wildcards[ruleID], domain)
-		} else {
-			domains[ruleID] = append(domains[ruleID], domain)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-	return domains, wildcards, nil
 }

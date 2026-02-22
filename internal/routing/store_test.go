@@ -132,3 +132,43 @@ func TestStoreReadsLegacyDomainEntriesAsRule(t *testing.T) {
 		t.Fatalf("unexpected legacy rule domains: %#v", group.Rules[0].Domains)
 	}
 }
+
+func TestStorePersistsSourceInterfaceAndMACSelectors(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+
+	created, err := store.Create(ctx, DomainGroup{
+		Name:      "LanPolicy",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:             "MAC+Port",
+				SourceInterfaces: []string{"br6", "br0"},
+				SourceMACs:       []string{"00:30:93:10:0a:12", "00:30:93:10:0a:12"},
+				DestinationPorts: []PortRange{{Protocol: "both", Start: 53}},
+				DestinationCIDRs: []string{"1.1.1.1"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+
+	fetched, err := store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get group: %v", err)
+	}
+	if len(fetched.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(fetched.Rules))
+	}
+	rule := fetched.Rules[0]
+	if len(rule.SourceInterfaces) != 2 || rule.SourceInterfaces[0] != "br0" || rule.SourceInterfaces[1] != "br6" {
+		t.Fatalf("unexpected source interfaces: %#v", rule.SourceInterfaces)
+	}
+	if len(rule.SourceMACs) != 1 || rule.SourceMACs[0] != "00:30:93:10:0a:12" {
+		t.Fatalf("unexpected source macs: %#v", rule.SourceMACs)
+	}
+	if len(rule.DestinationPorts) != 1 || rule.DestinationPorts[0].Protocol != "both" {
+		t.Fatalf("unexpected destination ports: %#v", rule.DestinationPorts)
+	}
+}

@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Confirmed Linux CI prewarm DoH test fix is active (`internal/prewarm/doh_test.go`), local `go test ./...` passes, and tag workflow run `22282694147` completed successfully on commit `7c9890f`.
+**Last session summary:** Added missing `FORCED_SOURCE*` parity selectors for policy rules (`sourceInterfaces`, `sourceMacs`, and `both` protocol ports), validated full test suite, and prepared `v1.0.1` release.
 
 ---
 
@@ -65,6 +65,38 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — FORCED_SOURCE*/FORCED_DESTINATION parity completion
+- Implemented remaining forced-selector coverage from peacey split-rule semantics (limited to forced source/destination scope):
+  - Added routing rule selectors:
+    - `sourceInterfaces` (maps to FORCED_SOURCE_INTERFACE behavior)
+    - `sourceMacs` (maps to FORCED_SOURCE_MAC behavior)
+  - Extended destination-port selector protocol support to include `both` (in addition to `tcp`/`udp`) to cover FORCED_SOURCE_*_PORT semantics.
+  - Existing selectors already covered:
+    - `sourceCidrs` (FORCED_SOURCE_IPV4/FORCED_SOURCE_IPV6)
+    - `destinationCidrs` (FORCED_DESTINATIONS_IPV4/FORCED_DESTINATIONS_IPV6)
+- Backend/runtime updates:
+  - `internal/routing/model.go` now validates/normalizes source interface and source MAC selectors and accepts `both` protocol ports.
+  - `internal/database/schema.go` adds selector persistence tables:
+    - `routing_rule_source_interfaces`
+    - `routing_rule_source_macs`
+  - `internal/routing/store.go` persists/loads source interface and source MAC selectors.
+  - `internal/routing/manager.go` carries new selectors into runtime bindings.
+  - `internal/routing/iptables.go` now applies `-i <iface>` and `-m mac --mac-source <mac>` matches and expands `both` ports into tcp+udp rules for IPv4 and IPv6 chains.
+- API/UI updates:
+  - `internal/server/handlers_routing.go` accepts and returns `sourceInterfaces` + `sourceMacs`.
+  - `ui/web/static/js/domain-routing.js` adds rule-editor fields for source interfaces/MACs and allows `both:<port>` syntax.
+- Test coverage added/updated:
+  - `internal/routing/model_test.go` (normalization/validation for new selectors)
+  - `internal/routing/store_test.go` (selector persistence round-trip)
+  - `internal/routing/manager_test.go` (binding propagation for interface/mac selectors)
+  - `internal/routing/iptables_test.go` (source interface/mac command generation + `both` protocol expansion)
+  - `internal/server/server_test.go` (group payload parsing for new selectors)
+  - `internal/database/database_test.go` (new table existence checks)
+- Validation run (all passed):
+  - `go test ./...`
+  - `node --check ui/web/static/js/domain-routing.js`
+  - `bash -n install.sh uninstall.sh deploy/dev-deploy.sh deploy/dev-cleanup.sh deploy/dev-uninstall.sh deploy/on_boot_hook.sh`
 
 ### 2026-02-22 — CI verification after user-reported workflow failure
 - Re-verified root cause and fix path:

@@ -34,6 +34,17 @@
   ) {
     return;
   }
+  const helper = window.SplitVPNDomainRoutingUtils;
+  if (!helper) {
+    console.error('domain-routing utils unavailable');
+    return;
+  }
+  const valueFrom = helper.valueFrom;
+  const parseLines = helper.parseLines;
+  const parsePorts = helper.parsePorts;
+  const ruleHasSelectors = helper.ruleHasSelectors;
+  const formatPorts = helper.formatPorts;
+  const escapeHTML = helper.escapeHTML;
   const state = {
     groups: [],
     vpns: [],
@@ -177,8 +188,14 @@
       .slice(0, 4)
       .map((rule, index) => {
         const tokens = [];
+        if (rule.sourceInterfaces.length) {
+          tokens.push(`iface:${rule.sourceInterfaces.length}`);
+        }
         if (rule.sourceCidrs.length) {
           tokens.push(`src:${rule.sourceCidrs.length}`);
+        }
+        if (rule.sourceMacs.length) {
+          tokens.push(`mac:${rule.sourceMacs.length}`);
         }
         if (rule.destinationCidrs.length) {
           tokens.push(`dst:${rule.destinationCidrs.length}`);
@@ -275,7 +292,9 @@
     cards.forEach((card) => {
       const rule = {
         name: valueFrom(card, '.js-rule-name'),
+        sourceInterfaces: parseLines(valueFrom(card, '.js-rule-source-interface')),
         sourceCidrs: parseLines(valueFrom(card, '.js-rule-source')),
+        sourceMacs: parseLines(valueFrom(card, '.js-rule-source-mac')),
         destinationCidrs: parseLines(valueFrom(card, '.js-rule-destination')),
         destinationPorts: parsePorts(valueFrom(card, '.js-rule-ports')),
         destinationAsns: parseLines(valueFrom(card, '.js-rule-asn')),
@@ -288,49 +307,13 @@
     });
     return rules;
   }
-  function valueFrom(card, selector) {
-    const input = card.querySelector(selector);
-    return input ? String(input.value || '').trim() : '';
-  }
-  function parseLines(rawValue) {
-    return String(rawValue || '')
-      .split('\n')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry !== '');
-  }
-  function parsePorts(rawValue) {
-    const parsed = [];
-    parseLines(rawValue).forEach((entry) => {
-      const compact = entry.replace(/\s+/g, '');
-      const match = compact.match(/^(tcp|udp)[:/](\d{1,5})(?:-(\d{1,5}))?$/i);
-      if (!match) {
-        throw new Error(`Invalid port selector "${entry}". Use tcp:443 or udp:5000-5100.`);
-      }
-      const protocol = String(match[1] || '').toLowerCase();
-      const start = Number(match[2] || 0);
-      const end = match[3] ? Number(match[3]) : start;
-      if (start <= 0 || start > 65535 || end <= 0 || end > 65535 || end < start) {
-        throw new Error(`Invalid port selector "${entry}".`);
-      }
-      parsed.push({ protocol, start, end });
-    });
-    return parsed;
-  }
-  function ruleHasSelectors(rule) {
-    return (
-      rule.sourceCidrs.length > 0 ||
-      rule.destinationCidrs.length > 0 ||
-      rule.destinationPorts.length > 0 ||
-      rule.destinationAsns.length > 0 ||
-      rule.domains.length > 0 ||
-      rule.wildcardDomains.length > 0
-    );
-  }
   function normalizeRules(group) {
     if (Array.isArray(group.rules) && group.rules.length > 0) {
       return group.rules.map((rule, index) => ({
         name: rule.name || `Rule ${index + 1}`,
+        sourceInterfaces: Array.isArray(rule.sourceInterfaces) ? rule.sourceInterfaces : [],
         sourceCidrs: Array.isArray(rule.sourceCidrs) ? rule.sourceCidrs : [],
+        sourceMacs: Array.isArray(rule.sourceMacs) ? rule.sourceMacs : [],
         destinationCidrs: Array.isArray(rule.destinationCidrs) ? rule.destinationCidrs : [],
         destinationPorts: Array.isArray(rule.destinationPorts) ? rule.destinationPorts : [],
         destinationAsns: Array.isArray(rule.destinationAsns) ? rule.destinationAsns : [],
@@ -344,7 +327,9 @@
     }
     return [{
       name: 'Rule 1',
+      sourceInterfaces: [],
       sourceCidrs: [],
+      sourceMacs: [],
       destinationCidrs: [],
       destinationPorts: [],
       destinationAsns: [],
@@ -366,7 +351,9 @@
     const index = rulesList.children.length + 1;
     const payload = rule || {
       name: `Rule ${index}`,
+      sourceInterfaces: [],
       sourceCidrs: [],
+      sourceMacs: [],
       destinationCidrs: [],
       destinationPorts: [],
       destinationAsns: [],
@@ -387,17 +374,25 @@
         <div class="col-12">
           <input class="form-control form-control-sm js-rule-name" type="text" placeholder="Rule name" value="${escapeHTML(payload.name || '')}">
         </div>
-        <div class="col-12 col-md-6">
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary mb-1">Source Interfaces</label>
+          <textarea class="form-control form-control-sm font-monospace js-rule-source-interface" rows="4" placeholder="br0&#10;br6">${escapeHTML((payload.sourceInterfaces || []).join('\n'))}</textarea>
+        </div>
+        <div class="col-12 col-md-4">
           <label class="form-label small text-body-secondary mb-1">Source CIDRs</label>
           <textarea class="form-control form-control-sm font-monospace js-rule-source" rows="4" placeholder="10.0.0.0/24&#10;2001:db8::/64">${escapeHTML((payload.sourceCidrs || []).join('\n'))}</textarea>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary mb-1">Source MACs</label>
+          <textarea class="form-control form-control-sm font-monospace js-rule-source-mac" rows="4" placeholder="00:30:93:10:0a:12">${escapeHTML((payload.sourceMacs || []).join('\n'))}</textarea>
         </div>
         <div class="col-12 col-md-6">
           <label class="form-label small text-body-secondary mb-1">Destination CIDRs</label>
           <textarea class="form-control form-control-sm font-monospace js-rule-destination" rows="4" placeholder="1.1.1.0/24&#10;2606:4700::/32">${escapeHTML((payload.destinationCidrs || []).join('\n'))}</textarea>
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-6">
           <label class="form-label small text-body-secondary mb-1">Destination Ports</label>
-          <textarea class="form-control form-control-sm font-monospace js-rule-ports" rows="4" placeholder="tcp:443&#10;udp:5000-5100">${escapeHTML(formatPorts(payload.destinationPorts || []))}</textarea>
+          <textarea class="form-control form-control-sm font-monospace js-rule-ports" rows="4" placeholder="tcp:443&#10;both:53&#10;udp:5000-5100">${escapeHTML(formatPorts(payload.destinationPorts || []))}</textarea>
         </div>
         <div class="col-12 col-md-4">
           <label class="form-label small text-body-secondary mb-1">Destination ASNs</label>
@@ -414,23 +409,6 @@
       </div>
     `;
     rulesList.appendChild(card);
-  }
-  function formatPorts(ports) {
-    if (!Array.isArray(ports)) {
-      return '';
-    }
-    return ports
-      .map((entry) => {
-        const protocol = String(entry.protocol || '').toLowerCase();
-        const start = Number(entry.start || 0);
-        const end = Number(entry.end || start);
-        if (!protocol || start <= 0) {
-          return '';
-        }
-        return `${protocol}:${start}${end > start ? `-${end}` : ''}`;
-      })
-      .filter((entry) => entry !== '')
-      .join('\n');
   }
   function renderEgressOptions() {
     const previousValue = groupEgressSelect.value;
@@ -490,14 +468,6 @@
         groupsStatus.classList.add('d-none');
       }, 3500);
     }
-  }
-  function escapeHTML(value) {
-    return String(value || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
   }
   initialize();
 })();

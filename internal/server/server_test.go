@@ -88,6 +88,39 @@ func TestDecodeGroupPayloadNormalizesDomains(t *testing.T) {
 	}
 }
 
+func TestDecodeGroupPayloadParsesSourceInterfaceAndMACSelectors(t *testing.T) {
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{
+		"name":"LAN",
+		"egressVpn":"sgp.swic.name",
+		"rules":[
+			{
+				"name":"Device",
+				"sourceInterfaces":["BR6"],
+				"sourceMacs":["00:30:93:10:0A:12"],
+				"destinationPorts":[{"protocol":"both","start":53}]
+			}
+		]
+	}`))
+
+	group, err := decodeGroupPayload(request)
+	if err != nil {
+		t.Fatalf("expected valid payload, got %v", err)
+	}
+	if len(group.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(group.Rules))
+	}
+	rule := group.Rules[0]
+	if len(rule.SourceInterfaces) != 1 || rule.SourceInterfaces[0] != "br6" {
+		t.Fatalf("unexpected source interfaces: %#v", rule.SourceInterfaces)
+	}
+	if len(rule.SourceMACs) != 1 || rule.SourceMACs[0] != "00:30:93:10:0a:12" {
+		t.Fatalf("unexpected source MACs: %#v", rule.SourceMACs)
+	}
+	if len(rule.DestinationPorts) != 1 || rule.DestinationPorts[0].Protocol != "both" {
+		t.Fatalf("unexpected destination ports: %#v", rule.DestinationPorts)
+	}
+}
+
 func requestWithVPNNameParam(name string) *http.Request {
 	request := httptest.NewRequest("GET", "/api/vpns/"+name, nil)
 	rctx := chi.NewRouteContext()

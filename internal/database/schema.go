@@ -47,6 +47,24 @@ CREATE TABLE IF NOT EXISTS routing_rule_source_cidrs (
 CREATE INDEX IF NOT EXISTS idx_routing_rule_source_cidrs_rule
     ON routing_rule_source_cidrs (rule_id);
 
+CREATE TABLE IF NOT EXISTS routing_rule_source_interfaces (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER NOT NULL REFERENCES routing_rules(id) ON DELETE CASCADE,
+    iface   TEXT    NOT NULL,
+    UNIQUE(rule_id, iface)
+);
+CREATE INDEX IF NOT EXISTS idx_routing_rule_source_interfaces_rule
+    ON routing_rule_source_interfaces (rule_id);
+
+CREATE TABLE IF NOT EXISTS routing_rule_source_macs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER NOT NULL REFERENCES routing_rules(id) ON DELETE CASCADE,
+    mac     TEXT    NOT NULL,
+    UNIQUE(rule_id, mac)
+);
+CREATE INDEX IF NOT EXISTS idx_routing_rule_source_macs_rule
+    ON routing_rule_source_macs (rule_id);
+
 CREATE TABLE IF NOT EXISTS routing_rule_destination_cidrs (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     rule_id INTEGER NOT NULL REFERENCES routing_rules(id) ON DELETE CASCADE,

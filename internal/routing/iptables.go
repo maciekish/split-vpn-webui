@@ -104,25 +104,25 @@ func (m *RuleManager) addMarkRules(binding RouteBinding, markHex string) error {
 		}
 	}
 
-	ports := binding.DestinationPorts
-	if len(ports) == 0 {
-		if err := m.addMarkRuleByFamily("iptables", binding, markHex, PortRange{}); err != nil {
-			return err
-		}
-		return m.addMarkRuleByFamily("ip6tables", binding, markHex, PortRange{})
-	}
-	for _, port := range ports {
-		if err := m.addMarkRuleByFamily("iptables", binding, markHex, port); err != nil {
-			return err
-		}
-		if err := m.addMarkRuleByFamily("ip6tables", binding, markHex, port); err != nil {
-			return err
+	ports := expandPortSelectors(binding.DestinationPorts)
+	sourceInterfaces := expandSelectorValues(binding.SourceInterfaces)
+	sourceMACs := expandSelectorValues(binding.SourceMACs)
+	for _, sourceIface := range sourceInterfaces {
+		for _, sourceMAC := range sourceMACs {
+			for _, port := range ports {
+				if err := m.addMarkRuleByFamily("iptables", binding, markHex, port, sourceIface, sourceMAC); err != nil {
+					return err
+				}
+				if err := m.addMarkRuleByFamily("ip6tables", binding, markHex, port, sourceIface, sourceMAC); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
 }
 
-func (m *RuleManager) addMarkRuleByFamily(tool string, binding RouteBinding, markHex string, port PortRange) error {
+func (m *RuleManager) addMarkRuleByFamily(tool string, binding RouteBinding, markHex string, port PortRange, sourceIface, sourceMAC string) error {
 	isIPv6 := tool == "ip6tables"
 	args := []string{"-t", "mangle", "-A", markChainName}
 	if binding.HasSource {
@@ -139,6 +139,12 @@ func (m *RuleManager) addMarkRuleByFamily(tool string, binding RouteBinding, mar
 		}
 		args = append(args, "-m", "set", "--match-set", setName, "dst")
 	}
+	if sourceIface != "" {
+		args = append(args, "-i", sourceIface)
+	}
+	if sourceMAC != "" {
+		args = append(args, "-m", "mac", "--mac-source", sourceMAC)
+	}
 	if port.Protocol != "" {
 		args = append(args, "-p", port.Protocol, "--dport", formatPortRange(port))
 	}
@@ -151,6 +157,33 @@ func (m *RuleManager) addMarkRuleByFamily(tool string, binding RouteBinding, mar
 		return fmt.Errorf("add %s mark rule for %s: %w", family, binding.GroupName, err)
 	}
 	return nil
+}
+
+func expandPortSelectors(ports []PortRange) []PortRange {
+	if len(ports) == 0 {
+		return []PortRange{{}}
+	}
+	expanded := make([]PortRange, 0, len(ports)*2)
+	for _, port := range ports {
+		if strings.EqualFold(port.Protocol, "both") {
+			expanded = append(expanded,
+				PortRange{Protocol: "tcp", Start: port.Start, End: port.End},
+				PortRange{Protocol: "udp", Start: port.Start, End: port.End},
+			)
+			continue
+		}
+		expanded = append(expanded, port)
+	}
+	return expanded
+}
+
+func expandSelectorValues(values []string) []string {
+	if len(values) == 0 {
+		return []string{""}
+	}
+	sorted := append([]string(nil), values...)
+	sort.Strings(sorted)
+	return sorted
 }
 
 func formatPortRange(port PortRange) string {

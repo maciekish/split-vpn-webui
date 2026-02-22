@@ -570,9 +570,11 @@ For development/testing on macOS, the DoH client interface binding must be behin
 ## Sprint 11 — Policy Routing Expansion (Source/Destination/Port/ASN/Wildcard)
 
 **Goal:** Expand routing groups from domain-only selectors to full policy-based selectors while keeping per-group egress VPN assignment:
+- source interface
 - source IP/CIDR
+- source MAC
 - destination IP/CIDR
-- destination port/range (+ protocol)
+- destination port/range (+ protocol: tcp/udp/both)
 - destination ASN
 - exact domains
 - wildcard domains with public subdomain discovery
@@ -599,10 +601,10 @@ For development/testing on macOS, the DoH client interface binding must be behin
 
 | File | Change |
 |---|---|
-| `internal/routing/model.go` | Replace domain-only `DomainGroup` schema with `RoutingGroup` + `RoutingRule` model supporting source/destination CIDRs, ports/protocols, ASNs, domains, wildcard domains |
+| `internal/routing/model.go` | Replace domain-only `DomainGroup` schema with `RoutingGroup` + `RoutingRule` model supporting source interfaces, source MACs, source/destination CIDRs, ports/protocols, ASNs, domains, wildcard domains |
 | `internal/routing/store.go` | Add DB persistence for group rules and selector sets; include migration path from existing domain-only rows |
 | `internal/database/schema.go` | Add/modify tables for routing rules/selectors and resolver cache snapshots |
-| `internal/routing/iptables.go` | Generate mangle rules for src-set, dst-set, protocol, and destination-port matching combinations (IPv4+IPv6 parity) |
+| `internal/routing/iptables.go` | Generate mangle rules for source interface/MAC/src-set/dst-set/protocol/destination-port matching combinations (IPv4+IPv6 parity) |
 | `internal/routing/ipset.go` | Support `hash:net` usage for CIDRs and ASN prefix insertion; maintain separate dst/src set namespaces |
 | `internal/routing/manager.go` | Build runtime rule graph from group rules and apply atomically |
 | `internal/routing/resolver.go` | Orchestrate domain/asn/wildcard resolution and reconciliation into ipsets |
@@ -612,16 +614,18 @@ For development/testing on macOS, the DoH client interface binding must be behin
 | `internal/settings/settings.go` | Add resolver refresh settings: intervals/timeouts/parallelism/provider toggles |
 | `internal/server/handlers_routing.go` | Update CRUD API payloads for rule-based groups and validate all selector types |
 | `internal/server/handlers_prewarm.go` | Add resolver refresh trigger/status endpoints (or unify with prewarm status endpoint) |
-| `ui/web/templates/layout.html` | Expand group editor UI to include rule builder for source/destination CIDR, ports, ASNs, domain/wildcard entries |
-| `ui/web/static/js/domain-routing.js` | Implement rule editor CRUD and resolver run/status integration |
+| `ui/web/templates/layout.html` | Expand group editor UI to include rule builder for source interface/MAC/CIDR, destination CIDR, ports, ASNs, domain/wildcard entries |
+| `ui/web/static/js/domain-routing.js` | Implement rule editor CRUD and resolver run/status integration (including source interface/MAC and `both` protocol ports) |
 | `internal/routing/*_test.go` | Add rule-matching generation tests, migration tests, and resolver tests (domain/asn/wildcard) |
 
 ### Deliverables / Definition of Done
 
 - [x] Group API/UI can persist mixed selector rules in the same group assigned to one VPN.
+- [x] Source-interface based routing works.
 - [x] Source-IP based routing works for IPv4 and IPv6.
+- [x] Source-MAC based routing works and can be combined with destination ports.
 - [x] Destination-IP/CIDR based routing works for IPv4 and IPv6.
-- [x] Destination-port(+protocol) based routing works and can be combined with source/destination selectors in one rule.
+- [x] Destination-port(+protocol tcp/udp/both) based routing works and can be combined with source/destination selectors in one rule.
 - [x] Destination-ASN based routing works by resolving ASN prefixes and keeping them refreshed.
 - [x] Wildcard domain mode (`*.example.com`) discovers subdomains from public database sources and routes discovered subdomains through the assigned VPN.
 - [x] Resolver scheduler refreshes domains/ASNs/wildcards periodically and supports manual run.

@@ -320,6 +320,47 @@ func TestManagerApplySerializesConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestManagerCreateGroupSupportsSourceInterfaceAndMACSelectors(t *testing.T) {
+	ctx := context.Background()
+	manager, ipset, _, rules := newRoutingTestManager(t, &mockVPNLister{profiles: []*vpn.VPNProfile{{
+		Name:          "wg-sgp",
+		RouteTable:    201,
+		FWMark:        0x169,
+		InterfaceName: "wg-sgp",
+	}}})
+
+	_, err := manager.CreateGroup(ctx, DomainGroup{
+		Name:      "LAN-Only",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:             "Device",
+				SourceInterfaces: []string{"br6"},
+				SourceMACs:       []string{"00:30:93:10:0a:12"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup failed: %v", err)
+	}
+	if rules.applyCount != 1 || len(rules.bindings) != 1 {
+		t.Fatalf("expected one binding apply call, apply=%d bindings=%d", rules.applyCount, len(rules.bindings))
+	}
+	binding := rules.bindings[0]
+	if len(binding.SourceInterfaces) != 1 || binding.SourceInterfaces[0] != "br6" {
+		t.Fatalf("unexpected source interfaces in binding: %#v", binding.SourceInterfaces)
+	}
+	if len(binding.SourceMACs) != 1 || binding.SourceMACs[0] != "00:30:93:10:0a:12" {
+		t.Fatalf("unexpected source macs in binding: %#v", binding.SourceMACs)
+	}
+	if binding.HasSource {
+		t.Fatalf("expected HasSource=false when no source CIDRs are configured")
+	}
+	if len(ipset.Sets) != 0 {
+		t.Fatalf("expected no ipsets for interface/mac-only selector, got %#v", ipset.Sets)
+	}
+}
+
 type orderedIPSetMock struct {
 	sets          map[string]string
 	destroyed     []string

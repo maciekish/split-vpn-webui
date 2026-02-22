@@ -210,12 +210,14 @@ Every action a user would previously perform via SSH must be available in the UI
 - Start / stop / restart a VPN (calls `systemctl start|stop|restart svpn-<name>.service`).
 - View real-time VPN status, throughput, and latency.
 
-### 4. Policy-Based Routing (Domains, IPs, Ports, ASNs, Source CIDRs)
+### 4. Policy-Based Routing (Domains, IPs, Ports, ASNs, Source Selectors)
 
 **Routing Groups:** Users create named groups (e.g. "Streaming-SG", "Gaming"), assign each group to an egress VPN, and add one or more match rules per group.
 
 Each group must support all of the following selector types:
+- Source interface (e.g. `br0`, `br6`)
 - Source IP/CIDR (IPv4 and IPv6)
+- Source MAC address
 - Destination IP/CIDR (IPv4 and IPv6)
 - Destination port or port range (with protocol: TCP, UDP, or both)
 - Destination ASN (e.g. `AS13335` / `13335`)
@@ -228,11 +230,11 @@ Each group must support all of the following selector types:
 - Within a group: rules are ORed (any matching rule routes traffic through that group's egress VPN).
 
 **Runtime mechanism:**
-1. For each group, maintain destination sets `svpn_<group>_v4` / `svpn_<group>_v6` and source sets `svpn_<group>_src_v4` / `svpn_<group>_src_v6`.
+1. For each group, maintain destination sets `svpn_<group>_v4` / `svpn_<group>_v6` and source CIDR sets `svpn_<group>_src_v4` / `svpn_<group>_src_v6`.
 2. Domains and wildcard domains populate destination sets via DNS resolution.
 3. ASN entries are resolved to active prefixes and inserted into destination sets.
 4. Static destination IP/CIDR entries are inserted directly into destination sets; static source IP/CIDR entries are inserted into source sets.
-5. iptables/ip6tables rules must support matching on source set, destination set, destination port/protocol, and combinations of these according to rule semantics, then set the group's fwmark and route via the VPN route table.
+5. iptables/ip6tables rules must support matching on source interface, source MAC, source set, destination set, destination port/protocol, and combinations of these according to rule semantics, then set the group's fwmark and route via the VPN route table.
 6. On any change (group/rule/create/update/delete, egress change, resolver refresh), regenerate and apply atomically.
 
 All of this must be driven from Go code — not delegated to shell scripts. Shell scripts in `deploy/` are only for bootstrap and systemd units.

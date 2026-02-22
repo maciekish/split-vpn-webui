@@ -19,6 +19,8 @@ func TestOpen_InMemory(t *testing.T) {
 		"domain_entries",
 		"routing_rules",
 		"routing_rule_source_cidrs",
+		"routing_rule_source_interfaces",
+		"routing_rule_source_macs",
 		"routing_rule_destination_cidrs",
 		"routing_rule_ports",
 		"routing_rule_asns",

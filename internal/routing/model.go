@@ -3,10 +3,8 @@ package routing
 import (
 	"fmt"
 	"hash/fnv"
-	"net"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"split-vpn-webui/internal/vpn"
@@ -21,6 +19,7 @@ const (
 
 var (
 	groupNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	ifaceNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,14}$`)
 
 	// ErrGroupNotFound indicates the requested group id does not exist.
 	ErrGroupNotFound = fmt.Errorf("domain group not found")
@@ -44,7 +43,9 @@ type DomainGroup struct {
 type RoutingRule struct {
 	ID               int64       `json:"id,omitempty"`
 	Name             string      `json:"name,omitempty"`
+	SourceInterfaces []string    `json:"sourceInterfaces,omitempty"`
 	SourceCIDRs      []string    `json:"sourceCidrs,omitempty"`
+	SourceMACs       []string    `json:"sourceMacs,omitempty"`
 	DestinationCIDRs []string    `json:"destinationCidrs,omitempty"`
 	DestinationPorts []PortRange `json:"destinationPorts,omitempty"`
 	DestinationASNs  []string    `json:"destinationAsns,omitempty"`
@@ -64,8 +65,10 @@ type RouteBinding struct {
 	GroupName        string
 	RuleIndex        int
 	RuleName         string
+	SourceInterfaces []string
 	SourceSetV4      string
 	SourceSetV6      string
+	SourceMACs       []string
 	DestinationSetV4 string
 	DestinationSetV6 string
 	HasSource        bool
@@ -132,7 +135,15 @@ func normalizeRule(raw RoutingRule, idx int) (RoutingRule, error) {
 	if rule.Name == "" {
 		rule.Name = fmt.Sprintf("Rule %d", idx+1)
 	}
+	rule.SourceInterfaces, err = normalizeInterfaces(raw.SourceInterfaces)
+	if err != nil {
+		return RoutingRule{}, err
+	}
 	rule.SourceCIDRs, err = normalizeCIDRs(raw.SourceCIDRs, "source")
+	if err != nil {
+		return RoutingRule{}, err
+	}
+	rule.SourceMACs, err = normalizeMACs(raw.SourceMACs)
 	if err != nil {
 		return RoutingRule{}, err
 	}
@@ -160,156 +171,6 @@ func normalizeRule(raw RoutingRule, idx int) (RoutingRule, error) {
 		return RoutingRule{}, fmt.Errorf("%w: rule %d must include at least one selector", ErrGroupValidation, idx+1)
 	}
 	return rule, nil
-}
-
-func normalizeCIDRs(raw []string, label string) ([]string, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	seen := make(map[string]struct{}, len(raw))
-	out := make([]string, 0, len(raw))
-	for _, entry := range raw {
-		trimmed := strings.TrimSpace(entry)
-		if trimmed == "" {
-			continue
-		}
-		canonical, err := canonicalCIDROrIP(trimmed)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid %s selector %q: %v", ErrGroupValidation, label, entry, err)
-		}
-		if _, exists := seen[canonical]; exists {
-			continue
-		}
-		seen[canonical] = struct{}{}
-		out = append(out, canonical)
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-func canonicalCIDROrIP(value string) (string, error) {
-	if ip := net.ParseIP(value); ip != nil {
-		if ip.To4() != nil {
-			return ip.String() + "/32", nil
-		}
-		return ip.String() + "/128", nil
-	}
-	ip, network, err := net.ParseCIDR(value)
-	if err != nil {
-		return "", err
-	}
-	prefix, bits := network.Mask.Size()
-	if ip.To4() != nil && bits == 32 {
-		return network.IP.To4().String() + "/" + strconv.Itoa(prefix), nil
-	}
-	return network.IP.String() + "/" + strconv.Itoa(prefix), nil
-}
-
-func normalizePorts(raw []PortRange) ([]PortRange, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	seen := make(map[string]struct{}, len(raw))
-	out := make([]PortRange, 0, len(raw))
-	for _, entry := range raw {
-		protocol := strings.ToLower(strings.TrimSpace(entry.Protocol))
-		if protocol != "tcp" && protocol != "udp" {
-			return nil, fmt.Errorf("%w: protocol must be tcp or udp", ErrGroupValidation)
-		}
-		start := entry.Start
-		end := entry.End
-		if start <= 0 || start > 65535 {
-			return nil, fmt.Errorf("%w: destination port start %d is invalid", ErrGroupValidation, start)
-		}
-		if end <= 0 {
-			end = start
-		}
-		if end < start || end > 65535 {
-			return nil, fmt.Errorf("%w: destination port range %d-%d is invalid", ErrGroupValidation, start, end)
-		}
-		key := fmt.Sprintf("%s:%d:%d", protocol, start, end)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, PortRange{Protocol: protocol, Start: start, End: end})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Protocol == out[j].Protocol {
-			if out[i].Start == out[j].Start {
-				return out[i].End < out[j].End
-			}
-			return out[i].Start < out[j].Start
-		}
-		return out[i].Protocol < out[j].Protocol
-	})
-	return out, nil
-}
-
-func normalizeASNs(raw []string) ([]string, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	seen := make(map[string]struct{}, len(raw))
-	out := make([]string, 0, len(raw))
-	for _, entry := range raw {
-		trimmed := strings.ToUpper(strings.TrimSpace(entry))
-		trimmed = strings.TrimPrefix(trimmed, "AS")
-		if trimmed == "" {
-			continue
-		}
-		value, err := strconv.Atoi(trimmed)
-		if err != nil || value <= 0 {
-			return nil, fmt.Errorf("%w: invalid ASN %q", ErrGroupValidation, entry)
-		}
-		normalized := "AS" + strconv.Itoa(value)
-		if _, exists := seen[normalized]; exists {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		out = append(out, normalized)
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-func normalizeDomains(raw []string, wildcard bool) ([]string, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	seen := make(map[string]struct{}, len(raw))
-	domains := make([]string, 0, len(raw))
-	for _, domain := range raw {
-		trimmed := strings.ToLower(strings.TrimSpace(domain))
-		if trimmed == "" {
-			continue
-		}
-		if err := vpn.ValidateDomain(trimmed); err != nil {
-			return nil, fmt.Errorf("%w: invalid domain %q: %v", ErrGroupValidation, domain, err)
-		}
-		if wildcard && !strings.HasPrefix(trimmed, "*.") {
-			trimmed = "*." + strings.TrimPrefix(trimmed, "*.")
-		}
-		if !wildcard {
-			trimmed = strings.TrimPrefix(trimmed, "*.")
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		domains = append(domains, trimmed)
-	}
-	sort.Strings(domains)
-	return domains, nil
-}
-
-func ruleHasSelectors(rule RoutingRule) bool {
-	return len(rule.SourceCIDRs) > 0 ||
-		len(rule.DestinationCIDRs) > 0 ||
-		len(rule.DestinationPorts) > 0 ||
-		len(rule.DestinationASNs) > 0 ||
-		len(rule.Domains) > 0 ||
-		len(rule.WildcardDomains) > 0
 }
 
 func legacyDomainsFromRules(rules []RoutingRule) []string {

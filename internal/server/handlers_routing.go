@@ -22,7 +22,9 @@ type groupUpsertPayload struct {
 
 type ruleUpsertPayload struct {
 	Name             string              `json:"name"`
+	SourceInterfaces []string            `json:"sourceInterfaces,omitempty"`
 	SourceCIDRs      []string            `json:"sourceCidrs,omitempty"`
+	SourceMACs       []string            `json:"sourceMacs,omitempty"`
 	DestinationCIDRs []string            `json:"destinationCidrs,omitempty"`
 	DestinationPorts []portUpsertPayload `json:"destinationPorts,omitempty"`
 	DestinationASNs  []string            `json:"destinationAsns,omitempty"`
@@ -145,7 +147,9 @@ func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 		}
 		rules = append(rules, routing.RoutingRule{
 			Name:             rule.Name,
+			SourceInterfaces: append([]string(nil), rule.SourceInterfaces...),
 			SourceCIDRs:      append([]string(nil), rule.SourceCIDRs...),
+			SourceMACs:       append([]string(nil), rule.SourceMACs...),
 			DestinationCIDRs: append([]string(nil), rule.DestinationCIDRs...),
 			DestinationPorts: ports,
 			DestinationASNs:  append([]string(nil), rule.DestinationASNs...),

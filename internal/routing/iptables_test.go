@@ -97,6 +97,73 @@ func TestApplyRulesIncludesSourceAndPortSelectors(t *testing.T) {
 	}
 }
 
+func TestApplyRulesExpandsBothProtocolPorts(t *testing.T) {
+	mock := &MockExec{}
+	manager := NewRuleManager(mock)
+
+	bindings := []RouteBinding{
+		{
+			GroupName:        "DnsSplit",
+			RuleIndex:        0,
+			DestinationSetV4: "svpn_dnssplit_r1d4",
+			DestinationSetV6: "svpn_dnssplit_r1d6",
+			HasDestination:   true,
+			DestinationPorts: []PortRange{{Protocol: "both", Start: 53, End: 53}},
+			Mark:             0x170,
+			RouteTable:       202,
+			Interface:        "wg-dns",
+		},
+	}
+	if err := manager.ApplyRules(bindings); err != nil {
+		t.Fatalf("ApplyRules failed: %v", err)
+	}
+
+	calls := joinCalls(mock.RunCalls)
+	for _, expected := range []string{
+		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d4 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d4 dst -p udp --dport 53 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d6 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d6 dst -p udp --dport 53 -j MARK --set-mark 0x170",
+	} {
+		if !containsCall(calls, expected) {
+			t.Fatalf("expected call %q in %#v", expected, calls)
+		}
+	}
+}
+
+func TestApplyRulesIncludesSourceInterfaceAndMACSelectors(t *testing.T) {
+	mock := &MockExec{}
+	manager := NewRuleManager(mock)
+
+	bindings := []RouteBinding{
+		{
+			GroupName:        "LanDevice",
+			RuleIndex:        0,
+			SourceInterfaces: []string{"br6"},
+			SourceMACs:       []string{"00:30:93:10:0a:12"},
+			DestinationSetV4: "svpn_landevice_r1d4",
+			DestinationSetV6: "svpn_landevice_r1d6",
+			HasDestination:   true,
+			Mark:             0x171,
+			RouteTable:       203,
+			Interface:        "wg-lan",
+		},
+	}
+	if err := manager.ApplyRules(bindings); err != nil {
+		t.Fatalf("ApplyRules failed: %v", err)
+	}
+
+	calls := joinCalls(mock.RunCalls)
+	for _, expected := range []string{
+		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_landevice_r1d4 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_landevice_r1d6 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+	} {
+		if !containsCall(calls, expected) {
+			t.Fatalf("expected call %q in %#v", expected, calls)
+		}
+	}
+}
+
 func TestFlushRulesRemovesChainsAndManagedRules(t *testing.T) {
 	mock := &MockExec{
 		Outputs: map[string][]byte{
