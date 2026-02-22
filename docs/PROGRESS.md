@@ -97,6 +97,13 @@
   - `go test ./...`
   - `node --check ui/web/static/js/domain-routing.js`
   - `bash -n install.sh uninstall.sh deploy/dev-deploy.sh deploy/dev-cleanup.sh deploy/dev-uninstall.sh deploy/on_boot_hook.sh`
+- Release:
+  - committed as `e088f51` (`Add forced source MAC/interface routing selectors and both-protocol ports`)
+  - pushed to `main` and `claude-code`
+  - tagged and published `v1.0.1` with release assets:
+    - `split-vpn-webui-linux-amd64`
+    - `split-vpn-webui-linux-arm64`
+    - `SHA256SUMS`
 
 ### 2026-02-22 — CI verification after user-reported workflow failure
 - Re-verified root cause and fix path:
