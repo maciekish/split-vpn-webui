@@ -18,6 +18,7 @@ type IPSetOperator interface {
 	EnsureSet(name, family string) error
 	AddIP(setName, value string, timeoutSeconds int) error
 	FlushSet(name string) error
+	SwapSets(setA, setB string) error
 	DestroySet(name string) error
 	ListSets(prefix string) ([]string, error)
 }
@@ -81,6 +82,19 @@ func (m *IPSetManager) FlushSet(name string) error {
 	}
 	if err := m.exec.Run("ipset", "flush", name); err != nil {
 		return fmt.Errorf("ipset flush %s: %w", name, err)
+	}
+	return nil
+}
+
+func (m *IPSetManager) SwapSets(setA, setB string) error {
+	if err := validateIPSetName(setA); err != nil {
+		return err
+	}
+	if err := validateIPSetName(setB); err != nil {
+		return err
+	}
+	if err := m.exec.Run("ipset", "swap", setA, setB); err != nil {
+		return fmt.Errorf("ipset swap %s %s: %w", setA, setB, err)
 	}
 	return nil
 }

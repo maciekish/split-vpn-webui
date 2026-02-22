@@ -47,6 +47,22 @@ func (m *MockIPSet) FlushSet(name string) error {
 	return nil
 }
 
+func (m *MockIPSet) SwapSets(setA, setB string) error {
+	m.Calls = append(m.Calls, fmt.Sprintf("swap:%s:%s", setA, setB))
+	if m.RunErr != nil {
+		return m.RunErr
+	}
+	if m.Sets == nil {
+		m.Sets = map[string]string{}
+	}
+	if m.IPs == nil {
+		m.IPs = map[string][]string{}
+	}
+	m.Sets[setA], m.Sets[setB] = m.Sets[setB], m.Sets[setA]
+	m.IPs[setA], m.IPs[setB] = m.IPs[setB], m.IPs[setA]
+	return nil
+}
+
 func (m *MockIPSet) DestroySet(name string) error {
 	m.Calls = append(m.Calls, "destroy:"+name)
 	if m.RunErr != nil {

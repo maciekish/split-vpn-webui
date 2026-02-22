@@ -147,8 +147,8 @@ func TestResolverSchedulerRunUpdatesSnapshotAndReappliesRouting(t *testing.T) {
 	if len(v4Entries) == 0 {
 		t.Fatalf("expected destination v4 set entries after resolver run")
 	}
-	if rules.applyCount < 2 {
-		t.Fatalf("expected routing rules to be applied at least twice (create + resolver), got %d", rules.applyCount)
+	if rules.applyCount != 1 {
+		t.Fatalf("expected resolver run to avoid chain re-apply (create only), got %d apply calls", rules.applyCount)
 	}
 }
 

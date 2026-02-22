@@ -28,10 +28,10 @@ func TestApplyRulesIncludesIPv4AndIPv6Commands(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	checks := []string{
-		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_streaming_sg_r1d4 dst -j MARK --set-mark 0x169",
-		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_streaming_sg_r1d6 dst -j MARK --set-mark 0x169",
-		"iptables -t nat -A SVPN_NAT -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
-		"ip6tables -t nat -A SVPN_NAT -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
+		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_streaming_sg_r1d4 dst -j MARK --set-mark 0x169",
+		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_streaming_sg_r1d6 dst -j MARK --set-mark 0x169",
+		"iptables -t nat -A SVPN_NAT_A -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
+		"ip6tables -t nat -A SVPN_NAT_A -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
 		"ip rule add fwmark 0x169 table 201 priority 100",
 		"ip -6 rule add fwmark 0x169 table 201 priority 100",
 	}
@@ -88,8 +88,8 @@ func TestApplyRulesIncludesSourceAndPortSelectors(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	for _, expected := range []string{
-		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_gaming_r1s4 src -m set --match-set svpn_gaming_r1d4 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
-		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_gaming_r1s6 src -m set --match-set svpn_gaming_r1d6 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_gaming_r1s4 src -m set --match-set svpn_gaming_r1d4 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_gaming_r1s6 src -m set --match-set svpn_gaming_r1d6 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
 	} {
 		if !containsCall(calls, expected) {
 			t.Fatalf("expected call %q in %#v", expected, calls)
@@ -120,10 +120,10 @@ func TestApplyRulesExpandsBothProtocolPorts(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	for _, expected := range []string{
-		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d4 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
-		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d4 dst -p udp --dport 53 -j MARK --set-mark 0x170",
-		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d6 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
-		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_dnssplit_r1d6 dst -p udp --dport 53 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d4 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d4 dst -p udp --dport 53 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d6 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d6 dst -p udp --dport 53 -j MARK --set-mark 0x170",
 	} {
 		if !containsCall(calls, expected) {
 			t.Fatalf("expected call %q in %#v", expected, calls)
@@ -155,8 +155,8 @@ func TestApplyRulesIncludesSourceInterfaceAndMACSelectors(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	for _, expected := range []string{
-		"iptables -t mangle -A SVPN_MARK -m set --match-set svpn_landevice_r1d4 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
-		"ip6tables -t mangle -A SVPN_MARK -m set --match-set svpn_landevice_r1d6 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_landevice_r1d4 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_landevice_r1d6 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
 	} {
 		if !containsCall(calls, expected) {
 			t.Fatalf("expected call %q in %#v", expected, calls)

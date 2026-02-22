@@ -361,10 +361,7 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 		}, firstErr
 	}
 
-	if err := s.manager.store.ReplaceResolverSnapshot(ctx, snapshot); err != nil {
-		return resolverStats{}, err
-	}
-	if err := s.manager.Apply(ctx); err != nil {
+	if err := s.manager.ReplaceResolverSnapshot(ctx, snapshot); err != nil {
 		return resolverStats{}, err
 	}
 

@@ -84,6 +84,13 @@ func (m *Manager) LoadResolverSnapshot(ctx context.Context) (map[ResolverSelecto
 	return m.store.LoadResolverSnapshot(ctx)
 }
 
+// ReplaceResolverSnapshot updates resolver cache and applies destination ipset updates without rebuilding chains.
+func (m *Manager) ReplaceResolverSnapshot(ctx context.Context, snapshot map[ResolverSelector]ResolverValues) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.applyResolverSnapshotLocked(ctx, snapshot)
+}
+
 func (m *Manager) GetGroup(ctx context.Context, id int64) (*DomainGroup, error) {
 	return m.store.Get(ctx, id)
 }
@@ -205,6 +212,7 @@ func (m *Manager) applyLocked(ctx context.Context) error {
 	}
 
 	activeSets := make(map[string]struct{})
+	desiredSets := make(map[string]desiredSetDefinition)
 	bindings := make([]RouteBinding, 0)
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
 	for _, group := range groups {
@@ -223,12 +231,15 @@ func (m *Manager) applyLocked(ctx context.Context) error {
 		}
 
 		for ruleIndex, rule := range group.Rules {
-			binding, err := m.buildBinding(group, rule, ruleIndex, profile, resolved, activeSets)
+			binding, err := m.buildBinding(group, rule, ruleIndex, profile, resolved, activeSets, desiredSets)
 			if err != nil {
 				return err
 			}
 			bindings = append(bindings, binding)
 		}
+	}
+	if err := m.applyDesiredSets(desiredSets); err != nil {
+		return err
 	}
 
 	content := m.dnsmasq.GenerateDnsmasqConf(groups)
@@ -254,6 +265,7 @@ func (m *Manager) buildBinding(
 	profile *vpn.VPNProfile,
 	resolved map[ResolverSelector]ResolverValues,
 	activeSets map[string]struct{},
+	desiredSets map[string]desiredSetDefinition,
 ) (RouteBinding, error) {
 	pair := RuleSetNames(group.Name, ruleIndex)
 	needsSource := len(rule.SourceCIDRs) > 0
@@ -263,74 +275,17 @@ func (m *Manager) buildBinding(
 		len(rule.WildcardDomains) > 0
 
 	if needsSource {
-		if err := m.ipset.EnsureSet(pair.SourceV4, "inet"); err != nil {
-			return RouteBinding{}, err
-		}
-		if err := m.ipset.EnsureSet(pair.SourceV6, "inet6"); err != nil {
-			return RouteBinding{}, err
-		}
-		if err := m.ipset.FlushSet(pair.SourceV4); err != nil {
-			return RouteBinding{}, err
-		}
-		if err := m.ipset.FlushSet(pair.SourceV6); err != nil {
-			return RouteBinding{}, err
-		}
-		for _, cidr := range rule.SourceCIDRs {
-			setName := pair.SourceV4
-			if isIPv6CIDR(cidr) {
-				setName = pair.SourceV6
-			}
-			if err := m.ipset.AddIP(setName, cidr, defaultIPSetTimeoutSeconds); err != nil {
-				return RouteBinding{}, err
-			}
-		}
-		activeSets[pair.SourceV4] = struct{}{}
-		activeSets[pair.SourceV6] = struct{}{}
+		sourceV4, sourceV6 := splitCIDRsByFamily(rule.SourceCIDRs)
+		queueDesiredSet(desiredSets, activeSets, pair.SourceV4, "inet", sourceV4)
+		queueDesiredSet(desiredSets, activeSets, pair.SourceV6, "inet6", sourceV6)
 	}
 
 	if needsDestination {
-		if err := m.ipset.EnsureSet(pair.DestinationV4, "inet"); err != nil {
-			return RouteBinding{}, err
-		}
-		if err := m.ipset.EnsureSet(pair.DestinationV6, "inet6"); err != nil {
-			return RouteBinding{}, err
-		}
-		if err := m.ipset.FlushSet(pair.DestinationV4); err != nil {
-			return RouteBinding{}, err
-		}
-		if err := m.ipset.FlushSet(pair.DestinationV6); err != nil {
-			return RouteBinding{}, err
-		}
-
-		destEntries := make([]string, 0)
-		destEntries = append(destEntries, rule.DestinationCIDRs...)
-		for _, asn := range rule.DestinationASNs {
-			entry := resolved[ResolverSelector{Type: "asn", Key: asn}]
-			destEntries = append(destEntries, entry.V4...)
-			destEntries = append(destEntries, entry.V6...)
-		}
-		for _, domain := range rule.Domains {
-			entry := resolved[ResolverSelector{Type: "domain", Key: domain}]
-			destEntries = append(destEntries, entry.V4...)
-			destEntries = append(destEntries, entry.V6...)
-		}
-		for _, wildcard := range rule.WildcardDomains {
-			entry := resolved[ResolverSelector{Type: "wildcard", Key: wildcard}]
-			destEntries = append(destEntries, entry.V4...)
-			destEntries = append(destEntries, entry.V6...)
-		}
+		destEntries := mergeResolvedDestinations(rule, resolved)
 		destEntries = dedupeSortedStrings(destEntries)
-		for _, cidr := range destEntries {
-			setName := pair.DestinationV4
-			if isIPv6CIDR(cidr) {
-				setName = pair.DestinationV6
-			}
-			if err := m.ipset.AddIP(setName, cidr, defaultIPSetTimeoutSeconds); err != nil {
-				return RouteBinding{}, err
-			}
-		}
-		activeSets[pair.DestinationV4] = struct{}{}
-		activeSets[pair.DestinationV6] = struct{}{}
+		destV4, destV6 := splitCIDRsByFamily(destEntries)
+		queueDesiredSet(desiredSets, activeSets, pair.DestinationV4, "inet", destV4)
+		queueDesiredSet(desiredSets, activeSets, pair.DestinationV6, "inet6", destV6)
 	}
 
 	return RouteBinding{

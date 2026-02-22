@@ -67,6 +67,23 @@
 
 ## Session Notes
 
+### 2026-02-22 — Hitless routing cutover hardening
+- Implemented staged, low-blip routing refresh for resolver and policy applies:
+  - Added atomic ipset set updates using staged sets + `ipset swap` in `internal/routing/manager_sets.go`.
+  - `internal/routing/manager.go` now builds desired set state first, applies staged set swaps, then applies rule/dnsmasq updates.
+  - Added resolver fast-path: `Manager.ReplaceResolverSnapshot` updates resolver cache and destination ipsets only, without rebuilding dnsmasq or iptables chains.
+- Reworked iptables apply logic for safer cutover:
+  - `internal/routing/iptables.go` now uses generation chains (`SVPN_MARK_A/B`, `SVPN_NAT_A/B`) and switches root jumps instead of flushing active chains.
+  - Added legacy-chain migration handling to clear old root-chain inline rules once before switching to generation-chain mode.
+  - Added additive-first managed `ip rule` reconciliation (add missing first, remove stale after) in `internal/routing/iptables_iprules.go`.
+- Extended ipset interface for atomic swaps:
+  - `SwapSets(setA, setB)` added to `internal/routing/ipset.go` and test mocks.
+- Updated regression tests for new behavior:
+  - Resolver run no longer requires a full rule re-apply (`internal/routing/resolver_test.go`).
+  - Updated chain expectations for staged generation chains (`internal/routing/iptables_test.go`).
+- Validation run:
+  - `go test ./...`
+
 ### 2026-02-22 — Domain/wildcard overlap fix
 - Fixed a routing persistence edge case where combining exact and wildcard selectors that collapse to the same legacy domain key (for example `domain.com` + `*.domain.com`) could trigger a SQLite unique-constraint error during save.
 - `internal/routing/store.go`:

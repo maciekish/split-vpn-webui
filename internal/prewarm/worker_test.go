@@ -85,6 +85,8 @@ func (m *mockIPSet) AddIP(setName, ip string, timeoutSeconds int) error {
 
 func (m *mockIPSet) FlushSet(name string) error { return nil }
 
+func (m *mockIPSet) SwapSets(setA, setB string) error { return nil }
+
 func (m *mockIPSet) DestroySet(name string) error { return nil }
 
 func (m *mockIPSet) ListSets(prefix string) ([]string, error) { return nil, nil }

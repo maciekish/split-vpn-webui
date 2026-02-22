@@ -8,8 +8,14 @@ import (
 )
 
 const (
-	markChainName   = "SVPN_MARK"
-	natChainName    = "SVPN_NAT"
+	markChainName = "SVPN_MARK"
+	natChainName  = "SVPN_NAT"
+
+	markChainA = "SVPN_MARK_A"
+	markChainB = "SVPN_MARK_B"
+	natChainA  = "SVPN_NAT_A"
+	natChainB  = "SVPN_NAT_B"
+
 	rulePriority    = "100"
 	deleteLoopLimit = 64
 )
@@ -36,20 +42,44 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		return sorted[i].GroupName < sorted[j].GroupName
 	})
 
-	if err := m.ensureChain("iptables", "mangle", markChainName, "PREROUTING"); err != nil {
-		return err
+	activeVariant := m.detectActiveVariant()
+	workingMark, workingNAT, staleMark, staleNAT := selectWorkingVariant(activeVariant)
+	for _, prep := range []struct {
+		tool       string
+		table      string
+		root       string
+		parent     string
+		generation string
+	}{
+		{tool: "iptables", table: "mangle", root: markChainName, parent: "PREROUTING", generation: workingMark},
+		{tool: "iptables", table: "nat", root: natChainName, parent: "POSTROUTING", generation: workingNAT},
+		{tool: "ip6tables", table: "mangle", root: markChainName, parent: "PREROUTING", generation: workingMark},
+		{tool: "ip6tables", table: "nat", root: natChainName, parent: "POSTROUTING", generation: workingNAT},
+	} {
+		if err := m.prepareGenerationChain(prep.tool, prep.table, prep.root, prep.parent, prep.generation); err != nil {
+			return err
+		}
 	}
-	if err := m.ensureChain("iptables", "nat", natChainName, "POSTROUTING"); err != nil {
-		return err
-	}
-	if err := m.ensureChain("ip6tables", "mangle", markChainName, "PREROUTING"); err != nil {
-		return err
-	}
-	if err := m.ensureChain("ip6tables", "nat", natChainName, "POSTROUTING"); err != nil {
-		return err
+	if activeVariant == "" {
+		// Legacy migration path: clear root chains once so old in-chain rules
+		// cannot conflict with generation-chain forwarding.
+		for _, root := range []struct {
+			tool  string
+			table string
+			chain string
+		}{
+			{tool: "iptables", table: "mangle", chain: markChainName},
+			{tool: "iptables", table: "nat", chain: natChainName},
+			{tool: "ip6tables", table: "mangle", chain: markChainName},
+			{tool: "ip6tables", table: "nat", chain: natChainName},
+		} {
+			if err := m.exec.Run(root.tool, "-t", root.table, "-F", root.chain); err != nil {
+				return fmt.Errorf("flush %s/%s chain %s during migration: %w", root.tool, root.table, root.chain, err)
+			}
+		}
 	}
 
-	seenIPRules := make(map[string]struct{})
+	desiredRules := make(map[uint32]int)
 	seenNATRules := make(map[string]struct{})
 	for _, binding := range sorted {
 		if binding.Mark < 200 {
@@ -61,38 +91,140 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		if strings.TrimSpace(binding.Interface) == "" {
 			return fmt.Errorf("missing interface for group %s", binding.GroupName)
 		}
+
+		if existingTable, exists := desiredRules[binding.Mark]; exists && existingTable != binding.RouteTable {
+			return fmt.Errorf(
+				"conflicting route table for fwmark 0x%x: %d and %d",
+				binding.Mark,
+				existingTable,
+				binding.RouteTable,
+			)
+		}
+		desiredRules[binding.Mark] = binding.RouteTable
+
 		markHex := fmt.Sprintf("0x%x", binding.Mark)
-		if err := m.addMarkRules(binding, markHex); err != nil {
+		if err := m.addMarkRules(binding, workingMark, markHex); err != nil {
 			return err
 		}
 
 		natKey := markHex + ":" + binding.Interface
-		if _, seen := seenNATRules[natKey]; !seen {
-			seenNATRules[natKey] = struct{}{}
-			if err := m.exec.Run("iptables", "-t", "nat", "-A", natChainName, "-m", "mark", "--mark", markHex, "-o", binding.Interface, "-j", "MASQUERADE"); err != nil {
-				return fmt.Errorf("add ipv4 nat rule for %s: %w", binding.GroupName, err)
-			}
-			if err := m.exec.Run("ip6tables", "-t", "nat", "-A", natChainName, "-m", "mark", "--mark", markHex, "-o", binding.Interface, "-j", "MASQUERADE"); err != nil {
-				return fmt.Errorf("add ipv6 nat rule for %s: %w", binding.GroupName, err)
-			}
-		}
-
-		uniqueRule := markHex + ":" + strconv.Itoa(binding.RouteTable)
-		if _, seen := seenIPRules[uniqueRule]; seen {
+		if _, seen := seenNATRules[natKey]; seen {
 			continue
 		}
-		seenIPRules[uniqueRule] = struct{}{}
-		if err := m.refreshIPRule(markHex, binding.RouteTable, false); err != nil {
+		seenNATRules[natKey] = struct{}{}
+		if err := m.addNATRule("iptables", workingNAT, markHex, binding.Interface, binding.GroupName); err != nil {
 			return err
 		}
-		if err := m.refreshIPRule(markHex, binding.RouteTable, true); err != nil {
+		if err := m.addNATRule("ip6tables", workingNAT, markHex, binding.Interface, binding.GroupName); err != nil {
 			return err
+		}
+	}
+
+	for _, sw := range []struct {
+		tool  string
+		table string
+		root  string
+		next  string
+		stale string
+	}{
+		{tool: "iptables", table: "mangle", root: markChainName, next: workingMark, stale: staleMark},
+		{tool: "iptables", table: "nat", root: natChainName, next: workingNAT, stale: staleNAT},
+		{tool: "ip6tables", table: "mangle", root: markChainName, next: workingMark, stale: staleMark},
+		{tool: "ip6tables", table: "nat", root: natChainName, next: workingNAT, stale: staleNAT},
+	} {
+		if err := m.switchRootJump(sw.tool, sw.table, sw.root, sw.next, sw.stale); err != nil {
+			return err
+		}
+	}
+
+	if err := m.reconcileManagedIPRules(desiredRules, false); err != nil {
+		return err
+	}
+	if err := m.reconcileManagedIPRules(desiredRules, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *RuleManager) detectActiveVariant() string {
+	active := m.detectActiveGeneration("iptables", "mangle", markChainName)
+	if active == "" {
+		active = m.detectActiveGeneration("ip6tables", "mangle", markChainName)
+	}
+	return active
+}
+
+func selectWorkingVariant(active string) (workingMark, workingNAT, staleMark, staleNAT string) {
+	if active == markChainA {
+		return markChainB, natChainB, markChainA, natChainA
+	}
+	if active == markChainB {
+		return markChainA, natChainA, markChainB, natChainB
+	}
+	return markChainA, natChainA, markChainB, natChainB
+}
+
+func (m *RuleManager) detectActiveGeneration(tool, table, root string) string {
+	output, err := m.exec.Output(tool, "-t", table, "-S", root)
+	if err != nil {
+		return ""
+	}
+	for _, raw := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(strings.TrimSpace(raw))
+		if len(fields) < 4 {
+			continue
+		}
+		if fields[0] != "-A" || fields[1] != root || fields[2] != "-j" {
+			continue
+		}
+		switch fields[3] {
+		case markChainA, markChainB:
+			return fields[3]
+		}
+	}
+	return ""
+}
+
+func (m *RuleManager) prepareGenerationChain(tool, table, root, parent, generation string) error {
+	_ = m.exec.Run(tool, "-t", table, "-N", root)
+	if err := m.exec.Run(tool, "-t", table, "-C", parent, "-j", root); err != nil {
+		if addErr := m.exec.Run(tool, "-t", table, "-A", parent, "-j", root); addErr != nil {
+			return fmt.Errorf("link %s/%s %s->%s: %w", tool, table, parent, root, addErr)
+		}
+	}
+	_ = m.exec.Run(tool, "-t", table, "-N", generation)
+	if err := m.exec.Run(tool, "-t", table, "-F", generation); err != nil {
+		return fmt.Errorf("flush %s/%s chain %s: %w", tool, table, generation, err)
+	}
+	return nil
+}
+
+func (m *RuleManager) switchRootJump(tool, table, root, next, stale string) error {
+	if err := m.exec.Run(tool, "-t", table, "-C", root, "-j", next); err != nil {
+		if addErr := m.exec.Run(tool, "-t", table, "-I", root, "1", "-j", next); addErr != nil {
+			return fmt.Errorf("switch %s/%s root %s -> %s: %w", tool, table, root, next, addErr)
+		}
+	}
+	for i := 0; i < deleteLoopLimit; i++ {
+		if err := m.exec.Run(tool, "-t", table, "-D", root, "-j", stale); err != nil {
+			break
 		}
 	}
 	return nil
 }
 
-func (m *RuleManager) addMarkRules(binding RouteBinding, markHex string) error {
+func (m *RuleManager) addNATRule(tool, chain, markHex, iface, groupName string) error {
+	if err := m.exec.Run(tool, "-t", "nat", "-A", chain, "-m", "mark", "--mark", markHex, "-o", iface, "-j", "MASQUERADE"); err != nil {
+		family := "ipv4"
+		if tool == "ip6tables" {
+			family = "ipv6"
+		}
+		return fmt.Errorf("add %s nat rule for %s: %w", family, groupName, err)
+	}
+	return nil
+}
+
+func (m *RuleManager) addMarkRules(binding RouteBinding, chain string, markHex string) error {
 	if binding.HasSource {
 		if strings.TrimSpace(binding.SourceSetV4) == "" || strings.TrimSpace(binding.SourceSetV6) == "" {
 			return fmt.Errorf("missing source set names for group %s rule %d", binding.GroupName, binding.RuleIndex+1)
@@ -110,10 +242,10 @@ func (m *RuleManager) addMarkRules(binding RouteBinding, markHex string) error {
 	for _, sourceIface := range sourceInterfaces {
 		for _, sourceMAC := range sourceMACs {
 			for _, port := range ports {
-				if err := m.addMarkRuleByFamily("iptables", binding, markHex, port, sourceIface, sourceMAC); err != nil {
+				if err := m.addMarkRuleByFamily("iptables", chain, binding, markHex, port, sourceIface, sourceMAC); err != nil {
 					return err
 				}
-				if err := m.addMarkRuleByFamily("ip6tables", binding, markHex, port, sourceIface, sourceMAC); err != nil {
+				if err := m.addMarkRuleByFamily("ip6tables", chain, binding, markHex, port, sourceIface, sourceMAC); err != nil {
 					return err
 				}
 			}
@@ -122,9 +254,17 @@ func (m *RuleManager) addMarkRules(binding RouteBinding, markHex string) error {
 	return nil
 }
 
-func (m *RuleManager) addMarkRuleByFamily(tool string, binding RouteBinding, markHex string, port PortRange, sourceIface, sourceMAC string) error {
+func (m *RuleManager) addMarkRuleByFamily(
+	tool string,
+	chain string,
+	binding RouteBinding,
+	markHex string,
+	port PortRange,
+	sourceIface string,
+	sourceMAC string,
+) error {
 	isIPv6 := tool == "ip6tables"
-	args := []string{"-t", "mangle", "-A", markChainName}
+	args := []string{"-t", "mangle", "-A", chain}
 	if binding.HasSource {
 		setName := binding.SourceSetV4
 		if isIPv6 {
@@ -205,6 +345,14 @@ func (m *RuleManager) FlushRules() error {
 		{tool: "iptables", table: "nat", chain: natChainName, parent: "POSTROUTING"},
 		{tool: "ip6tables", table: "mangle", chain: markChainName, parent: "PREROUTING"},
 		{tool: "ip6tables", table: "nat", chain: natChainName, parent: "POSTROUTING"},
+		{tool: "iptables", table: "mangle", chain: markChainA},
+		{tool: "iptables", table: "mangle", chain: markChainB},
+		{tool: "iptables", table: "nat", chain: natChainA},
+		{tool: "iptables", table: "nat", chain: natChainB},
+		{tool: "ip6tables", table: "mangle", chain: markChainA},
+		{tool: "ip6tables", table: "mangle", chain: markChainB},
+		{tool: "ip6tables", table: "nat", chain: natChainA},
+		{tool: "ip6tables", table: "nat", chain: natChainB},
 	} {
 		m.cleanupChain(command.tool, command.table, command.chain, command.parent)
 	}
@@ -217,104 +365,14 @@ func (m *RuleManager) FlushRules() error {
 	return nil
 }
 
-func (m *RuleManager) ensureChain(tool, table, chain, parent string) error {
-	_ = m.exec.Run(tool, "-t", table, "-N", chain)
-	if err := m.exec.Run(tool, "-t", table, "-F", chain); err != nil {
-		return fmt.Errorf("flush %s/%s chain %s: %w", tool, table, chain, err)
-	}
-	if err := m.exec.Run(tool, "-t", table, "-C", parent, "-j", chain); err != nil {
-		if addErr := m.exec.Run(tool, "-t", table, "-A", parent, "-j", chain); addErr != nil {
-			return fmt.Errorf("link %s/%s %s->%s: %w", tool, table, parent, chain, addErr)
-		}
-	}
-	return nil
-}
-
 func (m *RuleManager) cleanupChain(tool, table, chain, parent string) {
-	for i := 0; i < deleteLoopLimit; i++ {
-		if err := m.exec.Run(tool, "-t", table, "-D", parent, "-j", chain); err != nil {
-			break
-		}
-	}
-	_ = m.exec.Run(tool, "-t", table, "-F", chain)
-	_ = m.exec.Run(tool, "-t", table, "-X", chain)
-}
-
-func (m *RuleManager) refreshIPRule(markHex string, routeTable int, ipv6 bool) error {
-	argsDelete := []string{"rule", "del", "fwmark", markHex, "table", strconv.Itoa(routeTable), "priority", rulePriority}
-	argsAdd := []string{"rule", "add", "fwmark", markHex, "table", strconv.Itoa(routeTable), "priority", rulePriority}
-	if ipv6 {
-		argsDelete = append([]string{"-6"}, argsDelete...)
-		argsAdd = append([]string{"-6"}, argsAdd...)
-	}
-	for i := 0; i < deleteLoopLimit; i++ {
-		if err := m.exec.Run("ip", argsDelete...); err != nil {
-			break
-		}
-	}
-	if err := m.exec.Run("ip", argsAdd...); err != nil {
-		family := "ipv4"
-		if ipv6 {
-			family = "ipv6"
-		}
-		return fmt.Errorf("add %s ip rule for mark %s table %d: %w", family, markHex, routeTable, err)
-	}
-	return nil
-}
-
-func (m *RuleManager) flushManagedIPRules(ipv6 bool) error {
-	args := []string{"rule", "show"}
-	if ipv6 {
-		args = append([]string{"-6"}, args...)
-	}
-	output, err := m.exec.Output("ip", args...)
-	if err != nil {
-		return nil
-	}
-	for _, line := range strings.Split(string(output), "\n") {
-		markToken, tableID, ok := parseIPRuleLine(line)
-		if !ok {
-			continue
-		}
-		if tableID < 200 {
-			continue
-		}
-		markValue, err := strconv.ParseUint(markToken, 0, 32)
-		if err != nil || markValue < 200 {
-			continue
-		}
-		deleteArgs := []string{"rule", "del", "fwmark", fmt.Sprintf("0x%x", markValue), "table", strconv.Itoa(tableID), "priority", rulePriority}
-		if ipv6 {
-			deleteArgs = append([]string{"-6"}, deleteArgs...)
-		}
+	if parent != "" {
 		for i := 0; i < deleteLoopLimit; i++ {
-			if delErr := m.exec.Run("ip", deleteArgs...); delErr != nil {
+			if err := m.exec.Run(tool, "-t", table, "-D", parent, "-j", chain); err != nil {
 				break
 			}
 		}
 	}
-	return nil
-}
-
-func parseIPRuleLine(line string) (string, int, bool) {
-	fields := strings.Fields(strings.TrimSpace(line))
-	if len(fields) < 6 {
-		return "", 0, false
-	}
-	mark := ""
-	table := -1
-	for i := 0; i < len(fields)-1; i++ {
-		switch fields[i] {
-		case "fwmark":
-			mark = strings.Split(strings.TrimSpace(fields[i+1]), "/")[0]
-		case "lookup", "table":
-			if n, err := strconv.Atoi(fields[i+1]); err == nil {
-				table = n
-			}
-		}
-	}
-	if mark == "" || table < 0 {
-		return "", 0, false
-	}
-	return mark, table, true
+	_ = m.exec.Run(tool, "-t", table, "-F", chain)
+	_ = m.exec.Run(tool, "-t", table, "-X", chain)
 }
