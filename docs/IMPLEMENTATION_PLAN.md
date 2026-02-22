@@ -2,6 +2,7 @@
 
 > Before starting any sprint, read `docs/PROGRESS.md` to confirm which sprint is active and check for notes left by previous sessions.
 > After completing a sprint, update `docs/PROGRESS.md` before ending the session.
+> Default working branch is `main` unless explicitly instructed otherwise.
 
 ---
 

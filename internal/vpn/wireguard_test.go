@@ -20,7 +20,7 @@ Table = 101
 PublicKey = bbbaUHaEAPokg0IlEh2ShB35kIAosMo1pSlB3TduUTA=
 PresharedKey = aPmtbvpiMLEqrdlusMrP8ywxNtXwjtZu0daWvvN0MVw=
 AllowedIPs = 0.0.0.0/1,128.0.0.0/1,::/1,8000::/1
-Endpoint = sgp.swic.name:51820
+Endpoint = sgp.contoso.com:51820
 PersistentKeepalive = 25
 
 [Peer]
@@ -39,8 +39,8 @@ Endpoint = another.example.com:51820
 	if profile.RouteTable != 101 {
 		t.Fatalf("expected route table 101, got %d", profile.RouteTable)
 	}
-	if profile.Gateway != "sgp.swic.name" {
-		t.Fatalf("expected gateway sgp.swic.name, got %q", profile.Gateway)
+	if profile.Gateway != "sgp.contoso.com" {
+		t.Fatalf("expected gateway sgp.contoso.com, got %q", profile.Gateway)
 	}
 	if profile.WireGuard == nil {
 		t.Fatal("expected wireguard payload")
@@ -149,8 +149,8 @@ func TestParseWGConfig_ReferenceSample(t *testing.T) {
 	if profile.RouteTable != 101 {
 		t.Fatalf("expected route table 101 from reference sample, got %d", profile.RouteTable)
 	}
-	if profile.Gateway != "sgp.swic.name" {
-		t.Fatalf("expected gateway sgp.swic.name, got %q", profile.Gateway)
+	if profile.Gateway != "sgp.contoso.com" {
+		t.Fatalf("expected gateway sgp.contoso.com, got %q", profile.Gateway)
 	}
 	if len(profile.WireGuard.Interface.Addresses) != 2 {
 		t.Fatalf("expected 2 addresses from reference sample, got %d", len(profile.WireGuard.Interface.Addresses))

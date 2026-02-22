@@ -205,12 +205,12 @@ func TestWorkerRespectsContextCancellation(t *testing.T) {
 func TestWorkerFallsBackToActiveManagedWireGuardInterfaces(t *testing.T) {
 	groups := &mockGroupSource{
 		groups: []routing.DomainGroup{
-			{Name: "Fallback", EgressVPN: "rbx.swic.name", Domains: []string{"example.com"}},
+			{Name: "Fallback", EgressVPN: "rbx.contoso.com", Domains: []string{"example.com"}},
 		},
 	}
 	vpns := &mockVPNSource{
 		profiles: []*vpn.VPNProfile{
-			{Name: "rbx.swic.name", InterfaceName: "wg-sv-stale"},
+			{Name: "rbx.contoso.com", InterfaceName: "wg-sv-stale"},
 		},
 	}
 	doh := &mockDoH{

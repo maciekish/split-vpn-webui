@@ -14,24 +14,16 @@ remote 87.98.233.31 1194
 dev tun
 nobind
 <ca>
------BEGIN CERTIFICATE-----
-abc
------END CERTIFICATE-----
+inline-ca-payload
 </ca>
 <cert>
------BEGIN CERTIFICATE-----
-def
------END CERTIFICATE-----
+inline-cert-payload
 </cert>
 <key>
------BEGIN PRIVATE KEY-----
-xyz
------END PRIVATE KEY-----
+inline-key-payload
 </key>
 <tls-crypt>
------BEGIN OpenVPN Static key V1-----
-123
------END OpenVPN Static key V1-----
+inline-tls-crypt-payload
 </tls-crypt>
 `
 

@@ -364,11 +364,16 @@ func replaceLegacyDomainsTx(ctx context.Context, tx *sql.Tx, groupID int64, doma
 	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_entries WHERE group_id = ?`, groupID); err != nil {
 		return err
 	}
+	seen := make(map[string]struct{}, len(domains))
 	for _, domain := range domains {
 		trimmed := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), "*.")
 		if trimmed == "" {
 			continue
 		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO domain_entries (group_id, domain)
 			VALUES (?, ?)

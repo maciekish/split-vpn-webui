@@ -53,19 +53,19 @@ func TestRequireVPNNameParamRejectsOverlongName(t *testing.T) {
 func TestRequireVPNNameParamAcceptsValidName(t *testing.T) {
 	s := &Server{}
 	recorder := httptest.NewRecorder()
-	request := requestWithVPNNameParam("sgp.swic.name")
+	request := requestWithVPNNameParam("sgp.contoso.com")
 
 	name, ok := s.requireVPNNameParam(recorder, request)
 	if !ok {
 		t.Fatalf("expected valid name to pass validation")
 	}
-	if name != "sgp.swic.name" {
+	if name != "sgp.contoso.com" {
 		t.Fatalf("expected name to round-trip, got %q", name)
 	}
 }
 
 func TestDecodeGroupPayloadRejectsInvalidDomain(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{"name":"Gaming","egressVpn":"sgp.swic.name","domains":["bad domain"]}`))
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{"name":"Gaming","egressVpn":"sgp.contoso.com","domains":["bad domain"]}`))
 
 	_, err := decodeGroupPayload(request)
 	if err == nil {
@@ -77,7 +77,7 @@ func TestDecodeGroupPayloadRejectsInvalidDomain(t *testing.T) {
 }
 
 func TestDecodeGroupPayloadNormalizesDomains(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{"name":"Gaming","egressVpn":"sgp.swic.name","domains":["*.Example.com","example.com"]}`))
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{"name":"Gaming","egressVpn":"sgp.contoso.com","domains":["*.Example.com","example.com"]}`))
 
 	group, err := decodeGroupPayload(request)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestDecodeGroupPayloadNormalizesDomains(t *testing.T) {
 func TestDecodeGroupPayloadParsesSourceInterfaceAndMACSelectors(t *testing.T) {
 	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{
 		"name":"LAN",
-		"egressVpn":"sgp.swic.name",
+		"egressVpn":"sgp.contoso.com",
 		"rules":[
 			{
 				"name":"Device",

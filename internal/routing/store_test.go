@@ -172,3 +172,48 @@ func TestStorePersistsSourceInterfaceAndMACSelectors(t *testing.T) {
 		t.Fatalf("unexpected destination ports: %#v", rule.DestinationPorts)
 	}
 }
+
+func TestStoreAllowsExactAndWildcardSelectorsInSameRule(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+
+	created, err := store.Create(ctx, DomainGroup{
+		Name:      "DomainOverlap",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:            "Mixed Domains",
+				Domains:         []string{"domain.com", "asdf.domain.com"},
+				WildcardDomains: []string{"*.domain.com"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create group with mixed selectors: %v", err)
+	}
+	if len(created.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(created.Rules))
+	}
+	rule := created.Rules[0]
+	if len(rule.Domains) != 2 || rule.Domains[0] != "asdf.domain.com" || rule.Domains[1] != "domain.com" {
+		t.Fatalf("unexpected exact domains: %#v", rule.Domains)
+	}
+	if len(rule.WildcardDomains) != 1 || rule.WildcardDomains[0] != "*.domain.com" {
+		t.Fatalf("unexpected wildcard domains: %#v", rule.WildcardDomains)
+	}
+
+	fetched, err := store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get group: %v", err)
+	}
+	if len(fetched.Rules) != 1 {
+		t.Fatalf("expected one fetched rule, got %d", len(fetched.Rules))
+	}
+	fetchedRule := fetched.Rules[0]
+	if len(fetchedRule.Domains) != 2 || fetchedRule.Domains[0] != "asdf.domain.com" || fetchedRule.Domains[1] != "domain.com" {
+		t.Fatalf("unexpected fetched exact domains: %#v", fetchedRule.Domains)
+	}
+	if len(fetchedRule.WildcardDomains) != 1 || fetchedRule.WildcardDomains[0] != "*.domain.com" {
+		t.Fatalf("unexpected fetched wildcard domains: %#v", fetchedRule.WildcardDomains)
+	}
+}

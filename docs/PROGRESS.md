@@ -11,6 +11,7 @@
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
 **Last session summary:** Added versioned config backup/restore with monolithic JSON export and API-style restore, including VPN source payload recreation (config + secrets), policy groups/rules, resolver cache, and settings (statistics excluded).
+**Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
 
@@ -65,6 +66,41 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Domain/wildcard overlap fix
+- Fixed a routing persistence edge case where combining exact and wildcard selectors that collapse to the same legacy domain key (for example `domain.com` + `*.domain.com`) could trigger a SQLite unique-constraint error during save.
+- `internal/routing/store.go`:
+  - `replaceLegacyDomainsTx` now deduplicates canonicalized legacy domain rows after trimming wildcard prefixes.
+  - This preserves modern rule semantics while keeping legacy mirror table writes collision-free.
+- Added regression coverage:
+  - `internal/routing/store_test.go` now verifies one rule can persist and reload both exact domains and wildcard domains together (including `asdf.domain.com` + `*.domain.com`).
+- Validation run:
+  - `go test ./internal/routing ./internal/server`
+  - `go test ./...`
+
+### 2026-02-22 — Repository secret/placeholder hygiene sweep
+- Completed a full repository scan for obvious secret indicators and private-domain placeholders.
+- Replaced legacy private placeholder domains with generic `contoso.com` examples across:
+  - `AGENTS.md`
+  - `docs/PROGRESS.md`
+  - `ui/web/templates/layout.html`
+  - `internal/server/server_test.go`
+  - `internal/prewarm/worker_test.go`
+  - `internal/vpn/manager_test.go`
+  - `internal/vpn/wireguard_test.go`
+  - `internal/vpn/testdata/wg0.reference.conf`
+- Sanitized OpenVPN reference fixture/test content to remove realistic inline certificate/key/static-key material:
+  - `internal/vpn/testdata/dreammachine.reference.ovpn`
+  - `internal/vpn/openvpn_test.go`
+- Validation run:
+  - `go test ./...` (pass)
+
+### 2026-02-22 — Branch policy update
+- Updated branch policy to make `main` the default working branch unless explicitly directed otherwise.
+- Updated files:
+  - `AGENTS.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/PROGRESS.md`
 
 ### 2026-02-22 — Wildcard domain warning hardening
 - Strengthened wildcard-rule warning copy in the policy rule editor:
@@ -935,8 +971,8 @@
 
 ### 2026-02-20 — Sprint 2 provider foundation session
 - Researched local reference configs/scripts in `/Users/maciekish/Developer/Repositories/Appulize/unifi-split-vpn/`:
-  - `split-vpn/sgp.swic.name/wg0.conf`
-  - `split-vpn/web.appulize.com/DreamMachine.ovpn`
+  - `split-vpn/sgp.contoso.com/wg0.conf`
+  - `split-vpn/web.contoso.com/DreamMachine.ovpn`
   - `split-vpn/*/vpn.conf`
   - `on_boot.d/20-ipset.sh` and `on_boot.d/90-ipset-prewarm.sh`
 - Added `internal/vpn/` package:

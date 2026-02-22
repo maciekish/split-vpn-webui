@@ -76,7 +76,7 @@ PreDown = sh /etc/split-vpn/vpn/updown.sh %i down
 [Peer]
 PublicKey = test-peer-key
 AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = sgp.swic.name:51820
+Endpoint = sgp.contoso.com:51820
 PersistentKeepalive = 25
 `
 
@@ -163,13 +163,13 @@ Address = 10.49.1.2/32
 [Peer]
 PublicKey = test-peer-key
 AllowedIPs = 0.0.0.0/0
-Endpoint = updated.swic.name:51820
+Endpoint = updated.contoso.com:51820
 `
 	updated, err := manager.Update("wg-sgp", UpsertRequest{Config: updatedConfig})
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
-	if !strings.Contains(updated.RawConfig, "updated.swic.name") {
+	if !strings.Contains(updated.RawConfig, "updated.contoso.com") {
 		t.Fatalf("expected updated config to be persisted")
 	}
 
