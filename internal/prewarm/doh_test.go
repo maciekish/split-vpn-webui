@@ -42,7 +42,7 @@ func TestCloudflareDoHClientParsesAAndAAAAAndCNAME(t *testing.T) {
 	client := NewCloudflareDoHClientWithURL(server.URL, 2*time.Second)
 	ctx := context.Background()
 
-	v4, err := client.QueryA(ctx, "max.com", "wg-a")
+	v4, err := client.QueryA(ctx, "max.com", "")
 	if err != nil {
 		t.Fatalf("QueryA failed: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestCloudflareDoHClientParsesAAndAAAAAndCNAME(t *testing.T) {
 		t.Fatalf("unexpected A records: %#v", v4)
 	}
 
-	v6, err := client.QueryAAAA(ctx, "max.com", "wg-a")
+	v6, err := client.QueryAAAA(ctx, "max.com", "")
 	if err != nil {
 		t.Fatalf("QueryAAAA failed: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestCloudflareDoHClientParsesAAndAAAAAndCNAME(t *testing.T) {
 		t.Fatalf("unexpected AAAA records: %#v", v6)
 	}
 
-	cnames, err := client.QueryCNAME(ctx, "max.com", "wg-a")
+	cnames, err := client.QueryCNAME(ctx, "max.com", "")
 	if err != nil {
 		t.Fatalf("QueryCNAME failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestCloudflareDoHClientTimeout(t *testing.T) {
 	defer server.Close()
 
 	client := NewCloudflareDoHClientWithURL(server.URL, 10*time.Millisecond)
-	_, err := client.QueryA(context.Background(), "max.com", "wg-a")
+	_, err := client.QueryA(context.Background(), "max.com", "")
 	if err == nil {
 		t.Fatalf("expected timeout error")
 	}

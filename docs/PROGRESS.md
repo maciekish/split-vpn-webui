@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Merged `claude-code` into `main`, pushed `main`/`claude-code`, tagged `v1.0.0`, and constrained the build/release workflow to run on tag pushes only (no branch push fan-out).
+**Last session summary:** Fixed Linux CI failure in prewarm DoH unit tests by removing fake interface binding from parser/timeout tests, revalidated full test suite, and prepared release tag re-push.
 
 ---
 
@@ -65,6 +65,15 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Release CI hotfix (prewarm DoH test interface binding)
+- Root cause identified for failed tag workflow test stage:
+  - `internal/prewarm/doh_test.go` used fake interface `wg-a`.
+  - On Linux CI, `SO_BINDTODEVICE` was enforced and returned `no such device`.
+- Fix applied:
+  - parser and timeout tests now query with empty interface binding (`""`) so tests validate DoH parsing/timeout behavior without requiring a specific local interface.
+- Validation:
+  - `go test ./... -count=1` passed locally.
 
 ### 2026-02-22 — Release/publish follow-up (tag-only workflow trigger)
 - Performed release branch operations:
