@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Implemented version/update management end-to-end: build metadata, checksum-verified release installs, existing-install update prompts, web UI update check/apply APIs and controls, dedicated self-update worker flow, release workflow enhancements, and updater cleanup coverage.
+**Last session summary:** Merged `claude-code` into `main`, pushed `main`/`claude-code`, tagged `v1.0.0`, and constrained the build/release workflow to run on tag pushes only (no branch push fan-out).
 
 ---
 
@@ -65,6 +65,18 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Release/publish follow-up (tag-only workflow trigger)
+- Performed release branch operations:
+  - fast-forward merged `claude-code` into `main`.
+  - pushed `main` and `claude-code` over SSH remote transport.
+  - created/pushed `v1.0.0` tag and validated remote refs point to expected commit.
+- Investigated duplicate workflow fan-out on branch + tag pushes and applied trigger fix:
+  - updated `.github/workflows/build.yml` to run only on `push.tags: v*`.
+  - removed `pull_request` and `push.branches` triggers from that workflow so build/release pipeline does not execute on `main`/`claude-code` pushes.
+  - committed fix (`Run build/release workflow on tags only`) and pushed to `main` and `claude-code`.
+- Validation:
+  - GitHub Actions run list shows no new branch-triggered runs after the trigger-only-tag commit.
 
 ### 2026-02-22 — Sprint 13 completion (version/update management)
 - Added build metadata subsystem:
