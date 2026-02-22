@@ -162,7 +162,7 @@ func TestStorePersistsSourceInterfaceAndMACSelectors(t *testing.T) {
 		t.Fatalf("expected one rule, got %d", len(fetched.Rules))
 	}
 	rule := fetched.Rules[0]
-	if len(rule.SourceInterfaces) != 2 || rule.SourceInterfaces[0] != "br0" || rule.SourceInterfaces[1] != "br6" {
+	if len(rule.SourceInterfaces) != 2 || rule.SourceInterfaces[0] != "br6" || rule.SourceInterfaces[1] != "br0" {
 		t.Fatalf("unexpected source interfaces: %#v", rule.SourceInterfaces)
 	}
 	if len(rule.SourceMACs) != 1 || rule.SourceMACs[0] != "00:30:93:10:0a:12" {
@@ -195,7 +195,7 @@ func TestStoreAllowsExactAndWildcardSelectorsInSameRule(t *testing.T) {
 		t.Fatalf("expected one rule, got %d", len(created.Rules))
 	}
 	rule := created.Rules[0]
-	if len(rule.Domains) != 2 || rule.Domains[0] != "asdf.domain.com" || rule.Domains[1] != "domain.com" {
+	if len(rule.Domains) != 2 || rule.Domains[0] != "domain.com" || rule.Domains[1] != "asdf.domain.com" {
 		t.Fatalf("unexpected exact domains: %#v", rule.Domains)
 	}
 	if len(rule.WildcardDomains) != 1 || rule.WildcardDomains[0] != "*.domain.com" {
@@ -210,7 +210,7 @@ func TestStoreAllowsExactAndWildcardSelectorsInSameRule(t *testing.T) {
 		t.Fatalf("expected one fetched rule, got %d", len(fetched.Rules))
 	}
 	fetchedRule := fetched.Rules[0]
-	if len(fetchedRule.Domains) != 2 || fetchedRule.Domains[0] != "asdf.domain.com" || fetchedRule.Domains[1] != "domain.com" {
+	if len(fetchedRule.Domains) != 2 || fetchedRule.Domains[0] != "domain.com" || fetchedRule.Domains[1] != "asdf.domain.com" {
 		t.Fatalf("unexpected fetched exact domains: %#v", fetchedRule.Domains)
 	}
 	if len(fetchedRule.WildcardDomains) != 1 || fetchedRule.WildcardDomains[0] != "*.domain.com" {

@@ -174,9 +174,9 @@
 
     function createInterfaceCard(iface, index) {
       const col = document.createElement('div');
-      col.className = 'col-12 col-lg-6';
+      col.className = 'col-12 col-lg-6 col-xl-4';
       col.dataset.interface = iface.name;
-      col.style.order = index;
+      col.style.order = index + 1;
 
       const card = document.createElement('div');
       card.className = 'card interface-card h-100 shadow-sm';
@@ -302,7 +302,7 @@
       if (!record) {
         return;
       }
-      record.container.style.order = index;
+      record.container.style.order = index + 1;
       record.container.classList.toggle('wan-card', iface.type === 'wan');
       record.container.classList.toggle('vpn-card', iface.type === 'vpn');
       if (record.nameEl) {

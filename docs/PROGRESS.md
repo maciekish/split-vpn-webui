@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Added versioned config backup/restore with monolithic JSON export and API-style restore, including VPN source payload recreation (config + secrets), policy groups/rules, resolver cache, and settings (statistics excluded).
+**Last session summary:** Unified Throughput Share/WAN/VPN dashboard cards into one packed grid (no wasted space) and preserved user-entered selector/domain order across save+reload by removing sort-on-save/read behavior.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,23 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Dashboard grid packing + selector order preservation
+- Dashboard card layout now uses a single shared grid for throughput + interfaces:
+  - `ui/web/templates/layout.html`: Throughput Share card moved into `#interface-grid`.
+  - `ui/web/static/js/app-chart-helpers.js`: interface cards now use the same column class as Throughput Share and are ordered after it.
+  - Effective order is now: Throughput Share first, then WAN, then VPN cards alphabetically (existing interface sort behavior).
+  - This removes the previously wasted blank area under Throughput Share.
+- Routing rule selector persistence now preserves user-entered order (instead of alphabetizing):
+  - `internal/routing/model_normalize.go`: normalization keeps first-seen order for CIDRs/interfaces/MACs/ports/ASNs/domains while still deduping.
+  - `internal/routing/model.go`: legacy-domain projection now preserves first-seen rule/domain order.
+  - `internal/routing/store_rules_read.go`: selector/domain reads are ordered by insertion id.
+  - `internal/routing/store_legacy.go`: legacy domain reads now use insertion id order (`id ASC`) instead of `domain ASC`.
+  - Updated assertions in `internal/routing/model_test.go` and `internal/routing/store_test.go` for order-preserving behavior.
+- Validation run:
+  - `go test ./internal/routing -count=1`
+  - `go test ./... -count=1`
+  - `node --check ui/web/static/js/app-chart-helpers.js ui/web/static/js/app.js ui/web/static/js/domain-routing.js`
 
 ### 2026-02-22 — Hitless routing cutover hardening
 - Implemented staged, low-blip routing refresh for resolver and policy applies:

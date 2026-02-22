@@ -3,7 +3,6 @@ package routing
 import (
 	"fmt"
 	"net"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -31,7 +30,6 @@ func normalizeCIDRs(raw []string, label string) ([]string, error) {
 		seen[canonical] = struct{}{}
 		out = append(out, canonical)
 	}
-	sort.Strings(out)
 	return out, nil
 }
 
@@ -55,7 +53,6 @@ func normalizeInterfaces(raw []string) ([]string, error) {
 		seen[trimmed] = struct{}{}
 		out = append(out, trimmed)
 	}
-	sort.Strings(out)
 	return out, nil
 }
 
@@ -81,7 +78,6 @@ func normalizeMACs(raw []string) ([]string, error) {
 		seen[canonical] = struct{}{}
 		out = append(out, canonical)
 	}
-	sort.Strings(out)
 	return out, nil
 }
 
@@ -132,15 +128,6 @@ func normalizePorts(raw []PortRange) ([]PortRange, error) {
 		seen[key] = struct{}{}
 		out = append(out, PortRange{Protocol: protocol, Start: start, End: end})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Protocol == out[j].Protocol {
-			if out[i].Start == out[j].Start {
-				return out[i].End < out[j].End
-			}
-			return out[i].Start < out[j].Start
-		}
-		return out[i].Protocol < out[j].Protocol
-	})
 	return out, nil
 }
 
@@ -167,7 +154,6 @@ func normalizeASNs(raw []string) ([]string, error) {
 		seen[normalized] = struct{}{}
 		out = append(out, normalized)
 	}
-	sort.Strings(out)
 	return out, nil
 }
 
@@ -197,7 +183,6 @@ func normalizeDomains(raw []string, wildcard bool) ([]string, error) {
 		seen[trimmed] = struct{}{}
 		domains = append(domains, trimmed)
 	}
-	sort.Strings(domains)
 	return domains, nil
 }
 

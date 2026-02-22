@@ -25,7 +25,7 @@ func TestNormalizeAndValidateSupportsSourceInterfaceMACAndBothProtocol(t *testin
 		t.Fatalf("expected one rule, got %d", len(group.Rules))
 	}
 	rule := group.Rules[0]
-	if len(rule.SourceInterfaces) != 2 || rule.SourceInterfaces[0] != "br0" || rule.SourceInterfaces[1] != "br6" {
+	if len(rule.SourceInterfaces) != 2 || rule.SourceInterfaces[0] != "br6" || rule.SourceInterfaces[1] != "br0" {
 		t.Fatalf("unexpected source interfaces: %#v", rule.SourceInterfaces)
 	}
 	if len(rule.SourceMACs) != 1 || rule.SourceMACs[0] != "00:30:93:10:0a:12" {

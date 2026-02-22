@@ -14,7 +14,7 @@ func (s *Store) listLegacyDomainsForGroups(ctx context.Context) (map[int64][]str
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT group_id, domain
 		FROM domain_entries
-		ORDER BY group_id ASC, domain ASC
+		ORDER BY group_id ASC, id ASC
 	`)
 	if err != nil {
 		return nil, err

@@ -7,7 +7,7 @@ import (
 )
 
 func listRuleCIDRs(ctx context.Context, db *sql.DB, table string, ruleIDs []int64) (map[int64][]string, error) {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT rule_id, cidr FROM %s ORDER BY rule_id ASC, cidr ASC`, table))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT rule_id, cidr FROM %s ORDER BY rule_id ASC, id ASC`, table))
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func listRuleSourceInterfaces(ctx context.Context, db *sql.DB, ruleIDs []int64) 
 	rows, err := db.QueryContext(ctx, `
 		SELECT rule_id, iface
 		FROM routing_rule_source_interfaces
-		ORDER BY rule_id ASC, iface ASC
+		ORDER BY rule_id ASC, id ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func listRuleSourceMACs(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[i
 	rows, err := db.QueryContext(ctx, `
 		SELECT rule_id, mac
 		FROM routing_rule_source_macs
-		ORDER BY rule_id ASC, mac ASC
+		ORDER BY rule_id ASC, id ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -75,7 +75,7 @@ func listRulePorts(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64]
 	rows, err := db.QueryContext(ctx, `
 		SELECT rule_id, protocol, start_port, end_port
 		FROM routing_rule_ports
-		ORDER BY rule_id ASC, protocol ASC, start_port ASC, end_port ASC
+		ORDER BY rule_id ASC, id ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func listRuleASNs(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][
 	rows, err := db.QueryContext(ctx, `
 		SELECT rule_id, asn
 		FROM routing_rule_asns
-		ORDER BY rule_id ASC, asn ASC
+		ORDER BY rule_id ASC, id ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func listRuleDomains(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int6
 	rows, err := db.QueryContext(ctx, `
 		SELECT rule_id, domain, is_wildcard
 		FROM routing_rule_domains
-		ORDER BY rule_id ASC, is_wildcard ASC, domain ASC
+		ORDER BY rule_id ASC, id ASC
 	`)
 	if err != nil {
 		return nil, nil, err

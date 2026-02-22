@@ -192,7 +192,6 @@ func legacyDomainsFromRules(rules []RoutingRule) []string {
 			out = append(out, wildcard)
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 
