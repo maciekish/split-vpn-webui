@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Fixed Linux CI failure in prewarm DoH unit tests by removing fake interface binding from parser/timeout tests, revalidated full test suite, and prepared release tag re-push.
+**Last session summary:** Confirmed Linux CI prewarm DoH test fix is active (`internal/prewarm/doh_test.go`), local `go test ./...` passes, and tag workflow run `22282694147` completed successfully on commit `7c9890f`.
 
 ---
 
@@ -65,6 +65,13 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — CI verification after user-reported workflow failure
+- Re-verified root cause and fix path:
+  - `internal/prewarm/doh_test.go` parser/timeout tests now use empty interface binding (`""`) and no longer depend on a fake interface (`wg-a`) that fails on Linux with `SO_BINDTODEVICE`.
+- Validation:
+  - local `go test ./...` passed (including `internal/prewarm`).
+  - GitHub Actions API shows latest tag-triggered `Build` run `22282694147` as `completed/success` for tag `v1.0.0` at commit `7c9890f714a9628112ad2416038ba3119a15f484`.
 
 ### 2026-02-22 — Release CI hotfix (prewarm DoH test interface binding)
 - Root cause identified for failed tag workflow test stage:
