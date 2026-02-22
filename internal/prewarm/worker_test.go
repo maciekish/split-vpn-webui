@@ -89,6 +89,14 @@ func (m *mockIPSet) DestroySet(name string) error { return nil }
 
 func (m *mockIPSet) ListSets(prefix string) ([]string, error) { return nil, nil }
 
+type mockWildcardResolver struct {
+	values map[string][]string
+}
+
+func (m *mockWildcardResolver) Resolve(ctx context.Context, wildcard string) ([]string, error) {
+	return append([]string(nil), m.values[wildcard]...), nil
+}
+
 func TestWorkerQueriesAllActiveVPNInterfacesAndAddsIPs(t *testing.T) {
 	groups := &mockGroupSource{
 		groups: []routing.DomainGroup{
@@ -239,5 +247,90 @@ func TestWorkerFallsBackToActiveManagedWireGuardInterfaces(t *testing.T) {
 	}
 	if _, ok := callSet["wg-sv-rbxswi9ac|example.com|A"]; !ok {
 		t.Fatalf("expected fallback interface to be used, calls=%#v", doh.calls)
+	}
+}
+
+func TestWorkerWildcardDiscoveryPrewarmsDiscoveredSubdomains(t *testing.T) {
+	groups := &mockGroupSource{
+		groups: []routing.DomainGroup{
+			{
+				Name:      "Wildcard",
+				EgressVPN: "wg-a",
+				Rules: []routing.RoutingRule{
+					{WildcardDomains: []string{"*.google.com"}},
+				},
+			},
+		},
+	}
+	vpns := &mockVPNSource{
+		profiles: []*vpn.VPNProfile{{Name: "wg-a", InterfaceName: "wg-a"}},
+	}
+	doh := &mockDoH{
+		data: map[string][]string{
+			"wg-a|google.com|CNAME":         {},
+			"wg-a|google.com|A":             {},
+			"wg-a|google.com|AAAA":          {},
+			"wg-a|ipv6.google.com|A":        {"142.250.74.110"},
+			"wg-a|ipv6.google.com|AAAA":     {"2a00:1450:4001:80d::200e"},
+			"wg-a|maps.google.com|A":        {"142.250.74.99"},
+			"wg-a|maps.google.com|AAAA":     {},
+			"wg-a|mail.google.com|A":        {"142.250.74.17"},
+			"wg-a|mail.google.com|AAAA":     {},
+			"wg-a|edge.google.com|A":        {},
+			"wg-a|edge.google.com|AAAA":     {},
+			"wg-a|edge.google.com|CNAME":    {},
+			"wg-a|wildcard.google.com|A":    {},
+			"wg-a|wildcard.google.com|AAAA": {},
+		},
+	}
+	ipset := &mockIPSet{}
+
+	worker, err := NewWorker(groups, vpns, doh, ipset, WorkerOptions{
+		InterfaceActive: func(name string) (bool, error) { return true, nil },
+		WildcardResolver: &mockWildcardResolver{
+			values: map[string][]string{
+				"*.google.com": {"ipv6.google.com", "maps.google.com", "mail.google.com"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
+
+	stats, err := worker.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if stats.DomainsDone != 1 {
+		t.Fatalf("expected 1 processed wildcard task, got %d", stats.DomainsDone)
+	}
+	if stats.IPsInserted < 4 {
+		t.Fatalf("expected discovered subdomain IPs to be inserted, got %d", stats.IPsInserted)
+	}
+
+	sets := routing.RuleSetNames("Wildcard", 0)
+	gotV4 := append([]string(nil), ipset.added[sets.DestinationV4]...)
+	gotV6 := append([]string(nil), ipset.added[sets.DestinationV6]...)
+	sort.Strings(gotV4)
+	sort.Strings(gotV6)
+	if strings.Join(gotV4, ",") != "142.250.74.110,142.250.74.17,142.250.74.99" {
+		t.Fatalf("unexpected v4 insertions: %#v", gotV4)
+	}
+	if strings.Join(gotV6, ",") != "2a00:1450:4001:80d::200e" {
+		t.Fatalf("unexpected v6 insertions: %#v", gotV6)
+	}
+
+	callSet := make(map[string]struct{}, len(doh.calls))
+	for _, call := range doh.calls {
+		callSet[call] = struct{}{}
+	}
+	for _, expected := range []string{
+		"wg-a|ipv6.google.com|A",
+		"wg-a|maps.google.com|A",
+		"wg-a|mail.google.com|A",
+	} {
+		if _, ok := callSet[expected]; !ok {
+			t.Fatalf("expected discovered subdomain DoH call %q; calls=%#v", expected, doh.calls)
+		}
 	}
 }

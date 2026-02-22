@@ -29,12 +29,18 @@ type VPNSource interface {
 	List() ([]*vpn.VPNProfile, error)
 }
 
+// WildcardResolver discovers known subdomains for wildcard patterns.
+type WildcardResolver interface {
+	Resolve(ctx context.Context, wildcard string) ([]string, error)
+}
+
 // WorkerOptions controls worker runtime behavior.
 type WorkerOptions struct {
 	Parallelism      int
 	ProgressCallback func(Progress)
 	InterfaceActive  func(name string) (bool, error)
 	InterfaceList    func() ([]string, error)
+	WildcardResolver WildcardResolver
 }
 
 // Worker executes one DNS pre-warm pass.
@@ -47,6 +53,7 @@ type Worker struct {
 	progress  func(Progress)
 	ifaceUp   func(name string) (bool, error)
 	ifaceList func() ([]string, error)
+	wildcard  WildcardResolver
 }
 
 type domainTask struct {
@@ -54,6 +61,7 @@ type domainTask struct {
 	SetV4     string
 	SetV6     string
 	Domain    string
+	Wildcard  bool
 }
 
 type taskResult struct {
@@ -95,6 +103,10 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 	if ifaceList == nil {
 		ifaceList = listInterfaceNames
 	}
+	wildcard := opts.WildcardResolver
+	if wildcard == nil {
+		wildcard = newCRTSHWildcardResolver(defaultDoHTimeout)
+	}
 	return &Worker{
 		groups:    groups,
 		vpns:      vpns,
@@ -104,6 +116,7 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 		progress:  opts.ProgressCallback,
 		ifaceUp:   ifaceActive,
 		ifaceList: ifaceList,
+		wildcard:  wildcard,
 	}, nil
 }
 
@@ -321,52 +334,6 @@ func listInterfaceNames() ([]string, error) {
 	return names, nil
 }
 
-func buildTasks(groups []routing.DomainGroup) ([]domainTask, error) {
-	tasks := make([]domainTask, 0)
-	for _, group := range groups {
-		for ruleIndex, rule := range group.Rules {
-			sets := routing.RuleSetNames(group.Name, ruleIndex)
-			domainList := append([]string(nil), rule.Domains...)
-			domainList = append(domainList, rule.WildcardDomains...)
-			for _, rawDomain := range domainList {
-				domain := normalizeDomain(rawDomain)
-				if domain == "" {
-					continue
-				}
-				tasks = append(tasks, domainTask{
-					GroupName: group.Name,
-					SetV4:     sets.DestinationV4,
-					SetV6:     sets.DestinationV6,
-					Domain:    domain,
-				})
-			}
-		}
-		if len(group.Rules) > 0 {
-			continue
-		}
-		setV4, setV6 := routing.GroupSetNames(group.Name)
-		for _, rawDomain := range group.Domains {
-			domain := normalizeDomain(rawDomain)
-			if domain == "" {
-				continue
-			}
-			tasks = append(tasks, domainTask{
-				GroupName: group.Name,
-				SetV4:     setV4,
-				SetV6:     setV6,
-				Domain:    domain,
-			})
-		}
-	}
-	sort.Slice(tasks, func(i, j int) bool {
-		if tasks[i].GroupName == tasks[j].GroupName {
-			return tasks[i].Domain < tasks[j].Domain
-		}
-		return tasks[i].GroupName < tasks[j].GroupName
-	})
-	return tasks, nil
-}
-
 func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []string) (taskResult, error) {
 	targets := map[string]struct{}{task.Domain: {}}
 	perVPNDomains := make(map[string]int, len(ifaces))
@@ -374,6 +341,23 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 	perVPNIPs := make(map[string]int, len(ifaces))
 	perIfaceV4 := make(map[string]map[string]struct{}, len(ifaces))
 	perIfaceV6 := make(map[string]map[string]struct{}, len(ifaces))
+
+	if task.Wildcard && w.wildcard != nil {
+		discovered, err := w.wildcard.Resolve(ctx, "*."+task.Domain)
+		if err != nil {
+			for _, iface := range ifaces {
+				perVPNErrors[iface]++
+			}
+		} else {
+			for _, subdomain := range discovered {
+				target := normalizeDomain(subdomain)
+				if target == "" {
+					continue
+				}
+				targets[target] = struct{}{}
+			}
+		}
+	}
 
 	for _, iface := range ifaces {
 		perVPNDomains[iface] = 1
@@ -448,15 +432,6 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 		PerVPNErrors:  perVPNErrors,
 		PerVPNDomains: perVPNDomains,
 	}, nil
-}
-
-func mapKeysSorted(values map[string]struct{}) []string {
-	result := make([]string, 0, len(values))
-	for key := range values {
-		result = append(result, key)
-	}
-	sort.Strings(result)
-	return result
 }
 
 func (w *Worker) emitProgress(progress Progress) {

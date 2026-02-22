@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"sort"
 	"strings"
@@ -136,6 +137,15 @@ func (s *Server) collectConfigStatuses() ([]*config.VPNConfig, []ConfigStatus, m
 			Connected:     connected,
 			OperState:     state,
 		})
+	}
+	routingSizes, routeErr := s.collectRoutingSizes(context.Background())
+	if routeErr != nil {
+		errMap["routing_sizes"] = routeErr.Error()
+	}
+	for idx := range statuses {
+		size := routingSizes[statuses[idx].Name]
+		statuses[idx].RoutingV4Size = size.V4
+		statuses[idx].RoutingV6Size = size.V6
 	}
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
 	return configs, statuses, errMap

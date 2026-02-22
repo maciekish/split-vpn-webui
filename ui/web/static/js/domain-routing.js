@@ -406,6 +406,14 @@
           <label class="form-label small text-body-secondary mb-1">Wildcard Domains</label>
           <textarea class="form-control form-control-sm font-monospace js-rule-wildcards" rows="3" placeholder="*.apple.com&#10;*.example.net">${escapeHTML((payload.wildcardDomains || []).join('\n'))}</textarea>
         </div>
+        <div class="col-12">
+          <div class="small text-body-secondary">
+            Normal Domains match both the exact domain and its subdomains in dnsmasq, but pre-warm only queries domains explicitly listed here.
+          </div>
+          <div class="small text-warning mt-1">
+            Wildcard Domains discover known subdomains from public data and pre-warm those discovered hosts. Use with care: large domains can create many routing entries.
+          </div>
+        </div>
       </div>
     `;
     rulesList.appendChild(card);

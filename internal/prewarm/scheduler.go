@@ -200,7 +200,8 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 	timeout := timeoutFromSettings(current)
 	doh := NewCloudflareDoHClient(timeout)
 	worker, err := NewWorker(s.groups, s.vpns, doh, s.ipset, WorkerOptions{
-		Parallelism: parallelismFromSettings(current),
+		Parallelism:      parallelismFromSettings(current),
+		WildcardResolver: newCRTSHWildcardResolver(timeout),
 		ProgressCallback: func(progress Progress) {
 			s.mu.Lock()
 			cloned := progress.Clone()

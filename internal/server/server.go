@@ -34,6 +34,8 @@ type ConfigStatus struct {
 	Autostart     bool   `json:"autostart"`
 	Connected     bool   `json:"connected"`
 	OperState     string `json:"operState"`
+	RoutingV4Size int    `json:"routingV4Size"`
+	RoutingV6Size int    `json:"routingV6Size"`
 }
 
 // UpdatePayload is pushed to SSE listeners.

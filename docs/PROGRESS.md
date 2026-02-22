@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-22
-**Last session summary:** Added missing `FORCED_SOURCE*` parity selectors for policy rules (`sourceInterfaces`, `sourceMacs`, and `both` protocol ports), validated full test suite, and prepared `v1.0.1` release.
+**Last session summary:** Added wildcard subdomain discovery support to prewarm, added per-VPN IPv4/IPv6 routing set size visibility in the VPN table, and clarified domain vs wildcard behavior in the policy-rule editor UI.
 
 ---
 
@@ -65,6 +65,31 @@
 ---
 
 ## Session Notes
+
+### 2026-02-22 — Wildcard prewarm + routing size visibility polish
+- Wildcard prewarm behavior aligned with intended UX:
+  - `internal/prewarm/worker.go` now treats wildcard tasks as discovery-enabled and resolves discovered subdomains before prewarming A/AAAA records.
+  - Added dedicated wildcard discovery client for prewarm:
+    - `internal/prewarm/wildcard.go` (`crt.sh` based discovery, normalization, dedupe, validation).
+  - `internal/prewarm/scheduler.go` now injects wildcard resolver into worker runs.
+  - Refactored task building utilities into `internal/prewarm/tasks.go` to keep worker file size under limit.
+  - Added regression coverage:
+    - `internal/prewarm/worker_test.go` `TestWorkerWildcardDiscoveryPrewarmsDiscoveredSubdomains`.
+- Per-VPN routing size visibility added:
+  - `internal/server/routing_sizes.go` computes current IP set entry counts from `ipset list` and aggregates per VPN (IPv4/IPv6 separately).
+  - `internal/server/state.go` injects these counts into config status payloads.
+  - `internal/server/server.go` `ConfigStatus` now includes `routingV4Size` and `routingV6Size`.
+  - `ui/web/templates/layout.html` VPN table now includes `Routing Sets (v4/v6)` column.
+  - `ui/web/static/js/app-vpn-helpers.js` renders per-VPN `v4 / v6` sizes.
+  - Added parser tests:
+    - `internal/server/routing_sizes_test.go`.
+- Policy UI guidance text improved:
+  - `ui/web/static/js/domain-routing.js` now shows a concise note:
+    - normal domain entries route subdomains via dnsmasq matching but prewarm only runs on explicitly entered domains.
+    - wildcard entries discover and prewarm known subdomains and include a caution about potentially large entry counts.
+- Validation run (all passed):
+  - `go test ./...`
+  - `node --check ui/web/static/js/domain-routing.js ui/web/static/js/app-vpn-helpers.js ui/web/static/js/domain-routing-utils.js`
 
 ### 2026-02-22 — FORCED_SOURCE*/FORCED_DESTINATION parity completion
 - Implemented remaining forced-selector coverage from peacey split-rule semantics (limited to forced source/destination scope):

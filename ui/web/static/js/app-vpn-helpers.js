@@ -190,6 +190,7 @@
           <td>${cfg.interfaceName || '–'}</td>
           <td class="text-uppercase">${cfg.vpnType || 'n/a'}</td>
           <td>${cfg.gateway || '–'}</td>
+          <td class="font-monospace">${formatRoutingSizes(cfg)}</td>
           <td data-field="latency">–</td>
           <td>
             <span class="badge ${cfg.connected ? 'text-bg-success' : 'text-bg-secondary'}">${cfg.connected ? 'Connected' : 'Stopped'}</span>
@@ -260,6 +261,15 @@
         }
         vpnTableBody.appendChild(row);
       });
+    }
+
+    function formatRoutingSizes(cfg) {
+      const v4 = Number(cfg?.routingV4Size ?? 0);
+      const v6 = Number(cfg?.routingV6Size ?? 0);
+      if (!Number.isFinite(v4) || !Number.isFinite(v6)) {
+        return '–';
+      }
+      return `${Math.max(0, Math.trunc(v4))} / ${Math.max(0, Math.trunc(v6))}`;
     }
 
     async function startVPN(name) {
