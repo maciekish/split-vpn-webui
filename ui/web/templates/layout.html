@@ -465,6 +465,41 @@
   </div>
 </div>
 
+<div class="modal fade" id="asnPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="asn-preview-title"><i class="bi bi-hdd-network me-2"></i>ASN ipset Entry Preview</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert d-none py-2 small mb-3" id="asn-preview-status" role="status"></div>
+        <div class="small text-body-secondary mb-2" id="asn-preview-summary">No preview data.</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>ASN</th>
+                <th class="text-end">Prefixes v4</th>
+                <th class="text-end">Prefixes v6</th>
+                <th class="text-end">Entries v4</th>
+                <th class="text-end">Entries v6</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="asn-preview-table-body">
+              <tr><td colspan="6" class="text-body-secondary small">No preview data.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="deleteGroupModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -635,6 +670,7 @@
 <script src="/static/js/app-updates.js"></script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/domain-routing-utils.js"></script>
+<script src="/static/js/domain-routing-asn-preview.js"></script>
 <script src="/static/js/domain-routing-rules.js"></script>
 <script src="/static/js/domain-routing.js"></script>
 <script src="/static/js/routing-resolver.js"></script>

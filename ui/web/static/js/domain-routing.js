@@ -11,6 +11,12 @@
   const addRuleButton = document.getElementById('add-routing-rule');
   const rulesList = document.getElementById('routing-rules-list');
   const saveGroupButton = document.getElementById('save-domain-group');
+  const asnPreviewModalElement = document.getElementById('asnPreviewModal');
+  const asnPreviewModal = asnPreviewModalElement ? new bootstrap.Modal(asnPreviewModalElement) : null;
+  const asnPreviewTitle = document.getElementById('asn-preview-title');
+  const asnPreviewStatus = document.getElementById('asn-preview-status');
+  const asnPreviewSummary = document.getElementById('asn-preview-summary');
+  const asnPreviewTableBody = document.getElementById('asn-preview-table-body');
   const deleteGroupModalElement = document.getElementById('deleteGroupModal');
   const deleteGroupModal = new bootstrap.Modal(deleteGroupModalElement);
   const deleteGroupName = document.getElementById('delete-group-name');
@@ -40,6 +46,10 @@
     && typeof window.SplitVPNDomainRoutingRules.createController === 'function'
     ? window.SplitVPNDomainRoutingRules.createController
     : null;
+  const asnPreviewFactory = window.SplitVPNDomainRoutingASNPreview
+    && typeof window.SplitVPNDomainRoutingASNPreview.createController === 'function'
+    ? window.SplitVPNDomainRoutingASNPreview.createController
+    : null;
   if (!helper || !rulesFactory) {
     console.error('domain-routing helpers unavailable');
     return;
@@ -47,6 +57,16 @@
 
   const escapeHTML = helper.escapeHTML;
   const sourceMACDeviceDatalistID = 'routing-source-mac-devices';
+  const asnPreviewController = asnPreviewFactory
+    ? asnPreviewFactory({
+      modal: asnPreviewModal,
+      titleElement: asnPreviewTitle,
+      statusElement: asnPreviewStatus,
+      summaryElement: asnPreviewSummary,
+      tableBodyElement: asnPreviewTableBody,
+      fetchJSON,
+    })
+    : null;
   const state = {
     groups: [],
     vpns: [],
@@ -62,6 +82,13 @@
     helper,
     showStatus,
     sourceMACDeviceDatalistID,
+    onPreviewASN: ({ title, asns }) => {
+      if (!asnPreviewController || typeof asnPreviewController.open !== 'function') {
+        showStatus('ASN preview is unavailable in this UI build.', true);
+        return;
+      }
+      asnPreviewController.open({ title, asns });
+    },
   });
   if (!rulesController) {
     console.error('domain-routing rule controller unavailable');
@@ -83,7 +110,7 @@
     }
     const action = actionTarget.getAttribute('data-action');
     const card = actionTarget.closest('.routing-rule-card');
-    rulesController.handleAction(action, card);
+    rulesController.handleAction(action, card, actionTarget);
   });
 
   saveGroupButton.addEventListener('click', async () => {

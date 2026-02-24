@@ -170,6 +170,7 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/groups/{id}", s.handleGetGroup)
 			api.Put("/groups/{id}", s.handleUpdateGroup)
 			api.Delete("/groups/{id}", s.handleDeleteGroup)
+			api.Post("/routing/asn-preview", s.handleASNPreview)
 			api.Get("/resolver/status", s.handleResolverStatus)
 			api.Post("/resolver/run", s.handleResolverRun)
 			api.Post("/resolver/clear-run", s.handleResolverClearRun)

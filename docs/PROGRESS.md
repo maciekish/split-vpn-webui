@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Added DNS pre-warm `extra nameservers` and `ECS profiles` settings with backend validation, runtime query fan-out (Cloudflare first/always), UI controls, and test coverage.
+**Last session summary:** Added ASN ipset entry preview (rule-editor modal + API) that resolves ASN prefixes and reports collapsed IPv4/IPv6 ipset entry counts using runtime-equivalent collapse logic.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,51 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — ASN ipset entry preview modal + API
+- Added an ASN preview feature to estimate runtime ipset footprint before saving rules:
+  - New API endpoint: `POST /api/routing/asn-preview`
+  - New rule-editor actions: `Preview` buttons for:
+    - `Destination ASNs`
+    - `Excluded Destination ASNs`
+  - New modal: `ASN ipset Entry Preview` with per-ASN and total counts.
+- Backend implementation:
+  - `internal/routing/asn_preview.go`
+    - New preview model types:
+      - `ASNPreviewItem`
+      - `ASNPreviewResult`
+    - New functions:
+      - `PreviewASNEntries`
+      - `PreviewASNEntriesWithResolver`
+    - Uses the existing RIPE ASN resolver and the same `collapseSetEntries` logic as runtime ipset application, so preview counts match what would be inserted after collapsing.
+  - `internal/server/handlers_routing_asn_preview.go`
+    - Added request validation/sanitization and timeout handling based on resolver ASN timeout settings.
+    - Returns structured `{"result": ...}` payload or `{"error": ...}` on failure.
+  - `internal/server/server.go`
+    - Registered route: `api.Post("/routing/asn-preview", s.handleASNPreview)`.
+- Frontend implementation:
+  - New module: `ui/web/static/js/domain-routing-asn-preview.js`
+    - Handles modal lifecycle, API call, and result rendering.
+  - Updated rule editor: `ui/web/static/js/domain-routing-rules.js`
+    - Added preview action buttons next to ASN textareas.
+    - Added `preview-asn` action plumbing.
+  - Updated routing UI glue: `ui/web/static/js/domain-routing.js`
+    - Instantiates preview controller and passes callback into rule controller.
+  - Updated template: `ui/web/templates/layout.html`
+    - Added preview modal markup and script include.
+- Tests added:
+  - `internal/routing/asn_preview_test.go`
+    - collapse/count behavior
+    - per-ASN error handling
+    - invalid ASN validation
+  - `internal/server/handlers_routing_asn_preview_test.go`
+    - invalid JSON handling
+    - empty selector handling
+    - input sanitization and default timeout behavior
+    - validation error mapping
+- Validation run:
+  - `go test ./... -count=1`
+  - `node --check ui/web/static/js/domain-routing-rules.js ui/web/static/js/domain-routing.js ui/web/static/js/domain-routing-asn-preview.js`
 
 ### 2026-02-24 — DNS pre-warm extra nameservers + ECS profiles
 - Added new pre-warm settings fields:

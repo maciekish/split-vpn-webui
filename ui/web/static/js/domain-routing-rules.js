@@ -7,6 +7,7 @@
         helper,
         showStatus,
         sourceMACDeviceDatalistID,
+        onPreviewASN,
       } = ctx || {};
 
       if (!rulesList || !state || !helper || typeof showStatus !== 'function' || !sourceMACDeviceDatalistID) {
@@ -279,11 +280,17 @@
           <textarea class="form-control form-control-sm font-monospace js-rule-ports-excluded" rows="4" placeholder="udp:5353&#10;tcp:1900&#10;#both:53">${escapeHTML(excludedDestinationPortsText)}</textarea>
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label small text-body-secondary mb-1">Destination ASNs</label>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label small text-body-secondary mb-0">Destination ASNs</label>
+            <button class="btn btn-outline-info btn-sm py-0 px-2" type="button" data-action="preview-asn" data-asn-selector=".js-rule-asn" data-asn-title="Destination ASN ipset Entry Preview">Preview</button>
+          </div>
           <textarea class="form-control form-control-sm font-monospace js-rule-asn" rows="4" placeholder="AS15169&#10;13335&#10;#AS32934">${escapeHTML(destinationAsnsText)}</textarea>
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label small text-body-secondary mb-1">Excluded Destination ASNs</label>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label small text-body-secondary mb-0">Excluded Destination ASNs</label>
+            <button class="btn btn-outline-info btn-sm py-0 px-2" type="button" data-action="preview-asn" data-asn-selector=".js-rule-asn-excluded" data-asn-title="Excluded ASN ipset Entry Preview">Preview</button>
+          </div>
           <textarea class="form-control form-control-sm font-monospace js-rule-asn-excluded" rows="4" placeholder="AS714&#10;#AS32934">${escapeHTML(excludedDestinationAsnsText)}</textarea>
         </div>
         <div class="col-12 col-md-4 d-flex align-items-end">
@@ -438,7 +445,7 @@
         return `${normalizedMAC}#${normalizedName}`;
       }
 
-      function handleAction(action, card) {
+      function handleAction(action, card, actionTarget) {
         if (!card) {
           return false;
         }
@@ -451,6 +458,18 @@
         }
         if (action === 'source-mac-add') {
           addSourceMACFromPicker(card);
+          return true;
+        }
+        if (action === 'preview-asn') {
+          if (typeof onPreviewASN !== 'function') {
+            showStatus('ASN preview is unavailable.', true);
+            return true;
+          }
+          const selector = String(actionTarget?.getAttribute('data-asn-selector') || '.js-rule-asn');
+          const title = String(actionTarget?.getAttribute('data-asn-title') || 'ASN ipset Entry Preview');
+          const textArea = card.querySelector(selector);
+          const asns = parseSelectorField(textArea ? textArea.value : '').activeValues;
+          onPreviewASN({ title, asns });
           return true;
         }
         return false;
