@@ -91,3 +91,50 @@ fd00::10 dev br0 lladdr 00:11:22:33:44:66 STALE
 		t.Fatalf("unexpected second row: %#v", rows[1])
 	}
 }
+
+func TestParseDeviceIdentifierMAC(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "plain mac",
+			raw:  "a8:51:ab:d2:ac:af",
+			want: "a8:51:ab:d2:ac:af",
+		},
+		{
+			name: "dhcpv4 clientid ethernet",
+			raw:  "01:a8:51:ab:d2:ac:af",
+			want: "a8:51:ab:d2:ac:af",
+		},
+		{
+			name: "duid llt",
+			raw:  "00:01:00:01:2c:1f:87:c2:a8:51:ab:d2:ac:af",
+			want: "a8:51:ab:d2:ac:af",
+		},
+		{
+			name: "duid ll",
+			raw:  "00:03:00:01:a8:51:ab:d2:ac:af",
+			want: "a8:51:ab:d2:ac:af",
+		},
+		{
+			name: "duid uuid unsupported",
+			raw:  "00:04:59:c7:03:86:e9:20:f3:0e:bd:c7:55:60:cf:4a:79:1c",
+			want: "",
+		},
+		{
+			name: "invalid",
+			raw:  "1",
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseDeviceIdentifierMAC(tc.raw)
+			if got != tc.want {
+				t.Fatalf("parseDeviceIdentifierMAC(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}

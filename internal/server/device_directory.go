@@ -403,6 +403,11 @@ func pickDeviceMAC(values map[string]any) string {
 			return mac
 		}
 	}
+	for _, key := range []string{"id", "duid", "clientid", "client_id"} {
+		if mac := parseDeviceIdentifierMAC(stringValue(values[key])); mac != "" {
+			return mac
+		}
+	}
 	return ""
 }
 

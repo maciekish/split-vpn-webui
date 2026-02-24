@@ -168,14 +168,58 @@
   async function loadDevices() {
     const data = await fetchJSON('/api/devices');
     const devices = Array.isArray(data.devices) ? data.devices : [];
-    state.devices = devices.map((device) => ({
-      mac: String(device?.mac || '').trim().toLowerCase(),
-      name: String(device?.name || '').trim(),
-      ipHints: Array.isArray(device?.ipHints)
+    const byMAC = new Map();
+    devices.forEach((device) => {
+      const mac = String(device?.mac || '').trim().toLowerCase();
+      if (!mac) {
+        return;
+      }
+      const name = String(device?.name || '').trim();
+      const ipHints = Array.isArray(device?.ipHints)
         ? device.ipHints.map((entry) => String(entry || '').trim()).filter((entry) => entry !== '')
-        : [],
-      searchText: String(device?.searchText || '').toLowerCase(),
-    })).filter((entry) => entry.mac !== '');
+        : [];
+      const existing = byMAC.get(mac);
+      if (!existing) {
+        byMAC.set(mac, { mac, name, ipHints });
+        return;
+      }
+      if (!existing.name && name) {
+        existing.name = name;
+      }
+      const mergedHints = new Set([...(existing.ipHints || []), ...ipHints]);
+      existing.ipHints = Array.from(mergedHints);
+    });
+
+    state.devices = Array.from(byMAC.values())
+      .map((entry) => {
+        const hints = Array.isArray(entry.ipHints) ? [...entry.ipHints] : [];
+        hints.sort((left, right) => left.localeCompare(right));
+        const searchParts = [entry.mac];
+        if (entry.name) {
+          searchParts.push(entry.name);
+        }
+        searchParts.push(...hints);
+        return {
+          mac: entry.mac,
+          name: entry.name,
+          ipHints: hints,
+          searchText: searchParts.join(' ').toLowerCase(),
+        };
+      })
+      .sort((left, right) => {
+        const leftName = String(left.name || '').toLowerCase();
+        const rightName = String(right.name || '').toLowerCase();
+        if (leftName === rightName) {
+          return left.mac.localeCompare(right.mac);
+        }
+        if (!leftName) {
+          return 1;
+        }
+        if (!rightName) {
+          return -1;
+        }
+        return leftName.localeCompare(rightName);
+      });
     rulesController.refreshSourceMACDeviceDatalist();
   }
 

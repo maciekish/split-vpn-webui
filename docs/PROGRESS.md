@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Improved VPN Flow Inspector routed-flow detection by adding masked conntrack-mark matching fallback and expanded UniFi client discovery endpoints for better source naming coverage.
+**Last session summary:** Added DHCP client-identifier (DUID/client-id) MAC extraction for UniFi `/services` records and improved source-MAC picker population with MAC deduplication and name-sorted device list ordering.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,28 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — DUID/client-id MAC extraction + source-MAC picker dedupe/sort improvements
+- Fixed missing client-name mapping from UniFi `/services` records:
+  - Added `internal/server/device_directory_ids.go` with robust identifier parsing:
+    - direct MAC values
+    - DHCPv4 client-id (`01:<mac>`)
+    - DHCPv6 DUID-LLT (`00:01:00:01:<time>:<mac>`)
+    - DHCPv6 DUID-LL (`00:03:00:01:<mac>`)
+    - ignores unsupported identifier formats (for example DUID-UUID/type 4).
+  - Updated `pickDeviceMAC` in `internal/server/device_directory.go` to fall back to identifier-derived MACs from keys:
+    - `id`, `duid`, `clientid`, `client_id`
+  - Added parser coverage in `internal/server/device_directory_test.go`.
+- Improved rule-editor source-MAC device picker quality:
+  - `ui/web/static/js/domain-routing.js` now:
+    - deduplicates discovered devices by MAC,
+    - merges IP hints across duplicate records,
+    - prefers non-empty names,
+    - sorts picker list by device name (unnamed devices last; MAC tiebreaker).
+  - Ensures the searchable dropdown surfaces the broadest discovered set without duplicate MAC rows.
+- Validation run:
+  - `go test ./...`
+  - `node --check ui/web/static/js/domain-routing.js ui/web/static/js/domain-routing-rules.js`
 
 ### 2026-02-24 — Flow inspector mark fallback hardening + broader UniFi client endpoint discovery
 - Improved routed-flow fallback matching:
