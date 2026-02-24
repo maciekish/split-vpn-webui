@@ -296,6 +296,8 @@
       prewarmParallelism: Number(current.prewarmParallelism || 0),
       prewarmDoHTimeoutSeconds: Number(current.prewarmDoHTimeoutSeconds || 0),
       prewarmIntervalSeconds: Number(current.prewarmIntervalSeconds || 0),
+      prewarmExtraNameservers: String(current.prewarmExtraNameservers || ''),
+      prewarmEcsProfiles: String(current.prewarmEcsProfiles || ''),
       resolverParallelism: Math.round(parallelism),
       resolverTimeoutSeconds: Math.round(timeout),
       resolverIntervalSeconds: Math.round(intervalMinutes * 60),

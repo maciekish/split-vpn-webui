@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Implemented rule-level exclusion selectors (source/destination CIDR, destination port, destination ASN) plus default-enabled multicast exclusion, with full model/store/runtime/API/UI integration and test coverage.
+**Last session summary:** Added DNS pre-warm `extra nameservers` and `ECS profiles` settings with backend validation, runtime query fan-out (Cloudflare first/always), UI controls, and test coverage.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,55 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — DNS pre-warm extra nameservers + ECS profiles
+- Added new pre-warm settings fields:
+  - `prewarmExtraNameservers` (one IP per line)
+  - `prewarmEcsProfiles` (one `name=cidr` or `cidr` per line)
+- Added parsing/validation layer:
+  - `internal/prewarm/config.go`
+    - `ParseNameserverLines`
+    - `ParseECSProfiles`
+    - `NormalizeMultilineSetting`
+  - Validation rejects invalid IP/CIDR rows with line-aware error messages and enforces entry caps.
+- Added DNS query backends for pre-warm:
+  - `internal/prewarm/nameserver.go`
+    - direct DNS resolution against configured recursive nameservers (interface-bound)
+  - `internal/prewarm/doh.go`
+    - added Google DoH ECS client support (`edns_client_subnet`)
+- Added resolver fan-out logic:
+  - `internal/prewarm/worker_resolvers.go`
+    - composes query resolvers in strict order.
+    - **Cloudflare DoH remains hardcoded as resolver #1 and is always queried.**
+    - extra nameservers and ECS resolvers are appended.
+- Wired scheduler/runtime:
+  - `internal/prewarm/scheduler.go`
+    - validates nameserver/ECS settings before run start.
+    - passes parsed lists + timeout into worker options.
+  - `internal/prewarm/worker.go`
+    - per-domain/per-VPN queries now fan out across all configured resolvers, deduplicating discovered IPs before cache snapshots.
+- API and settings handling:
+  - `internal/server/handlers_settings.go`
+    - GET settings now returns new fields.
+    - PUT settings now validates and persists normalized multi-line values.
+  - `internal/settings/settings.go`
+    - settings model extended with new fields.
+- UI updates:
+  - `ui/web/templates/layout.html`
+    - added textareas under DNS Pre-Warm for extra nameservers + ECS profiles with format help text.
+  - `ui/web/static/js/prewarm-auth.js`
+    - loads/saves new fields together with schedule.
+  - `ui/web/static/js/app.js` and `ui/web/static/js/routing-resolver.js`
+    - preserve new pre-warm fields when saving unrelated settings sections.
+- Tests added/updated:
+  - `internal/prewarm/config_test.go`
+  - `internal/prewarm/worker_resolvers_test.go`
+  - `internal/prewarm/doh_test.go` (ECS query parameter coverage)
+  - `internal/prewarm/worker_test.go` (additional resolver fan-out coverage)
+  - `internal/settings/settings_test.go` (round-trip of new settings fields)
+- Validation run:
+  - `go test ./... -count=1`
+  - `node --check ui/web/static/js/prewarm-auth.js ui/web/static/js/app.js ui/web/static/js/routing-resolver.js`
 
 ### 2026-02-24 — Rule-level exclusions + default multicast exclusion
 - Implemented full exclusion feature set at routing-rule level:

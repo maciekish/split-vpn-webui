@@ -239,6 +239,18 @@
               </div>
             </div>
           </div>
+          <div class="row g-3 mt-1">
+            <div class="col-12 col-lg-6">
+              <label class="form-label small text-body-secondary mb-1" for="prewarm-extra-nameservers">Extra Nameservers (one IP per line)</label>
+              <textarea class="form-control form-control-sm" id="prewarm-extra-nameservers" rows="4" placeholder="9.9.9.9&#10;208.67.222.222"></textarea>
+              <div class="form-text small">Cloudflare DoH remains the default and is always queried first. These are additional per-domain, per-VPN lookups.</div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <label class="form-label small text-body-secondary mb-1" for="prewarm-ecs-profiles">ECS Profiles (one per line)</label>
+              <textarea class="form-control form-control-sm" id="prewarm-ecs-profiles" rows="4" placeholder="eu=31.13.64.0/18&#10;us=8.8.8.0/24"></textarea>
+              <div class="form-text small">Format: <code>name=cidr</code> or <code>cidr</code>. Adds ECS-targeted Google DoH queries per domain and per VPN.</div>
+            </div>
+          </div>
           <div class="mt-3 d-none" id="prewarm-progress-wrap">
             <div class="d-flex justify-content-between small text-body-secondary mb-1">
               <span id="prewarm-progress-label">Running…</span>

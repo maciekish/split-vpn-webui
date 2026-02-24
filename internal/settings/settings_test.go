@@ -28,6 +28,8 @@ func TestManagerSaveAndGetRoundTrip(t *testing.T) {
 		PrewarmParallelism:             8,
 		PrewarmDoHTimeoutSeconds:       12,
 		PrewarmIntervalSeconds:         600,
+		PrewarmExtraNameservers:        "1.1.1.1\n9.9.9.9",
+		PrewarmECSProfiles:             "eu=31.13.64.0/18\n13.228.0.0/15",
 		ResolverParallelism:            4,
 		ResolverTimeoutSeconds:         9,
 		ResolverIntervalSeconds:        120,
@@ -51,6 +53,12 @@ func TestManagerSaveAndGetRoundTrip(t *testing.T) {
 	}
 	if output.ListenInterface != "br0" || output.WANInterface != "eth8" {
 		t.Fatalf("unexpected network fields: %+v", output)
+	}
+	if output.PrewarmExtraNameservers != "1.1.1.1\n9.9.9.9" {
+		t.Fatalf("unexpected prewarm nameservers: %q", output.PrewarmExtraNameservers)
+	}
+	if output.PrewarmECSProfiles != "eu=31.13.64.0/18\n13.228.0.0/15" {
+		t.Fatalf("unexpected prewarm ecs profiles: %q", output.PrewarmECSProfiles)
 	}
 	if output.ResolverDomainEnabled == nil || *output.ResolverDomainEnabled != true {
 		t.Fatalf("expected resolverDomainEnabled=true, got %+v", output.ResolverDomainEnabled)

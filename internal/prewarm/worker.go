@@ -35,11 +35,15 @@ type WildcardResolver interface {
 
 // WorkerOptions controls worker runtime behavior.
 type WorkerOptions struct {
-	Parallelism      int
-	ProgressCallback func(Progress)
-	InterfaceActive  func(name string) (bool, error)
-	InterfaceList    func() ([]string, error)
-	WildcardResolver WildcardResolver
+	Parallelism         int
+	Timeout             time.Duration
+	ExtraNameservers    []string
+	ECSProfiles         []string
+	AdditionalResolvers []DoHClient
+	ProgressCallback    func(Progress)
+	InterfaceActive     func(name string) (bool, error)
+	InterfaceList       func() ([]string, error)
+	WildcardResolver    WildcardResolver
 }
 
 // Worker executes one DNS pre-warm pass.
@@ -48,6 +52,7 @@ type Worker struct {
 	vpns      VPNSource
 	doh       DoHClient
 	ipset     routing.IPSetOperator
+	resolvers []DoHClient
 	parallel  int
 	progress  func(Progress)
 	ifaceUp   func(name string) (bool, error)
@@ -86,6 +91,10 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 	if ipset == nil {
 		return nil, fmt.Errorf("ipset operator is required")
 	}
+	resolvers, err := buildQueryResolvers(doh, opts)
+	if err != nil {
+		return nil, err
+	}
 	parallelism := opts.Parallelism
 	if parallelism <= 0 {
 		parallelism = defaultParallelism
@@ -113,6 +122,7 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 		vpns:      vpns,
 		doh:       doh,
 		ipset:     ipset,
+		resolvers: resolvers,
 		parallel:  parallelism,
 		progress:  opts.ProgressCallback,
 		ifaceUp:   ifaceActive,
@@ -371,15 +381,17 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 		perVPNDomains[iface] = 1
 		perIfaceV4[iface] = make(map[string]struct{})
 		perIfaceV6[iface] = make(map[string]struct{})
-		cnames, err := w.doh.QueryCNAME(ctx, task.Domain, iface)
-		if err != nil {
-			perVPNErrors[iface]++
-			continue
-		}
-		for _, cname := range cnames {
-			target := normalizeDomain(cname)
-			if target != "" {
-				targets[target] = struct{}{}
+		for _, resolver := range w.resolvers {
+			cnames, err := resolver.QueryCNAME(ctx, task.Domain, iface)
+			if err != nil {
+				perVPNErrors[iface]++
+				continue
+			}
+			for _, cname := range cnames {
+				target := normalizeDomain(cname)
+				if target != "" {
+					targets[target] = struct{}{}
+				}
 			}
 		}
 	}
@@ -397,23 +409,25 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 			return taskResult{}, err
 		}
 		for _, iface := range ifaces {
-			v4, err := w.doh.QueryA(ctx, target, iface)
-			if err != nil {
-				perVPNErrors[iface]++
-			} else {
-				for _, ip := range v4 {
-					allV4[ip] = struct{}{}
-					perIfaceV4[iface][ip] = struct{}{}
+			for _, resolver := range w.resolvers {
+				v4, err := resolver.QueryA(ctx, target, iface)
+				if err != nil {
+					perVPNErrors[iface]++
+				} else {
+					for _, ip := range v4 {
+						allV4[ip] = struct{}{}
+						perIfaceV4[iface][ip] = struct{}{}
+					}
 				}
-			}
 
-			v6, err := w.doh.QueryAAAA(ctx, target, iface)
-			if err != nil {
-				perVPNErrors[iface]++
-			} else {
-				for _, ip := range v6 {
-					allV6[ip] = struct{}{}
-					perIfaceV6[iface][ip] = struct{}{}
+				v6, err := resolver.QueryAAAA(ctx, target, iface)
+				if err != nil {
+					perVPNErrors[iface]++
+				} else {
+					for _, ip := range v6 {
+						allV6[ip] = struct{}{}
+						perIfaceV6[iface][ip] = struct{}{}
+					}
 				}
 			}
 		}

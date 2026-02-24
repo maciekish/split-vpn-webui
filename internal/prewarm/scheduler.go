@@ -182,6 +182,9 @@ func (s *Scheduler) TriggerNow() error {
 	if err != nil {
 		return err
 	}
+	if err := validateQuerySettings(current); err != nil {
+		return err
+	}
 
 	s.mu.Lock()
 	if s.running {
@@ -225,9 +228,22 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 	started := s.now()
 
 	timeout := timeoutFromSettings(current)
+	extraNameservers, queryErr := nameserversFromSettings(current)
+	if queryErr != nil {
+		s.finishRun(started, RunStats{}, queryErr)
+		return
+	}
+	ecsProfiles, queryErr := ecsProfilesFromSettings(current)
+	if queryErr != nil {
+		s.finishRun(started, RunStats{}, queryErr)
+		return
+	}
 	doh := NewCloudflareDoHClient(timeout)
 	worker, err := NewWorker(s.groups, s.vpns, doh, s.ipset, WorkerOptions{
 		Parallelism:      parallelismFromSettings(current),
+		Timeout:          timeout,
+		ExtraNameservers: extraNameservers,
+		ECSProfiles:      ecsProfiles,
 		WildcardResolver: newCRTSHWildcardResolver(timeout),
 		ProgressCallback: func(progress Progress) {
 			s.mu.Lock()
@@ -258,6 +274,10 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 		}
 	}
 
+	s.finishRun(started, stats, runErr)
+}
+
+func (s *Scheduler) finishRun(started time.Time, stats RunStats, runErr error) {
 	finished := s.now()
 	record := RunRecord{
 		StartedAt:    started.Unix(),
@@ -387,4 +407,30 @@ func intervalFromSettings(current settings.Settings) time.Duration {
 		seconds = maxIntervalSeconds
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func validateQuerySettings(current settings.Settings) error {
+	if _, err := nameserversFromSettings(current); err != nil {
+		return err
+	}
+	if _, err := ecsProfilesFromSettings(current); err != nil {
+		return err
+	}
+	return nil
+}
+
+func nameserversFromSettings(current settings.Settings) ([]string, error) {
+	return ParseNameserverLines(current.PrewarmExtraNameservers)
+}
+
+func ecsProfilesFromSettings(current settings.Settings) ([]string, error) {
+	profiles, err := ParseECSProfiles(current.PrewarmECSProfiles)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, profile.Subnet)
+	}
+	return out, nil
 }

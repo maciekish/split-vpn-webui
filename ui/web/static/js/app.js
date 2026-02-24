@@ -174,6 +174,8 @@
       prewarmParallelism: Number(state.settings?.prewarmParallelism || 0),
       prewarmDoHTimeoutSeconds: Number(state.settings?.prewarmDoHTimeoutSeconds || 0),
       prewarmIntervalSeconds: Number(state.settings?.prewarmIntervalSeconds || 0),
+      prewarmExtraNameservers: String(state.settings?.prewarmExtraNameservers || ''),
+      prewarmEcsProfiles: String(state.settings?.prewarmEcsProfiles || ''),
       resolverParallelism: Number(state.settings?.resolverParallelism || 0),
       resolverTimeoutSeconds: Number(state.settings?.resolverTimeoutSeconds || 0),
       resolverIntervalSeconds: Number(state.settings?.resolverIntervalSeconds || 0),

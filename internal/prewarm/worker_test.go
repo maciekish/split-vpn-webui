@@ -340,3 +340,56 @@ func TestWorkerWildcardDiscoveryPrewarmsDiscoveredSubdomains(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkerUsesAdditionalResolvers(t *testing.T) {
+	groups := &mockGroupSource{
+		groups: []routing.DomainGroup{
+			{Name: "MultiResolver", EgressVPN: "wg-a", Domains: []string{"example.com"}},
+		},
+	}
+	vpns := &mockVPNSource{
+		profiles: []*vpn.VPNProfile{{Name: "wg-a", InterfaceName: "wg-a"}},
+	}
+	primary := &mockDoH{
+		data: map[string][]string{
+			"wg-a|example.com|CNAME": {},
+			"wg-a|example.com|A":     {},
+			"wg-a|example.com|AAAA":  {},
+		},
+	}
+	additional := &mockDoH{
+		data: map[string][]string{
+			"wg-a|example.com|CNAME": {},
+			"wg-a|example.com|A":     {"198.51.100.20"},
+			"wg-a|example.com|AAAA":  {"2001:db8::20"},
+		},
+	}
+	ipset := &mockIPSet{}
+
+	worker, err := NewWorker(groups, vpns, primary, ipset, WorkerOptions{
+		InterfaceActive:     func(name string) (bool, error) { return true, nil },
+		AdditionalResolvers: []DoHClient{additional},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
+
+	stats, err := worker.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if stats.IPsInserted != 2 {
+		t.Fatalf("expected two inserted IPs from additional resolver, got %d", stats.IPsInserted)
+	}
+
+	v4Set, v6Set := routing.GroupSetNames("MultiResolver")
+	if got := strings.Join(stats.CacheSnapshot[v4Set].V4, ","); got != "198.51.100.20" {
+		t.Fatalf("unexpected v4 values: %q", got)
+	}
+	if got := strings.Join(stats.CacheSnapshot[v6Set].V6, ","); got != "2001:db8::20" {
+		t.Fatalf("unexpected v6 values: %q", got)
+	}
+	if len(primary.calls) == 0 || len(additional.calls) == 0 {
+		t.Fatalf("expected both primary and additional resolvers to be queried")
+	}
+}

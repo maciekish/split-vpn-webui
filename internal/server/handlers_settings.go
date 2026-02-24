@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"split-vpn-webui/internal/prewarm"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/util"
 )
@@ -29,6 +30,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		PrewarmParallelism:             current.PrewarmParallelism,
 		PrewarmDoHTimeoutSeconds:       current.PrewarmDoHTimeoutSeconds,
 		PrewarmIntervalSeconds:         current.PrewarmIntervalSeconds,
+		PrewarmExtraNameservers:        current.PrewarmExtraNameservers,
+		PrewarmECSProfiles:             current.PrewarmECSProfiles,
 		ResolverParallelism:            current.ResolverParallelism,
 		ResolverTimeoutSeconds:         current.ResolverTimeoutSeconds,
 		ResolverIntervalSeconds:        current.ResolverIntervalSeconds,
@@ -55,6 +58,8 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		PrewarmParallelism             int    `json:"prewarmParallelism"`
 		PrewarmDoHTimeoutSeconds       int    `json:"prewarmDoHTimeoutSeconds"`
 		PrewarmIntervalSeconds         int    `json:"prewarmIntervalSeconds"`
+		PrewarmExtraNameservers        string `json:"prewarmExtraNameservers"`
+		PrewarmECSProfiles             string `json:"prewarmEcsProfiles"`
 		ResolverParallelism            int    `json:"resolverParallelism"`
 		ResolverTimeoutSeconds         int    `json:"resolverTimeoutSeconds"`
 		ResolverIntervalSeconds        int    `json:"resolverIntervalSeconds"`
@@ -71,6 +76,16 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 		return
 	}
+	normalizedNameservers := prewarm.NormalizeMultilineSetting(payload.PrewarmExtraNameservers)
+	normalizedECSProfiles := prewarm.NormalizeMultilineSetting(payload.PrewarmECSProfiles)
+	if _, err := prewarm.ParseNameserverLines(normalizedNameservers); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if _, err := prewarm.ParseECSProfiles(normalizedECSProfiles); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 
 	current, err := s.settings.Get()
 	if err != nil {
@@ -85,6 +100,8 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	updated.PrewarmParallelism = payload.PrewarmParallelism
 	updated.PrewarmDoHTimeoutSeconds = payload.PrewarmDoHTimeoutSeconds
 	updated.PrewarmIntervalSeconds = payload.PrewarmIntervalSeconds
+	updated.PrewarmExtraNameservers = normalizedNameservers
+	updated.PrewarmECSProfiles = normalizedECSProfiles
 	updated.ResolverParallelism = payload.ResolverParallelism
 	updated.ResolverTimeoutSeconds = payload.ResolverTimeoutSeconds
 	updated.ResolverIntervalSeconds = payload.ResolverIntervalSeconds

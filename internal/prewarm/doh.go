@@ -16,6 +16,7 @@ import (
 const (
 	defaultDoHTimeout = 10 * time.Second
 	cloudflareDoHURL  = "https://cloudflare-dns.com/dns-query"
+	googleDoHURL      = "https://dns.google/resolve"
 )
 
 // DoHClient resolves DNS records over HTTPS via a specific interface.
@@ -27,8 +28,9 @@ type DoHClient interface {
 
 // CloudflareDoHClient is an interface-bound DoH client.
 type CloudflareDoHClient struct {
-	baseURL string
-	timeout time.Duration
+	baseURL    string
+	timeout    time.Duration
+	extraQuery map[string]string
 }
 
 type dohAnswer struct {
@@ -43,11 +45,28 @@ type dohResponse struct {
 
 // NewCloudflareDoHClient returns a DoH client pointed at Cloudflare.
 func NewCloudflareDoHClient(timeout time.Duration) *CloudflareDoHClient {
-	return NewCloudflareDoHClientWithURL(cloudflareDoHURL, timeout)
+	return newDoHClient(cloudflareDoHURL, timeout, nil)
 }
 
 // NewCloudflareDoHClientWithURL allows tests to use a custom DoH endpoint.
 func NewCloudflareDoHClientWithURL(baseURL string, timeout time.Duration) *CloudflareDoHClient {
+	return newDoHClient(baseURL, timeout, nil)
+}
+
+// NewGoogleDoHClientWithECS returns an ECS-enabled DoH client using Google Public DNS.
+func NewGoogleDoHClientWithECS(timeout time.Duration, ecsSubnet string) *CloudflareDoHClient {
+	return newGoogleDoHClientWithURL(googleDoHURL, timeout, ecsSubnet)
+}
+
+func newGoogleDoHClientWithURL(baseURL string, timeout time.Duration, ecsSubnet string) *CloudflareDoHClient {
+	extra := map[string]string{}
+	if trimmed := strings.TrimSpace(ecsSubnet); trimmed != "" {
+		extra["edns_client_subnet"] = trimmed
+	}
+	return newDoHClient(baseURL, timeout, extra)
+}
+
+func newDoHClient(baseURL string, timeout time.Duration, extraQuery map[string]string) *CloudflareDoHClient {
 	trimmed := strings.TrimSpace(baseURL)
 	if trimmed == "" {
 		trimmed = cloudflareDoHURL
@@ -55,7 +74,16 @@ func NewCloudflareDoHClientWithURL(baseURL string, timeout time.Duration) *Cloud
 	if timeout <= 0 {
 		timeout = defaultDoHTimeout
 	}
-	return &CloudflareDoHClient{baseURL: trimmed, timeout: timeout}
+	copiedQuery := make(map[string]string, len(extraQuery))
+	for key, value := range extraQuery {
+		k := strings.TrimSpace(key)
+		v := strings.TrimSpace(value)
+		if k == "" || v == "" {
+			continue
+		}
+		copiedQuery[k] = v
+	}
+	return &CloudflareDoHClient{baseURL: trimmed, timeout: timeout, extraQuery: copiedQuery}
 }
 
 func (c *CloudflareDoHClient) QueryA(ctx context.Context, domain, iface string) ([]string, error) {
@@ -81,6 +109,9 @@ func (c *CloudflareDoHClient) query(ctx context.Context, domain, qtype, iface st
 		return nil, err
 	}
 	query := base.Query()
+	for key, value := range c.extraQuery {
+		query.Set(key, value)
+	}
 	query.Set("name", name)
 	query.Set("type", qtype)
 	base.RawQuery = query.Encode()

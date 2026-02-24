@@ -8,12 +8,13 @@
   const prewarmLastDomains = document.getElementById('prewarm-last-domains');
   const prewarmLastIPs = document.getElementById('prewarm-last-ips');
   const prewarmIntervalMinutes = document.getElementById('prewarm-interval-minutes');
+  const prewarmExtraNameservers = document.getElementById('prewarm-extra-nameservers');
+  const prewarmEcsProfiles = document.getElementById('prewarm-ecs-profiles');
   const prewarmProgressWrap = document.getElementById('prewarm-progress-wrap');
   const prewarmProgressBar = document.getElementById('prewarm-progress-bar');
   const prewarmProgressLabel = document.getElementById('prewarm-progress-label');
   const prewarmProgressMeta = document.getElementById('prewarm-progress-meta');
   const prewarmPerVPNProgress = document.getElementById('prewarm-per-vpn-progress');
-
   const settingsModalElement = document.getElementById('settingsModal');
   const currentPasswordInput = document.getElementById('current-password');
   const newPasswordInput = document.getElementById('new-password');
@@ -24,7 +25,6 @@
   const downloadBackupButton = document.getElementById('download-backup');
   const restoreBackupFileInput = document.getElementById('restore-backup-file');
   const restoreBackupButton = document.getElementById('restore-backup');
-
   if (
     !runNowButton ||
     !clearPrewarmCacheButton ||
@@ -35,6 +35,8 @@
     !prewarmLastDomains ||
     !prewarmLastIPs ||
     !prewarmIntervalMinutes ||
+    !prewarmExtraNameservers ||
+    !prewarmEcsProfiles ||
     !prewarmProgressWrap ||
     !prewarmProgressBar ||
     !prewarmProgressLabel ||
@@ -53,10 +55,8 @@
   ) {
     return;
   }
-
   let prewarmStream = null;
   let hideStatusTimer = null;
-
   runNowButton.addEventListener('click', async () => {
     runNowButton.disabled = true;
     try {
@@ -67,7 +67,6 @@
       runNowButton.disabled = false;
     }
   });
-
   clearPrewarmCacheButton.addEventListener('click', async () => {
     if (!window.confirm('Clear pre-warm cache and immediately run pre-warm again?')) {
       return;
@@ -83,7 +82,6 @@
       clearPrewarmCacheButton.disabled = false;
     }
   });
-
   saveScheduleButton.addEventListener('click', async () => {
     saveScheduleButton.disabled = true;
     try {
@@ -94,7 +92,6 @@
       saveScheduleButton.disabled = false;
     }
   });
-
   settingsModalElement.addEventListener('shown.bs.modal', async () => {
     try {
       await loadAuthToken();
@@ -102,7 +99,6 @@
       showPrewarmStatus(err.message, true);
     }
   });
-
   changePasswordButton.addEventListener('click', async () => {
     changePasswordButton.disabled = true;
     try {
@@ -113,7 +109,6 @@
       changePasswordButton.disabled = false;
     }
   });
-
   regenerateTokenButton.addEventListener('click', async () => {
     regenerateTokenButton.disabled = true;
     try {
@@ -124,7 +119,6 @@
       regenerateTokenButton.disabled = false;
     }
   });
-
   copyTokenButton.addEventListener('click', async () => {
     try {
       await copyToken();
@@ -133,7 +127,6 @@
       showPrewarmStatus('Failed to copy API token.', true);
     }
   });
-
   downloadBackupButton.addEventListener('click', async () => {
     downloadBackupButton.disabled = true;
     try {
@@ -145,7 +138,6 @@
       downloadBackupButton.disabled = false;
     }
   });
-
   restoreBackupButton.addEventListener('click', async () => {
     const file = restoreBackupFileInput.files && restoreBackupFileInput.files[0];
     if (!file) {
@@ -172,7 +164,6 @@
       restoreBackupButton.disabled = false;
     }
   });
-
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       disconnectPrewarmStream();
@@ -180,24 +171,20 @@
       connectPrewarmStream();
     }
   });
-
   async function initialize() {
     await loadPrewarmStatus();
     await loadScheduleFromSettings();
     connectPrewarmStream();
   }
-
   async function triggerPrewarm() {
     await fetchJSON('/api/prewarm/run', { method: 'POST' });
     showPrewarmStatus('Pre-warm started.', false);
     prewarmProgressWrap.classList.remove('d-none');
   }
-
   async function loadPrewarmStatus() {
     const status = await fetchJSON('/api/prewarm/status');
     renderPrewarmStatus(status);
   }
-
   function renderPrewarmStatus(status) {
     const lastRun = status?.lastRun || null;
     if (!lastRun) {
@@ -214,7 +201,6 @@
         showPrewarmStatus(`Last run error: ${lastRun.error}`, true);
       }
     }
-
     if (status?.running && status.progress) {
       renderPrewarmProgress(status.progress);
       return;
@@ -223,7 +209,6 @@
     prewarmPerVPNProgress.classList.add('d-none');
     prewarmPerVPNProgress.innerHTML = '';
   }
-
   function connectPrewarmStream() {
     if (document.hidden) {
       return;
@@ -243,27 +228,23 @@
       setTimeout(connectPrewarmStream, 4000);
     };
   }
-
   function disconnectPrewarmStream() {
     if (prewarmStream) {
       prewarmStream.close();
       prewarmStream = null;
     }
   }
-
   function renderPrewarmProgress(progress) {
     const total = Number(progress?.totalDomains || 0);
     const processed = Number(progress?.processedDomains || 0);
     const ips = Number(progress?.totalIps || 0);
     const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : 0;
-
     prewarmProgressWrap.classList.remove('d-none');
     prewarmProgressBar.style.width = `${pct}%`;
     prewarmProgressBar.textContent = `${pct}%`;
     prewarmProgressLabel.textContent = total > 0 ? `Domains ${processed}/${total}` : 'Preparing run...';
     prewarmProgressMeta.textContent = `IPs inserted: ${ips}`;
     renderPerVPNProgress(progress?.perVpn || {});
-
     const completed = total > 0 && processed >= total;
     if (completed) {
       prewarmProgressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
@@ -273,7 +254,6 @@
       }, 1000);
     }
   }
-
   function renderPerVPNProgress(perVpn) {
     const entries = Object.entries(perVpn || {});
     if (entries.length === 0) {
@@ -302,15 +282,15 @@
       })
       .join('');
   }
-
   async function loadScheduleFromSettings() {
     const data = await fetchJSON('/api/settings');
     const settings = data?.settings || {};
     const intervalSeconds = Number(settings.prewarmIntervalSeconds || 0);
     const intervalMinutes = intervalSeconds > 0 ? Math.max(1, Math.round(intervalSeconds / 60)) : 120;
     prewarmIntervalMinutes.value = intervalMinutes;
+    prewarmExtraNameservers.value = String(settings.prewarmExtraNameservers || '');
+    prewarmEcsProfiles.value = String(settings.prewarmEcsProfiles || '');
   }
-
   async function saveSchedule() {
     const rawMinutes = Number(prewarmIntervalMinutes.value || 0);
     if (!Number.isFinite(rawMinutes) || rawMinutes <= 0) {
@@ -318,12 +298,16 @@
     }
     const data = await fetchJSON('/api/settings');
     const current = data?.settings || {};
+    const nameservers = String(prewarmExtraNameservers.value || '');
+    const ecsProfiles = String(prewarmEcsProfiles.value || '');
     const payload = {
       listenInterface: current.listenInterface || '',
       wanInterface: current.wanInterface || '',
       prewarmParallelism: Number(current.prewarmParallelism || 0),
       prewarmDoHTimeoutSeconds: Number(current.prewarmDoHTimeoutSeconds || 0),
       prewarmIntervalSeconds: Math.round(rawMinutes * 60),
+      prewarmExtraNameservers: nameservers,
+      prewarmEcsProfiles: ecsProfiles,
       resolverParallelism: Number(current.resolverParallelism || 0),
       resolverTimeoutSeconds: Number(current.resolverTimeoutSeconds || 0),
       resolverIntervalSeconds: Number(current.resolverIntervalSeconds || 0),
@@ -341,14 +325,14 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    showPrewarmStatus('Pre-warm schedule saved.', false);
+    prewarmExtraNameservers.value = nameservers.replace(/\r\n/g, '\n').replace(/\n+$/g, '');
+    prewarmEcsProfiles.value = ecsProfiles.replace(/\r\n/g, '\n').replace(/\n+$/g, '');
+    showPrewarmStatus('Pre-warm settings saved.', false);
   }
-
   async function loadAuthToken() {
     const response = await fetchJSON('/api/auth/token');
     tokenInput.value = response?.token || '';
   }
-
   async function changePassword() {
     const currentPassword = currentPasswordInput.value || '';
     const newPassword = newPasswordInput.value || '';
@@ -364,13 +348,11 @@
     newPasswordInput.value = '';
     showPrewarmStatus('Password updated.', false);
   }
-
   async function regenerateToken() {
     const response = await fetchJSON('/api/auth/token', { method: 'POST' });
     tokenInput.value = response?.token || '';
     showPrewarmStatus('API token regenerated.', false);
   }
-
   async function downloadBackup() {
     const response = await fetch('/api/backup/export');
     if (!response.ok) {
@@ -389,7 +371,6 @@
       window.URL.revokeObjectURL(url);
     }
   }
-
   async function restoreBackup(file) {
     const body = new FormData();
     body.append('file', file, file.name || 'backup.json');
@@ -398,7 +379,6 @@
       body,
     });
   }
-
   async function copyToken() {
     const token = tokenInput.value || '';
     if (!token) {
@@ -414,7 +394,6 @@
       throw new Error('copy failed');
     }
   }
-
   function showPrewarmStatus(message, isError) {
     prewarmStatus.classList.remove('d-none', 'alert-success', 'alert-danger');
     prewarmStatus.classList.add(isError ? 'alert-danger' : 'alert-success');
@@ -429,7 +408,6 @@
       }, 3500);
     }
   }
-
   async function fetchJSON(url, options = {}) {
     const response = await fetch(url, options);
     const contentType = response.headers.get('content-type') || '';
@@ -455,7 +433,6 @@
     }
     return parsed || {};
   }
-
   async function responseError(response) {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -478,7 +455,6 @@
     }
     return new Error(response.statusText || 'Request failed');
   }
-
   function filenameFromContentDisposition(raw) {
     const value = String(raw || '');
     const match = value.match(/filename="([^"]+)"/i) || value.match(/filename=([^;]+)/i);
@@ -487,7 +463,6 @@
     }
     return match[1].trim();
   }
-
   function formatDateTime(unixSeconds) {
     const value = Number(unixSeconds || 0);
     if (!value) {
@@ -499,7 +474,6 @@
     }
     return date.toLocaleString();
   }
-
   function formatDuration(ms) {
     const value = Number(ms || 0);
     if (!value || value < 0) {
@@ -516,7 +490,6 @@
     const remSec = Math.round(sec % 60);
     return `${min}m ${remSec}s`;
   }
-
   initialize().catch((err) => {
     showPrewarmStatus(err.message, true);
   });

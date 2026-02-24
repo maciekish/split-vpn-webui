@@ -14,9 +14,11 @@ type Settings struct {
 	ListenInterface string `json:"listenInterface"`
 	WANInterface    string `json:"wanInterface"`
 	// DNS pre-warm
-	PrewarmParallelism       int `json:"prewarmParallelism,omitempty"`
-	PrewarmDoHTimeoutSeconds int `json:"prewarmDoHTimeoutSeconds,omitempty"`
-	PrewarmIntervalSeconds   int `json:"prewarmIntervalSeconds,omitempty"`
+	PrewarmParallelism       int    `json:"prewarmParallelism,omitempty"`
+	PrewarmDoHTimeoutSeconds int    `json:"prewarmDoHTimeoutSeconds,omitempty"`
+	PrewarmIntervalSeconds   int    `json:"prewarmIntervalSeconds,omitempty"`
+	PrewarmExtraNameservers  string `json:"prewarmExtraNameservers,omitempty"`
+	PrewarmECSProfiles       string `json:"prewarmEcsProfiles,omitempty"`
 	// Policy resolver refresh
 	ResolverParallelism            int   `json:"resolverParallelism,omitempty"`
 	ResolverTimeoutSeconds         int   `json:"resolverTimeoutSeconds,omitempty"`

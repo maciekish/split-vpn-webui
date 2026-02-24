@@ -80,3 +80,27 @@ func TestCloudflareDoHClientTimeout(t *testing.T) {
 		t.Fatalf("expected timeout error")
 	}
 }
+
+func TestGoogleDoHClientWithECSAddsQueryParam(t *testing.T) {
+	var gotECS string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotECS = strings.TrimSpace(r.URL.Query().Get("edns_client_subnet"))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"Status": 0,
+			"Answer": []map[string]any{{"type": 1, "data": "203.0.113.8"}},
+		})
+	}))
+	defer server.Close()
+
+	client := newGoogleDoHClientWithURL(server.URL, 2*time.Second, "31.13.64.0/18")
+	values, err := client.QueryA(context.Background(), "max.com", "")
+	if err != nil {
+		t.Fatalf("QueryA failed: %v", err)
+	}
+	if gotECS != "31.13.64.0/18" {
+		t.Fatalf("expected ECS query parameter, got %q", gotECS)
+	}
+	if len(values) != 1 || values[0] != "203.0.113.8" {
+		t.Fatalf("unexpected A records: %#v", values)
+	}
+}
