@@ -16,14 +16,20 @@ import (
 const flowInspectorIPSetTimeout = 4 * time.Second
 
 type compiledFlowRule struct {
-	SourcePrefixes            []netip.Prefix
-	DestinationPrefixes       []netip.Prefix
-	SourceInterfaces          map[string]struct{}
-	SourceMACs                map[string]struct{}
-	DestinationPorts          []routing.PortRange
-	RequiresSourcePrefix      bool
-	RequiresDestinationPrefix bool
-	DomainHints               []string
+	SourcePrefixes                    []netip.Prefix
+	ExcludedSourcePrefixes            []netip.Prefix
+	DestinationPrefixes               []netip.Prefix
+	ExcludedDestinationPrefixes       []netip.Prefix
+	SourceInterfaces                  map[string]struct{}
+	SourceMACs                        map[string]struct{}
+	DestinationPorts                  []routing.PortRange
+	ExcludedDestinationPorts          []routing.PortRange
+	ExcludeMulticast                  bool
+	RequiresSourcePrefix              bool
+	RequiresExcludedSourcePrefix      bool
+	RequiresDestinationPrefix         bool
+	RequiresExcludedDestinationPrefix bool
+	DomainHints                       []string
 }
 
 type domainPrefixHint struct {
@@ -45,6 +51,7 @@ const (
 	flowNoMatchSourceMAC         flowNoMatchReason = "source-mac"
 	flowNoMatchDestinationPrefix flowNoMatchReason = "destination-prefix"
 	flowNoMatchDestinationPort   flowNoMatchReason = "destination-port"
+	flowNoMatchExcluded          flowNoMatchReason = "excluded"
 )
 
 func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]flowInspectorSample, string, error) {
@@ -210,14 +217,20 @@ func compileFlowRules(
 			}
 			pair := routing.RuleSetNames(group.Name, ruleIndex)
 			compiled := compiledFlowRule{
-				SourcePrefixes:            nil,
-				DestinationPrefixes:       nil,
-				SourceInterfaces:          makeSelectorSet(rule.SourceInterfaces),
-				SourceMACs:                makeMACSet(rule.SourceMACs),
-				DestinationPorts:          append([]routing.PortRange(nil), rule.DestinationPorts...),
-				RequiresSourcePrefix:      len(rule.SourceCIDRs) > 0,
-				RequiresDestinationPrefix: len(rule.DestinationCIDRs) > 0 || len(rule.DestinationASNs) > 0 || len(rule.Domains) > 0 || len(rule.WildcardDomains) > 0,
-				DomainHints:               collectRuleDomainHints(rule),
+				SourcePrefixes:                    nil,
+				ExcludedSourcePrefixes:            nil,
+				DestinationPrefixes:               nil,
+				ExcludedDestinationPrefixes:       nil,
+				SourceInterfaces:                  makeSelectorSet(rule.SourceInterfaces),
+				SourceMACs:                        makeMACSet(rule.SourceMACs),
+				DestinationPorts:                  append([]routing.PortRange(nil), rule.DestinationPorts...),
+				ExcludedDestinationPorts:          append([]routing.PortRange(nil), rule.ExcludedDestinationPorts...),
+				ExcludeMulticast:                  routing.RuleExcludeMulticastEnabled(rule),
+				RequiresSourcePrefix:              len(rule.SourceCIDRs) > 0,
+				RequiresExcludedSourcePrefix:      len(rule.ExcludedSourceCIDRs) > 0,
+				RequiresDestinationPrefix:         len(rule.DestinationCIDRs) > 0 || len(rule.DestinationASNs) > 0 || len(rule.Domains) > 0 || len(rule.WildcardDomains) > 0,
+				RequiresExcludedDestinationPrefix: len(rule.ExcludedDestinationCIDRs) > 0 || len(rule.ExcludedDestinationASNs) > 0,
+				DomainHints:                       collectRuleDomainHints(rule),
 			}
 
 			sourceCandidates := append([]string(nil), snapshots[pair.SourceV4].Members...)
@@ -227,12 +240,26 @@ func compileFlowRules(
 			}
 			compiled.SourcePrefixes = parsePrefixList(sourceCandidates)
 
+			excludedSourceCandidates := append([]string(nil), snapshots[pair.ExcludedSourceV4].Members...)
+			excludedSourceCandidates = append(excludedSourceCandidates, snapshots[pair.ExcludedSourceV6].Members...)
+			if len(excludedSourceCandidates) == 0 {
+				excludedSourceCandidates = append(excludedSourceCandidates, rule.ExcludedSourceCIDRs...)
+			}
+			compiled.ExcludedSourcePrefixes = parsePrefixList(excludedSourceCandidates)
+
 			destinationCandidates := append([]string(nil), snapshots[pair.DestinationV4].Members...)
 			destinationCandidates = append(destinationCandidates, snapshots[pair.DestinationV6].Members...)
 			if len(destinationCandidates) == 0 {
 				destinationCandidates = append(destinationCandidates, destinationRawMembers(rule, pair, resolved, prewarmed)...)
 			}
 			compiled.DestinationPrefixes = parsePrefixList(destinationCandidates)
+
+			excludedDestinationCandidates := append([]string(nil), snapshots[pair.ExcludedDestinationV4].Members...)
+			excludedDestinationCandidates = append(excludedDestinationCandidates, snapshots[pair.ExcludedDestinationV6].Members...)
+			if len(excludedDestinationCandidates) == 0 {
+				excludedDestinationCandidates = append(excludedDestinationCandidates, destinationExcludedRawMembers(rule, resolved)...)
+			}
+			compiled.ExcludedDestinationPrefixes = parsePrefixList(excludedDestinationCandidates)
 			rules = append(rules, compiled)
 		}
 	}
@@ -242,10 +269,14 @@ func compileFlowRules(
 func ruleHasAnySelectors(rule routing.RoutingRule) bool {
 	return len(rule.SourceInterfaces) > 0 ||
 		len(rule.SourceCIDRs) > 0 ||
+		len(rule.ExcludedSourceCIDRs) > 0 ||
 		len(rule.SourceMACs) > 0 ||
 		len(rule.DestinationCIDRs) > 0 ||
 		len(rule.DestinationPorts) > 0 ||
+		len(rule.ExcludedDestinationCIDRs) > 0 ||
+		len(rule.ExcludedDestinationPorts) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
+		len(rule.ExcludedDestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
 		len(rule.WildcardDomains) > 0
 }
@@ -388,6 +419,13 @@ func parseIPToAddr(raw string) (netip.Addr, bool) {
 	return addr.Unmap(), true
 }
 
+func isMulticastAddress(addr netip.Addr) bool {
+	if !addr.IsValid() {
+		return false
+	}
+	return addr.IsMulticast()
+}
+
 func matchFlowRule(
 	rules []compiledFlowRule,
 	flow conntrackFlowSample,
@@ -419,10 +457,22 @@ func matchFlowRule(
 				continue
 			}
 		}
+		if rule.RequiresExcludedSourcePrefix && prefixContains(rule.ExcludedSourcePrefixes, sourceAddr) {
+			continue
+		}
 		if rule.RequiresDestinationPrefix && !prefixContains(rule.DestinationPrefixes, destinationAddr) {
 			continue
 		}
 		if len(rule.DestinationPorts) > 0 && !matchDestinationPort(rule.DestinationPorts, flow.Protocol, flow.DestinationPort) {
+			continue
+		}
+		if rule.RequiresExcludedDestinationPrefix && prefixContains(rule.ExcludedDestinationPrefixes, destinationAddr) {
+			continue
+		}
+		if len(rule.ExcludedDestinationPorts) > 0 && matchDestinationPort(rule.ExcludedDestinationPorts, flow.Protocol, flow.DestinationPort) {
+			continue
+		}
+		if rule.ExcludeMulticast && isMulticastAddress(destinationAddr) {
 			continue
 		}
 		return rule
@@ -466,12 +516,28 @@ func detectFlowNoMatchReason(
 				continue
 			}
 		}
+		if rule.RequiresExcludedSourcePrefix && prefixContains(rule.ExcludedSourcePrefixes, sourceAddr) {
+			counts[flowNoMatchExcluded]++
+			continue
+		}
 		if rule.RequiresDestinationPrefix && !prefixContains(rule.DestinationPrefixes, destinationAddr) {
 			counts[flowNoMatchDestinationPrefix]++
 			continue
 		}
 		if len(rule.DestinationPorts) > 0 && !matchDestinationPort(rule.DestinationPorts, flow.Protocol, flow.DestinationPort) {
 			counts[flowNoMatchDestinationPort]++
+			continue
+		}
+		if rule.RequiresExcludedDestinationPrefix && prefixContains(rule.ExcludedDestinationPrefixes, destinationAddr) {
+			counts[flowNoMatchExcluded]++
+			continue
+		}
+		if len(rule.ExcludedDestinationPorts) > 0 && matchDestinationPort(rule.ExcludedDestinationPorts, flow.Protocol, flow.DestinationPort) {
+			counts[flowNoMatchExcluded]++
+			continue
+		}
+		if rule.ExcludeMulticast && isMulticastAddress(destinationAddr) {
+			counts[flowNoMatchExcluded]++
 			continue
 		}
 	}
@@ -493,6 +559,7 @@ func dominantFlowNoMatchReason(counts map[flowNoMatchReason]int) flowNoMatchReas
 		flowNoMatchSourceMAC,
 		flowNoMatchDestinationPrefix,
 		flowNoMatchDestinationPort,
+		flowNoMatchExcluded,
 		flowNoMatchUnknown,
 	} {
 		count := counts[reason]

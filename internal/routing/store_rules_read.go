@@ -96,10 +96,58 @@ func listRulePorts(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64]
 	return result, rows.Err()
 }
 
+func listRuleExcludedPorts(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]PortRange, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT rule_id, protocol, start_port, end_port
+		FROM routing_rule_excluded_ports
+		ORDER BY rule_id ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]PortRange)
+	for rows.Next() {
+		var ruleID int64
+		var protocol string
+		var start int
+		var end int
+		if err := rows.Scan(&ruleID, &protocol, &start, &end); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], PortRange{Protocol: protocol, Start: start, End: end})
+	}
+	return result, rows.Err()
+}
+
 func listRuleASNs(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT rule_id, asn
 		FROM routing_rule_asns
+		ORDER BY rule_id ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]string)
+	for rows.Next() {
+		var ruleID int64
+		var asn string
+		if err := rows.Scan(&ruleID, &asn); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], asn)
+	}
+	return result, rows.Err()
+}
+
+func listRuleExcludedASNs(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT rule_id, asn
+		FROM routing_rule_excluded_asns
 		ORDER BY rule_id ASC, id ASC
 	`)
 	if err != nil {

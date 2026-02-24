@@ -51,6 +51,17 @@ func collectResolverJobs(groups []DomainGroup, enabled resolverProviderFlags) []
 					seen[selector] = struct{}{}
 					jobs = append(jobs, resolverJob{Selector: selector, Label: "asn:" + selector.Key})
 				}
+				for _, asn := range rule.ExcludedDestinationASNs {
+					selector := ResolverSelector{Type: "asn", Key: normalizeASNKey(asn)}
+					if selector.Key == "" {
+						continue
+					}
+					if _, exists := seen[selector]; exists {
+						continue
+					}
+					seen[selector] = struct{}{}
+					jobs = append(jobs, resolverJob{Selector: selector, Label: "asn:" + selector.Key})
+				}
 			}
 		}
 	}

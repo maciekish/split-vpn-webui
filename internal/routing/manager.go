@@ -322,15 +322,23 @@ func (m *Manager) buildBinding(
 ) (RouteBinding, error) {
 	pair := RuleSetNames(group.Name, ruleIndex)
 	needsSource := len(rule.SourceCIDRs) > 0
+	needsExcludedSource := len(rule.ExcludedSourceCIDRs) > 0
 	needsDestination := len(rule.DestinationCIDRs) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
 		len(rule.WildcardDomains) > 0
+	needsExcludedDestination := len(rule.ExcludedDestinationCIDRs) > 0 ||
+		len(rule.ExcludedDestinationASNs) > 0
 
 	if needsSource {
 		sourceV4, sourceV6 := splitCIDRsByFamily(rule.SourceCIDRs)
 		queueDesiredSet(desiredSets, activeSets, pair.SourceV4, "inet", sourceV4)
 		queueDesiredSet(desiredSets, activeSets, pair.SourceV6, "inet6", sourceV6)
+	}
+	if needsExcludedSource {
+		sourceV4, sourceV6 := splitCIDRsByFamily(rule.ExcludedSourceCIDRs)
+		queueDesiredSet(desiredSets, activeSets, pair.ExcludedSourceV4, "inet", sourceV4)
+		queueDesiredSet(desiredSets, activeSets, pair.ExcludedSourceV6, "inet6", sourceV6)
 	}
 
 	if needsDestination {
@@ -341,24 +349,39 @@ func (m *Manager) buildBinding(
 		queueDesiredSet(desiredSets, activeSets, pair.DestinationV4, "inet", destV4)
 		queueDesiredSet(desiredSets, activeSets, pair.DestinationV6, "inet6", destV6)
 	}
+	if needsExcludedDestination {
+		destEntries := mergeResolvedDestinationExclusions(rule, resolved)
+		destEntries = dedupeSortedStrings(destEntries)
+		destV4, destV6 := splitCIDRsByFamily(destEntries)
+		queueDesiredSet(desiredSets, activeSets, pair.ExcludedDestinationV4, "inet", destV4)
+		queueDesiredSet(desiredSets, activeSets, pair.ExcludedDestinationV6, "inet6", destV6)
+	}
 
 	return RouteBinding{
-		GroupName:        group.Name,
-		RuleIndex:        ruleIndex,
-		RuleName:         rule.Name,
-		SourceInterfaces: append([]string(nil), rule.SourceInterfaces...),
-		SourceSetV4:      pair.SourceV4,
-		SourceSetV6:      pair.SourceV6,
-		SourceMACs:       append([]string(nil), rule.SourceMACs...),
-		DestinationSetV4: pair.DestinationV4,
-		DestinationSetV6: pair.DestinationV6,
-		HasSource:        needsSource,
-		HasDestination:   needsDestination,
-		DestinationPorts: append([]PortRange(nil), rule.DestinationPorts...),
-		Mark:             profile.FWMark,
-		RouteTable:       profile.RouteTable,
-		Interface:        profile.InterfaceName,
-		EgressVPN:        group.EgressVPN,
+		GroupName:                group.Name,
+		RuleIndex:                ruleIndex,
+		RuleName:                 rule.Name,
+		SourceInterfaces:         append([]string(nil), rule.SourceInterfaces...),
+		SourceSetV4:              pair.SourceV4,
+		SourceSetV6:              pair.SourceV6,
+		ExcludedSourceSetV4:      pair.ExcludedSourceV4,
+		ExcludedSourceSetV6:      pair.ExcludedSourceV6,
+		SourceMACs:               append([]string(nil), rule.SourceMACs...),
+		DestinationSetV4:         pair.DestinationV4,
+		DestinationSetV6:         pair.DestinationV6,
+		ExcludedDestinationSetV4: pair.ExcludedDestinationV4,
+		ExcludedDestinationSetV6: pair.ExcludedDestinationV6,
+		HasSource:                needsSource,
+		HasExcludedSource:        needsExcludedSource,
+		HasDestination:           needsDestination,
+		HasExcludedDestination:   needsExcludedDestination,
+		DestinationPorts:         append([]PortRange(nil), rule.DestinationPorts...),
+		ExcludedDestinationPorts: append([]PortRange(nil), rule.ExcludedDestinationPorts...),
+		ExcludeMulticast:         RuleExcludeMulticastEnabled(rule),
+		Mark:                     profile.FWMark,
+		RouteTable:               profile.RouteTable,
+		Interface:                profile.InterfaceName,
+		EgressVPN:                group.EgressVPN,
 	}, nil
 }
 

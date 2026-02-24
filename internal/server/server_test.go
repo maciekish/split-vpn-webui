@@ -155,6 +155,55 @@ func TestDecodeGroupPayloadParsesRawSelectors(t *testing.T) {
 	}
 }
 
+func TestDecodeGroupPayloadParsesExclusionSelectors(t *testing.T) {
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{
+		"name":"LAN",
+		"egressVpn":"sgp.contoso.com",
+		"rules":[
+			{
+				"name":"Device",
+				"sourceCidrs":["10.0.0.0/24"],
+				"excludedSourceCidrs":["10.0.0.10/32"],
+				"destinationCidrs":["1.1.1.1"],
+				"excludedDestinationCidrs":["17.0.0.0/8"],
+				"excludedDestinationPorts":[{"protocol":"udp","start":5353}],
+				"excludedDestinationAsns":["13335"],
+				"excludeMulticast":false,
+				"rawSelectors":{
+					"excludedDestinationAsns":["AS13335#Cloudflare"]
+				}
+			}
+		]
+	}`))
+
+	group, err := decodeGroupPayload(request)
+	if err != nil {
+		t.Fatalf("expected valid payload, got %v", err)
+	}
+	if len(group.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(group.Rules))
+	}
+	rule := group.Rules[0]
+	if len(rule.ExcludedSourceCIDRs) != 1 || rule.ExcludedSourceCIDRs[0] != "10.0.0.10/32" {
+		t.Fatalf("unexpected excluded source CIDRs: %#v", rule.ExcludedSourceCIDRs)
+	}
+	if len(rule.ExcludedDestinationCIDRs) != 1 || rule.ExcludedDestinationCIDRs[0] != "17.0.0.0/8" {
+		t.Fatalf("unexpected excluded destination CIDRs: %#v", rule.ExcludedDestinationCIDRs)
+	}
+	if len(rule.ExcludedDestinationPorts) != 1 || rule.ExcludedDestinationPorts[0].Protocol != "udp" || rule.ExcludedDestinationPorts[0].Start != 5353 {
+		t.Fatalf("unexpected excluded destination ports: %#v", rule.ExcludedDestinationPorts)
+	}
+	if len(rule.ExcludedDestinationASNs) != 1 || rule.ExcludedDestinationASNs[0] != "AS13335" {
+		t.Fatalf("unexpected excluded destination ASNs: %#v", rule.ExcludedDestinationASNs)
+	}
+	if routing.RuleExcludeMulticastEnabled(rule) {
+		t.Fatalf("expected excludeMulticast to be disabled")
+	}
+	if rule.RawSelectors == nil || len(rule.RawSelectors.ExcludedDestinationASNs) != 1 {
+		t.Fatalf("unexpected excluded raw selectors: %#v", rule.RawSelectors)
+	}
+}
+
 func requestWithVPNNameParam(name string) *http.Request {
 	request := httptest.NewRequest("GET", "/api/vpns/"+name, nil)
 	rctx := chi.NewRouteContext()

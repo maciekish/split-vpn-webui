@@ -40,14 +40,24 @@ func TestCollectResolverJobsDedupesSelectors(t *testing.T) {
 		{
 			Name: "A",
 			Rules: []RoutingRule{
-				{Domains: []string{"example.com"}, WildcardDomains: []string{"*.apple.com"}, DestinationASNs: []string{"AS13335"}},
-				{Domains: []string{"example.com"}, WildcardDomains: []string{"*.apple.com"}, DestinationASNs: []string{"13335"}},
+				{
+					Domains:                 []string{"example.com"},
+					WildcardDomains:         []string{"*.apple.com"},
+					DestinationASNs:         []string{"AS13335"},
+					ExcludedDestinationASNs: []string{"AS15169"},
+				},
+				{
+					Domains:                 []string{"example.com"},
+					WildcardDomains:         []string{"*.apple.com"},
+					DestinationASNs:         []string{"13335"},
+					ExcludedDestinationASNs: []string{"15169"},
+				},
 			},
 		},
 	}
 	jobs := collectResolverJobs(groups, resolverProviderFlags{Domain: true, ASN: true, Wildcard: true})
-	if len(jobs) != 3 {
-		t.Fatalf("expected 3 deduped jobs, got %d (%#v)", len(jobs), jobs)
+	if len(jobs) != 4 {
+		t.Fatalf("expected 4 deduped jobs, got %d (%#v)", len(jobs), jobs)
 	}
 }
 

@@ -28,8 +28,8 @@ func TestApplyRulesIncludesIPv4AndIPv6Commands(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	checks := []string{
-		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_streaming_sg_r1d4 dst -j MARK --set-mark 0x169",
-		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_streaming_sg_r1d6 dst -j MARK --set-mark 0x169",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_streaming_sg_r1d4 dst -j MARK --set-mark 0x169",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_streaming_sg_r1d6 dst -j MARK --set-mark 0x169",
 		"iptables -t nat -A SVPN_NAT_A -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
 		"ip6tables -t nat -A SVPN_NAT_A -m mark --mark 0x169 -o wg-sgp -j MASQUERADE",
 		"ip rule add fwmark 0x169 table 201 priority 100",
@@ -88,8 +88,8 @@ func TestApplyRulesIncludesSourceAndPortSelectors(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	for _, expected := range []string{
-		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_gaming_r1s4 src -m set --match-set svpn_gaming_r1d4 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
-		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_gaming_r1s6 src -m set --match-set svpn_gaming_r1d6 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_gaming_r1s4 src -m set --match-set svpn_gaming_r1d4 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_gaming_r1s6 src -m set --match-set svpn_gaming_r1d6 dst -p tcp --dport 443 -j MARK --set-mark 0x170",
 	} {
 		if !containsCall(calls, expected) {
 			t.Fatalf("expected call %q in %#v", expected, calls)
@@ -120,10 +120,10 @@ func TestApplyRulesExpandsBothProtocolPorts(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	for _, expected := range []string{
-		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d4 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
-		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d4 dst -p udp --dport 53 -j MARK --set-mark 0x170",
-		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d6 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
-		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_dnssplit_r1d6 dst -p udp --dport 53 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_dnssplit_r1d4 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_dnssplit_r1d4 dst -p udp --dport 53 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_dnssplit_r1d6 dst -p tcp --dport 53 -j MARK --set-mark 0x170",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_dnssplit_r1d6 dst -p udp --dport 53 -j MARK --set-mark 0x170",
 	} {
 		if !containsCall(calls, expected) {
 			t.Fatalf("expected call %q in %#v", expected, calls)
@@ -155,8 +155,50 @@ func TestApplyRulesIncludesSourceInterfaceAndMACSelectors(t *testing.T) {
 
 	calls := joinCalls(mock.RunCalls)
 	for _, expected := range []string{
-		"iptables -t mangle -A SVPN_MARK_A -m set --match-set svpn_landevice_r1d4 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
-		"ip6tables -t mangle -A SVPN_MARK_A -m set --match-set svpn_landevice_r1d6 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_landevice_r1d4 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_landevice_r1d6 dst -i br6 -m mac --mac-source 00:30:93:10:0a:12 -j MARK --set-mark 0x171",
+	} {
+		if !containsCall(calls, expected) {
+			t.Fatalf("expected call %q in %#v", expected, calls)
+		}
+	}
+}
+
+func TestApplyRulesAppliesExclusionsAndMulticastByRule(t *testing.T) {
+	mock := &MockExec{}
+	manager := NewRuleManager(mock)
+
+	bindings := []RouteBinding{
+		{
+			GroupName:                "ExcludePolicy",
+			RuleIndex:                0,
+			DestinationSetV4:         "svpn_ex_r1d4",
+			DestinationSetV6:         "svpn_ex_r1d6",
+			ExcludedDestinationSetV4: "svpn_ex_r1xd4",
+			ExcludedDestinationSetV6: "svpn_ex_r1xd6",
+			HasDestination:           true,
+			HasExcludedDestination:   true,
+			ExcludedDestinationPorts: []PortRange{{Protocol: "udp", Start: 5353, End: 5353}},
+			ExcludeMulticast:         true,
+			Mark:                     0x172,
+			RouteTable:               204,
+			Interface:                "wg-ex",
+		},
+	}
+	if err := manager.ApplyRules(bindings); err != nil {
+		t.Fatalf("ApplyRules failed: %v", err)
+	}
+
+	calls := joinCalls(mock.RunCalls)
+	for _, expected := range []string{
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_ex_r1d4 dst -d 224.0.0.0/4 -j RETURN",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_ex_r1d4 dst -m set --match-set svpn_ex_r1xd4 dst -j RETURN",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_ex_r1d4 dst -p udp --dport 5353 -j RETURN",
+		"iptables -t mangle -A SVPNA_001_4 -m set --match-set svpn_ex_r1d4 dst -j MARK --set-mark 0x172",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_ex_r1d6 dst -d ff00::/8 -j RETURN",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_ex_r1d6 dst -m set --match-set svpn_ex_r1xd6 dst -j RETURN",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_ex_r1d6 dst -p udp --dport 5353 -j RETURN",
+		"ip6tables -t mangle -A SVPNA_001_6 -m set --match-set svpn_ex_r1d6 dst -j MARK --set-mark 0x172",
 	} {
 		if !containsCall(calls, expected) {
 			t.Fatalf("expected call %q in %#v", expected, calls)

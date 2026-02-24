@@ -62,10 +62,14 @@
     return (
       rule.sourceInterfaces.length > 0 ||
       rule.sourceCidrs.length > 0 ||
+      rule.excludedSourceCidrs.length > 0 ||
       rule.sourceMacs.length > 0 ||
       rule.destinationCidrs.length > 0 ||
       rule.destinationPorts.length > 0 ||
+      rule.excludedDestinationCidrs.length > 0 ||
+      rule.excludedDestinationPorts.length > 0 ||
       rule.destinationAsns.length > 0 ||
+      rule.excludedDestinationAsns.length > 0 ||
       rule.domains.length > 0 ||
       rule.wildcardDomains.length > 0
     );
@@ -110,10 +114,14 @@
     return (
       fieldHasAnyLine(raw.sourceInterfaces) ||
       fieldHasAnyLine(raw.sourceCidrs) ||
+      fieldHasAnyLine(raw.excludedSourceCidrs) ||
       fieldHasAnyLine(raw.sourceMacs) ||
       fieldHasAnyLine(raw.destinationCidrs) ||
       fieldHasAnyLine(raw.destinationPorts) ||
+      fieldHasAnyLine(raw.excludedDestinationCidrs) ||
+      fieldHasAnyLine(raw.excludedDestinationPorts) ||
       fieldHasAnyLine(raw.destinationAsns) ||
+      fieldHasAnyLine(raw.excludedDestinationAsns) ||
       fieldHasAnyLine(raw.domains) ||
       fieldHasAnyLine(raw.wildcardDomains)
     );

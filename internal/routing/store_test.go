@@ -260,3 +260,64 @@ func TestStorePersistsRawSelectorLinesWithComments(t *testing.T) {
 		t.Fatalf("unexpected destination port raw lines: %#v", raw.DestinationPorts)
 	}
 }
+
+func TestStorePersistsExclusionSelectorsAndMulticastFlag(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	disabled := false
+
+	created, err := store.Create(ctx, DomainGroup{
+		Name:      "ExcludeRoundTrip",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:                     "Rule 1",
+				SourceCIDRs:              []string{"10.0.0.0/24"},
+				ExcludedSourceCIDRs:      []string{"10.0.0.10/32"},
+				DestinationCIDRs:         []string{"1.1.1.0/24"},
+				ExcludedDestinationCIDRs: []string{"17.0.0.0/8"},
+				DestinationPorts:         []PortRange{{Protocol: "tcp", Start: 443}},
+				ExcludedDestinationPorts: []PortRange{{Protocol: "udp", Start: 5353}},
+				DestinationASNs:          []string{"AS15169"},
+				ExcludedDestinationASNs:  []string{"AS13335"},
+				ExcludeMulticast:         &disabled,
+				RawSelectors: &RuleRawSelectors{
+					ExcludedSourceCIDRs:      []string{"10.0.0.10/32#bypass host"},
+					ExcludedDestinationCIDRs: []string{"17.0.0.0/8#bypass apple"},
+					ExcludedDestinationPorts: []string{"udp:5353#mdns"},
+					ExcludedDestinationASNs:  []string{"AS13335#cloudflare"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+
+	fetched, err := store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get group: %v", err)
+	}
+	if len(fetched.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(fetched.Rules))
+	}
+	rule := fetched.Rules[0]
+	if len(rule.ExcludedSourceCIDRs) != 1 || rule.ExcludedSourceCIDRs[0] != "10.0.0.10/32" {
+		t.Fatalf("unexpected excluded source CIDRs: %#v", rule.ExcludedSourceCIDRs)
+	}
+	if len(rule.ExcludedDestinationCIDRs) != 1 || rule.ExcludedDestinationCIDRs[0] != "17.0.0.0/8" {
+		t.Fatalf("unexpected excluded destination CIDRs: %#v", rule.ExcludedDestinationCIDRs)
+	}
+	if len(rule.ExcludedDestinationPorts) != 1 || rule.ExcludedDestinationPorts[0].Protocol != "udp" || rule.ExcludedDestinationPorts[0].Start != 5353 {
+		t.Fatalf("unexpected excluded destination ports: %#v", rule.ExcludedDestinationPorts)
+	}
+	if len(rule.ExcludedDestinationASNs) != 1 || rule.ExcludedDestinationASNs[0] != "AS13335" {
+		t.Fatalf("unexpected excluded destination ASNs: %#v", rule.ExcludedDestinationASNs)
+	}
+	if RuleExcludeMulticastEnabled(rule) {
+		t.Fatalf("expected excludeMulticast to persist disabled")
+	}
+	if rule.RawSelectors == nil || len(rule.RawSelectors.ExcludedDestinationPorts) != 1 || rule.RawSelectors.ExcludedDestinationPorts[0] != "udp:5353#mdns" {
+		t.Fatalf("unexpected raw excluded destination port lines: %#v", rule.RawSelectors)
+	}
+}

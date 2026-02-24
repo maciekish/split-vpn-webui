@@ -94,3 +94,43 @@ func TestNormalizeAndValidateSupportsRawSelectorComments(t *testing.T) {
 		t.Fatalf("expected raw selector lines to be preserved: %#v", rule.RawSelectors)
 	}
 }
+
+func TestNormalizeAndValidateExclusionsDefaultMulticast(t *testing.T) {
+	group, err := NormalizeAndValidate(DomainGroup{
+		Name:      "ExcludeTest",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:                     "Rule 1",
+				SourceCIDRs:              []string{"10.0.0.0/24"},
+				ExcludedSourceCIDRs:      []string{"10.0.0.10/32"},
+				DestinationCIDRs:         []string{"1.1.1.1/32"},
+				ExcludedDestinationCIDRs: []string{"17.0.0.0/8"},
+				ExcludedDestinationPorts: []PortRange{{Protocol: "udp", Start: 5353}},
+				ExcludedDestinationASNs:  []string{"13335"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeAndValidate failed: %v", err)
+	}
+	if len(group.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(group.Rules))
+	}
+	rule := group.Rules[0]
+	if len(rule.ExcludedSourceCIDRs) != 1 || rule.ExcludedSourceCIDRs[0] != "10.0.0.10/32" {
+		t.Fatalf("unexpected excluded source CIDRs: %#v", rule.ExcludedSourceCIDRs)
+	}
+	if len(rule.ExcludedDestinationCIDRs) != 1 || rule.ExcludedDestinationCIDRs[0] != "17.0.0.0/8" {
+		t.Fatalf("unexpected excluded destination CIDRs: %#v", rule.ExcludedDestinationCIDRs)
+	}
+	if len(rule.ExcludedDestinationASNs) != 1 || rule.ExcludedDestinationASNs[0] != "AS13335" {
+		t.Fatalf("unexpected excluded ASNs: %#v", rule.ExcludedDestinationASNs)
+	}
+	if len(rule.ExcludedDestinationPorts) != 1 || rule.ExcludedDestinationPorts[0].Protocol != "udp" || rule.ExcludedDestinationPorts[0].Start != 5353 {
+		t.Fatalf("unexpected excluded destination ports: %#v", rule.ExcludedDestinationPorts)
+	}
+	if !RuleExcludeMulticastEnabled(rule) {
+		t.Fatalf("expected excludeMulticast default to true")
+	}
+}

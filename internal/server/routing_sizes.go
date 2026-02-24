@@ -51,9 +51,17 @@ func (s *Server) collectRoutingSizes(ctx context.Context) (map[string]vpnRouting
 				current.V4 += allSetSizes[sets.SourceV4]
 				current.V6 += allSetSizes[sets.SourceV6]
 			}
+			if ruleNeedsExcludedSourceSet(rule) {
+				current.V4 += allSetSizes[sets.ExcludedSourceV4]
+				current.V6 += allSetSizes[sets.ExcludedSourceV6]
+			}
 			if ruleNeedsDestinationSet(rule) {
 				current.V4 += allSetSizes[sets.DestinationV4]
 				current.V6 += allSetSizes[sets.DestinationV6]
+			}
+			if ruleNeedsExcludedDestinationSet(rule) {
+				current.V4 += allSetSizes[sets.ExcludedDestinationV4]
+				current.V6 += allSetSizes[sets.ExcludedDestinationV6]
 			}
 		}
 		out[vpnName] = current
@@ -65,11 +73,20 @@ func ruleNeedsSourceSet(rule routing.RoutingRule) bool {
 	return len(rule.SourceCIDRs) > 0
 }
 
+func ruleNeedsExcludedSourceSet(rule routing.RoutingRule) bool {
+	return len(rule.ExcludedSourceCIDRs) > 0
+}
+
 func ruleNeedsDestinationSet(rule routing.RoutingRule) bool {
 	return len(rule.DestinationCIDRs) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
 		len(rule.WildcardDomains) > 0
+}
+
+func ruleNeedsExcludedDestinationSet(rule routing.RoutingRule) bool {
+	return len(rule.ExcludedDestinationCIDRs) > 0 ||
+		len(rule.ExcludedDestinationASNs) > 0
 }
 
 func readIPSetSizes(timeout time.Duration) (map[string]int, error) {

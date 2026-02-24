@@ -3,7 +3,6 @@ package routing
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -81,7 +80,7 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 
 	desiredRules := make(map[uint32]int)
 	seenNATRules := make(map[string]struct{})
-	for _, binding := range sorted {
+	for bindingIndex, binding := range sorted {
 		if binding.Mark < 200 {
 			return fmt.Errorf("invalid fwmark %d for group %s", binding.Mark, binding.GroupName)
 		}
@@ -103,7 +102,7 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		desiredRules[binding.Mark] = binding.RouteTable
 
 		markHex := fmt.Sprintf("0x%x", binding.Mark)
-		if err := m.addMarkRules(binding, workingMark, markHex); err != nil {
+		if err := m.addMarkRules(binding, bindingIndex, workingMark, markHex); err != nil {
 			return err
 		}
 
@@ -196,6 +195,34 @@ func (m *RuleManager) prepareGenerationChain(tool, table, root, parent, generati
 	if err := m.exec.Run(tool, "-t", table, "-F", generation); err != nil {
 		return fmt.Errorf("flush %s/%s chain %s: %w", tool, table, generation, err)
 	}
+	if err := m.cleanupGenerationRuleChains(tool, table, generation); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *RuleManager) cleanupGenerationRuleChains(tool, table, generation string) error {
+	prefix := generationRuleChainPrefix(generation)
+	if prefix == "" {
+		return nil
+	}
+	output, err := m.exec.Output(tool, "-t", table, "-S")
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(output), "\n")
+	for _, raw := range lines {
+		fields := strings.Fields(strings.TrimSpace(raw))
+		if len(fields) < 2 || fields[0] != "-N" {
+			continue
+		}
+		chainName := strings.TrimSpace(fields[1])
+		if chainName == "" || !strings.HasPrefix(chainName, prefix) {
+			continue
+		}
+		_ = m.exec.Run(tool, "-t", table, "-F", chainName)
+		_ = m.exec.Run(tool, "-t", table, "-X", chainName)
+	}
 	return nil
 }
 
@@ -224,115 +251,6 @@ func (m *RuleManager) addNATRule(tool, chain, markHex, iface, groupName string) 
 	return nil
 }
 
-func (m *RuleManager) addMarkRules(binding RouteBinding, chain string, markHex string) error {
-	if binding.HasSource {
-		if strings.TrimSpace(binding.SourceSetV4) == "" || strings.TrimSpace(binding.SourceSetV6) == "" {
-			return fmt.Errorf("missing source set names for group %s rule %d", binding.GroupName, binding.RuleIndex+1)
-		}
-	}
-	if binding.HasDestination {
-		if strings.TrimSpace(binding.DestinationSetV4) == "" || strings.TrimSpace(binding.DestinationSetV6) == "" {
-			return fmt.Errorf("missing destination set names for group %s rule %d", binding.GroupName, binding.RuleIndex+1)
-		}
-	}
-
-	ports := expandPortSelectors(binding.DestinationPorts)
-	sourceInterfaces := expandSelectorValues(binding.SourceInterfaces)
-	sourceMACs := expandSelectorValues(binding.SourceMACs)
-	for _, sourceIface := range sourceInterfaces {
-		for _, sourceMAC := range sourceMACs {
-			for _, port := range ports {
-				if err := m.addMarkRuleByFamily("iptables", chain, binding, markHex, port, sourceIface, sourceMAC); err != nil {
-					return err
-				}
-				if err := m.addMarkRuleByFamily("ip6tables", chain, binding, markHex, port, sourceIface, sourceMAC); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func (m *RuleManager) addMarkRuleByFamily(
-	tool string,
-	chain string,
-	binding RouteBinding,
-	markHex string,
-	port PortRange,
-	sourceIface string,
-	sourceMAC string,
-) error {
-	isIPv6 := tool == "ip6tables"
-	args := []string{"-t", "mangle", "-A", chain}
-	if binding.HasSource {
-		setName := binding.SourceSetV4
-		if isIPv6 {
-			setName = binding.SourceSetV6
-		}
-		args = append(args, "-m", "set", "--match-set", setName, "src")
-	}
-	if binding.HasDestination {
-		setName := binding.DestinationSetV4
-		if isIPv6 {
-			setName = binding.DestinationSetV6
-		}
-		args = append(args, "-m", "set", "--match-set", setName, "dst")
-	}
-	if sourceIface != "" {
-		args = append(args, "-i", sourceIface)
-	}
-	if sourceMAC != "" {
-		args = append(args, "-m", "mac", "--mac-source", sourceMAC)
-	}
-	if port.Protocol != "" {
-		args = append(args, "-p", port.Protocol, "--dport", formatPortRange(port))
-	}
-	args = append(args, "-j", "MARK", "--set-mark", markHex)
-	if err := m.exec.Run(tool, args...); err != nil {
-		family := "ipv4"
-		if isIPv6 {
-			family = "ipv6"
-		}
-		return fmt.Errorf("add %s mark rule for %s: %w", family, binding.GroupName, err)
-	}
-	return nil
-}
-
-func expandPortSelectors(ports []PortRange) []PortRange {
-	if len(ports) == 0 {
-		return []PortRange{{}}
-	}
-	expanded := make([]PortRange, 0, len(ports)*2)
-	for _, port := range ports {
-		if strings.EqualFold(port.Protocol, "both") {
-			expanded = append(expanded,
-				PortRange{Protocol: "tcp", Start: port.Start, End: port.End},
-				PortRange{Protocol: "udp", Start: port.Start, End: port.End},
-			)
-			continue
-		}
-		expanded = append(expanded, port)
-	}
-	return expanded
-}
-
-func expandSelectorValues(values []string) []string {
-	if len(values) == 0 {
-		return []string{""}
-	}
-	sorted := append([]string(nil), values...)
-	sort.Strings(sorted)
-	return sorted
-}
-
-func formatPortRange(port PortRange) string {
-	if port.End <= 0 || port.End == port.Start {
-		return strconv.Itoa(port.Start)
-	}
-	return fmt.Sprintf("%d:%d", port.Start, port.End)
-}
-
 // FlushRules removes this application's chains and managed ip rules.
 func (m *RuleManager) FlushRules() error {
 	for _, command := range []struct {
@@ -355,6 +273,18 @@ func (m *RuleManager) FlushRules() error {
 		{tool: "ip6tables", table: "nat", chain: natChainB},
 	} {
 		m.cleanupChain(command.tool, command.table, command.chain, command.parent)
+	}
+	for _, command := range []struct {
+		tool       string
+		table      string
+		generation string
+	}{
+		{tool: "iptables", table: "mangle", generation: markChainA},
+		{tool: "iptables", table: "mangle", generation: markChainB},
+		{tool: "ip6tables", table: "mangle", generation: markChainA},
+		{tool: "ip6tables", table: "mangle", generation: markChainB},
+	} {
+		_ = m.cleanupGenerationRuleChains(command.tool, command.table, command.generation)
 	}
 	if err := m.flushManagedIPRules(false); err != nil {
 		return err

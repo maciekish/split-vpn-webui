@@ -29,29 +29,43 @@
         cards.forEach((card) => {
           const sourceInterfaces = parseSelectorField(rawValueFrom(card, '.js-rule-source-interface'));
           const sourceCidrs = parseSelectorField(rawValueFrom(card, '.js-rule-source'));
+          const excludedSourceCidrs = parseSelectorField(rawValueFrom(card, '.js-rule-source-excluded'));
           const sourceMacs = parseSelectorField(rawValueFrom(card, '.js-rule-source-mac'));
           const destinationCidrs = parseSelectorField(rawValueFrom(card, '.js-rule-destination'));
+          const excludedDestinationCidrs = parseSelectorField(rawValueFrom(card, '.js-rule-destination-excluded'));
           const destinationPortsRaw = parseSelectorField(rawValueFrom(card, '.js-rule-ports'));
+          const excludedDestinationPortsRaw = parseSelectorField(rawValueFrom(card, '.js-rule-ports-excluded'));
           const destinationAsns = parseSelectorField(rawValueFrom(card, '.js-rule-asn'));
+          const excludedDestinationAsns = parseSelectorField(rawValueFrom(card, '.js-rule-asn-excluded'));
           const domains = parseSelectorField(rawValueFrom(card, '.js-rule-domains'));
           const wildcardDomains = parseSelectorField(rawValueFrom(card, '.js-rule-wildcards'));
+          const excludeMulticast = !!card.querySelector('.js-rule-exclude-multicast')?.checked;
           const rule = {
             name: valueFrom(card, '.js-rule-name'),
             sourceInterfaces: sourceInterfaces.activeValues,
             sourceCidrs: sourceCidrs.activeValues,
+            excludedSourceCidrs: excludedSourceCidrs.activeValues,
             sourceMacs: sourceMacs.activeValues,
             destinationCidrs: destinationCidrs.activeValues,
+            excludedDestinationCidrs: excludedDestinationCidrs.activeValues,
             destinationPorts: parsePorts(destinationPortsRaw.activeValues.join('\n')),
+            excludedDestinationPorts: parsePorts(excludedDestinationPortsRaw.activeValues.join('\n')),
             destinationAsns: destinationAsns.activeValues,
+            excludedDestinationAsns: excludedDestinationAsns.activeValues,
+            excludeMulticast,
             domains: domains.activeValues,
             wildcardDomains: wildcardDomains.activeValues,
             rawSelectors: {
               sourceInterfaces: sourceInterfaces.rawLines,
               sourceCidrs: sourceCidrs.rawLines,
+              excludedSourceCidrs: excludedSourceCidrs.rawLines,
               sourceMacs: sourceMacs.rawLines,
               destinationCidrs: destinationCidrs.rawLines,
+              excludedDestinationCidrs: excludedDestinationCidrs.rawLines,
               destinationPorts: destinationPortsRaw.rawLines,
+              excludedDestinationPorts: excludedDestinationPortsRaw.rawLines,
               destinationAsns: destinationAsns.rawLines,
+              excludedDestinationAsns: excludedDestinationAsns.rawLines,
               domains: domains.rawLines,
               wildcardDomains: wildcardDomains.rawLines,
             },
@@ -69,32 +83,49 @@
             const raw = rule.rawSelectors || {};
             const sourceInterfaces = Array.isArray(rule.sourceInterfaces) ? rule.sourceInterfaces : [];
             const sourceCidrs = Array.isArray(rule.sourceCidrs) ? rule.sourceCidrs : [];
+            const excludedSourceCidrs = Array.isArray(rule.excludedSourceCidrs) ? rule.excludedSourceCidrs : [];
             const sourceMacs = Array.isArray(rule.sourceMacs) ? rule.sourceMacs : [];
             const destinationCidrs = Array.isArray(rule.destinationCidrs) ? rule.destinationCidrs : [];
+            const excludedDestinationCidrs = Array.isArray(rule.excludedDestinationCidrs) ? rule.excludedDestinationCidrs : [];
             const destinationPorts = Array.isArray(rule.destinationPorts) ? rule.destinationPorts : [];
+            const excludedDestinationPorts = Array.isArray(rule.excludedDestinationPorts) ? rule.excludedDestinationPorts : [];
             const destinationAsns = Array.isArray(rule.destinationAsns) ? rule.destinationAsns : [];
+            const excludedDestinationAsns = Array.isArray(rule.excludedDestinationAsns) ? rule.excludedDestinationAsns : [];
+            const excludeMulticast = typeof rule.excludeMulticast === 'boolean' ? rule.excludeMulticast : true;
             const domains = Array.isArray(rule.domains) ? rule.domains : [];
             const wildcardDomains = Array.isArray(rule.wildcardDomains) ? rule.wildcardDomains : [];
             return {
               name: rule.name || `Rule ${index + 1}`,
               sourceInterfaces,
               sourceCidrs,
+              excludedSourceCidrs,
               sourceMacs,
               destinationCidrs,
+              excludedDestinationCidrs,
               destinationPorts,
+              excludedDestinationPorts,
               destinationAsns,
+              excludedDestinationAsns,
+              excludeMulticast,
               domains,
               wildcardDomains,
               rawSelectors: {
                 sourceInterfaces: normalizeRawLinesOrFallback(raw.sourceInterfaces, sourceInterfaces),
                 sourceCidrs: normalizeRawLinesOrFallback(raw.sourceCidrs, sourceCidrs),
+                excludedSourceCidrs: normalizeRawLinesOrFallback(raw.excludedSourceCidrs, excludedSourceCidrs),
                 sourceMacs: normalizeRawLinesOrFallback(raw.sourceMacs, sourceMacs),
                 destinationCidrs: normalizeRawLinesOrFallback(raw.destinationCidrs, destinationCidrs),
+                excludedDestinationCidrs: normalizeRawLinesOrFallback(raw.excludedDestinationCidrs, excludedDestinationCidrs),
                 destinationPorts: normalizeRawLinesOrFallback(
                   raw.destinationPorts,
                   formattedPortLines(destinationPorts),
                 ),
+                excludedDestinationPorts: normalizeRawLinesOrFallback(
+                  raw.excludedDestinationPorts,
+                  formattedPortLines(excludedDestinationPorts),
+                ),
                 destinationAsns: normalizeRawLinesOrFallback(raw.destinationAsns, destinationAsns),
+                excludedDestinationAsns: normalizeRawLinesOrFallback(raw.excludedDestinationAsns, excludedDestinationAsns),
                 domains: normalizeRawLinesOrFallback(raw.domains, domains),
                 wildcardDomains: normalizeRawLinesOrFallback(raw.wildcardDomains, wildcardDomains),
               },
@@ -109,19 +140,28 @@
           name: 'Rule 1',
           sourceInterfaces: [],
           sourceCidrs: [],
+          excludedSourceCidrs: [],
           sourceMacs: [],
           destinationCidrs: [],
+          excludedDestinationCidrs: [],
           destinationPorts: [],
+          excludedDestinationPorts: [],
           destinationAsns: [],
+          excludedDestinationAsns: [],
+          excludeMulticast: true,
           domains: legacyDomains.filter((entry) => !String(entry).startsWith('*.' )),
           wildcardDomains: legacyDomains.filter((entry) => String(entry).startsWith('*.')),
           rawSelectors: {
             sourceInterfaces: [],
             sourceCidrs: [],
+            excludedSourceCidrs: [],
             sourceMacs: [],
             destinationCidrs: [],
+            excludedDestinationCidrs: [],
             destinationPorts: [],
+            excludedDestinationPorts: [],
             destinationAsns: [],
+            excludedDestinationAsns: [],
             domains: legacyDomains.filter((entry) => !String(entry).startsWith('*.' )),
             wildcardDomains: legacyDomains.filter((entry) => String(entry).startsWith('*.')),
           },
@@ -145,19 +185,28 @@
           name: `Rule ${index}`,
           sourceInterfaces: [],
           sourceCidrs: [],
+          excludedSourceCidrs: [],
           sourceMacs: [],
           destinationCidrs: [],
+          excludedDestinationCidrs: [],
           destinationPorts: [],
+          excludedDestinationPorts: [],
           destinationAsns: [],
+          excludedDestinationAsns: [],
+          excludeMulticast: true,
           domains: [],
           wildcardDomains: [],
           rawSelectors: {
             sourceInterfaces: [],
             sourceCidrs: [],
+            excludedSourceCidrs: [],
             sourceMacs: [],
             destinationCidrs: [],
+            excludedDestinationCidrs: [],
             destinationPorts: [],
+            excludedDestinationPorts: [],
             destinationAsns: [],
+            excludedDestinationAsns: [],
             domains: [],
             wildcardDomains: [],
           },
@@ -165,12 +214,17 @@
         const raw = payload.rawSelectors || {};
         const sourceInterfacesText = selectorText(raw.sourceInterfaces, payload.sourceInterfaces || []);
         const sourceCidrsText = selectorText(raw.sourceCidrs, payload.sourceCidrs || []);
+        const excludedSourceCidrsText = selectorText(raw.excludedSourceCidrs, payload.excludedSourceCidrs || []);
         const sourceMacsText = selectorText(raw.sourceMacs, payload.sourceMacs || []);
         const destinationCidrsText = selectorText(raw.destinationCidrs, payload.destinationCidrs || []);
+        const excludedDestinationCidrsText = selectorText(raw.excludedDestinationCidrs, payload.excludedDestinationCidrs || []);
         const destinationPortsText = selectorText(raw.destinationPorts, formattedPortLines(payload.destinationPorts || []));
+        const excludedDestinationPortsText = selectorText(raw.excludedDestinationPorts, formattedPortLines(payload.excludedDestinationPorts || []));
         const destinationAsnsText = selectorText(raw.destinationAsns, payload.destinationAsns || []);
+        const excludedDestinationAsnsText = selectorText(raw.excludedDestinationAsns, payload.excludedDestinationAsns || []);
         const domainsText = selectorText(raw.domains, payload.domains || []);
         const wildcardDomainsText = selectorText(raw.wildcardDomains, payload.wildcardDomains || []);
+        const excludeMulticast = typeof payload.excludeMulticast === 'boolean' ? payload.excludeMulticast : true;
         const pickerInputID = `source-mac-picker-${ruleID}`;
         const card = document.createElement('div');
         card.className = 'routing-rule-card border rounded p-3 mb-3';
@@ -204,6 +258,10 @@
           </div>
           <textarea class="form-control form-control-sm font-monospace js-rule-source-mac" rows="4" placeholder="00:30:93:10:0a:12#Apple TV&#10;#00:11:22:33:44:55">${escapeHTML(sourceMacsText)}</textarea>
         </div>
+        <div class="col-12">
+          <label class="form-label small text-body-secondary mb-1">Excluded Source CIDRs</label>
+          <textarea class="form-control form-control-sm font-monospace js-rule-source-excluded" rows="3" placeholder="10.0.0.50/32&#10;2001:db8::50/128&#10;#Bypass this source">${escapeHTML(excludedSourceCidrsText)}</textarea>
+        </div>
         <div class="col-12 col-md-6">
           <label class="form-label small text-body-secondary mb-1">Destination CIDRs</label>
           <textarea class="form-control form-control-sm font-monospace js-rule-destination" rows="4" placeholder="1.1.1.0/24&#10;2606:4700::/32&#10;#Bypass test prefix">${escapeHTML(destinationCidrsText)}</textarea>
@@ -212,9 +270,27 @@
           <label class="form-label small text-body-secondary mb-1">Destination Ports</label>
           <textarea class="form-control form-control-sm font-monospace js-rule-ports" rows="4" placeholder="tcp:443&#10;both:53&#10;udp:5000-5100&#10;#tcp:22">${escapeHTML(destinationPortsText)}</textarea>
         </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label small text-body-secondary mb-1">Excluded Destination CIDRs</label>
+          <textarea class="form-control form-control-sm font-monospace js-rule-destination-excluded" rows="4" placeholder="17.0.0.0/8&#10;2a01:b740::/29&#10;#Bypass destination">${escapeHTML(excludedDestinationCidrsText)}</textarea>
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label small text-body-secondary mb-1">Excluded Destination Ports</label>
+          <textarea class="form-control form-control-sm font-monospace js-rule-ports-excluded" rows="4" placeholder="udp:5353&#10;tcp:1900&#10;#both:53">${escapeHTML(excludedDestinationPortsText)}</textarea>
+        </div>
         <div class="col-12 col-md-4">
           <label class="form-label small text-body-secondary mb-1">Destination ASNs</label>
           <textarea class="form-control form-control-sm font-monospace js-rule-asn" rows="4" placeholder="AS15169&#10;13335&#10;#AS32934">${escapeHTML(destinationAsnsText)}</textarea>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary mb-1">Excluded Destination ASNs</label>
+          <textarea class="form-control form-control-sm font-monospace js-rule-asn-excluded" rows="4" placeholder="AS714&#10;#AS32934">${escapeHTML(excludedDestinationAsnsText)}</textarea>
+        </div>
+        <div class="col-12 col-md-4 d-flex align-items-end">
+          <div class="form-check form-switch mt-2">
+            <input class="form-check-input js-rule-exclude-multicast" type="checkbox" role="switch"${excludeMulticast ? ' checked' : ''}>
+            <label class="form-check-label small text-body-secondary">Exclude multicast destinations (recommended)</label>
+          </div>
         </div>
         <div class="col-12 col-md-4">
           <label class="form-label small text-body-secondary mb-1">Domains</label>

@@ -57,15 +57,26 @@ func (m *Manager) applyCachedDestinationSetsLocked(ctx context.Context) error {
 	for _, group := range groups {
 		for ruleIndex, rule := range group.Rules {
 			if !ruleNeedsDestinationSet(rule) {
-				continue
+				if !ruleNeedsExcludedDestinationSet(rule) {
+					continue
+				}
 			}
 			pair := RuleSetNames(group.Name, ruleIndex)
-			destEntries := mergeResolvedDestinations(rule, resolved)
-			destEntries = append(destEntries, mergePrewarmedDestinations(pair, prewarmed)...)
-			destEntries = dedupeSortedStrings(destEntries)
-			destV4, destV6 := splitCIDRsByFamily(destEntries)
-			queueDesiredSet(desiredSets, nil, pair.DestinationV4, "inet", destV4)
-			queueDesiredSet(desiredSets, nil, pair.DestinationV6, "inet6", destV6)
+			if ruleNeedsDestinationSet(rule) {
+				destEntries := mergeResolvedDestinations(rule, resolved)
+				destEntries = append(destEntries, mergePrewarmedDestinations(pair, prewarmed)...)
+				destEntries = dedupeSortedStrings(destEntries)
+				destV4, destV6 := splitCIDRsByFamily(destEntries)
+				queueDesiredSet(desiredSets, nil, pair.DestinationV4, "inet", destV4)
+				queueDesiredSet(desiredSets, nil, pair.DestinationV6, "inet6", destV6)
+			}
+			if ruleNeedsExcludedDestinationSet(rule) {
+				destEntries := mergeResolvedDestinationExclusions(rule, resolved)
+				destEntries = dedupeSortedStrings(destEntries)
+				destV4, destV6 := splitCIDRsByFamily(destEntries)
+				queueDesiredSet(desiredSets, nil, pair.ExcludedDestinationV4, "inet", destV4)
+				queueDesiredSet(desiredSets, nil, pair.ExcludedDestinationV6, "inet6", destV6)
+			}
 		}
 	}
 	return m.applyDesiredSets(desiredSets)
@@ -191,11 +202,27 @@ func mergeResolvedDestinations(rule RoutingRule, resolved map[ResolverSelector]R
 	return destEntries
 }
 
+func mergeResolvedDestinationExclusions(rule RoutingRule, resolved map[ResolverSelector]ResolverValues) []string {
+	destEntries := make([]string, 0, len(rule.ExcludedDestinationCIDRs))
+	destEntries = append(destEntries, rule.ExcludedDestinationCIDRs...)
+	for _, asn := range rule.ExcludedDestinationASNs {
+		entry := resolved[ResolverSelector{Type: "asn", Key: asn}]
+		destEntries = append(destEntries, entry.V4...)
+		destEntries = append(destEntries, entry.V6...)
+	}
+	return destEntries
+}
+
 func ruleNeedsDestinationSet(rule RoutingRule) bool {
 	return len(rule.DestinationCIDRs) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
 		len(rule.WildcardDomains) > 0
+}
+
+func ruleNeedsExcludedDestinationSet(rule RoutingRule) bool {
+	return len(rule.ExcludedDestinationCIDRs) > 0 ||
+		len(rule.ExcludedDestinationASNs) > 0
 }
 
 func stagedSetName(setName string) string {

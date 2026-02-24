@@ -10,10 +10,14 @@ func (raw RuleRawSelectors) hasAnyLine() bool {
 	for _, list := range [][]string{
 		raw.SourceInterfaces,
 		raw.SourceCIDRs,
+		raw.ExcludedSourceCIDRs,
 		raw.SourceMACs,
 		raw.DestinationCIDRs,
+		raw.ExcludedDestinationCIDRs,
 		raw.DestinationPorts,
+		raw.ExcludedDestinationPorts,
 		raw.DestinationASNs,
+		raw.ExcludedDestinationASNs,
 		raw.Domains,
 		raw.WildcardDomains,
 	} {
@@ -31,14 +35,18 @@ func normalizeRuleRawSelectors(in *RuleRawSelectors) RuleRawSelectors {
 		return RuleRawSelectors{}
 	}
 	return RuleRawSelectors{
-		SourceInterfaces: normalizeRawLines(in.SourceInterfaces),
-		SourceCIDRs:      normalizeRawLines(in.SourceCIDRs),
-		SourceMACs:       normalizeRawLines(in.SourceMACs),
-		DestinationCIDRs: normalizeRawLines(in.DestinationCIDRs),
-		DestinationPorts: normalizeRawLines(in.DestinationPorts),
-		DestinationASNs:  normalizeRawLines(in.DestinationASNs),
-		Domains:          normalizeRawLines(in.Domains),
-		WildcardDomains:  normalizeRawLines(in.WildcardDomains),
+		SourceInterfaces:         normalizeRawLines(in.SourceInterfaces),
+		SourceCIDRs:              normalizeRawLines(in.SourceCIDRs),
+		ExcludedSourceCIDRs:      normalizeRawLines(in.ExcludedSourceCIDRs),
+		SourceMACs:               normalizeRawLines(in.SourceMACs),
+		DestinationCIDRs:         normalizeRawLines(in.DestinationCIDRs),
+		ExcludedDestinationCIDRs: normalizeRawLines(in.ExcludedDestinationCIDRs),
+		DestinationPorts:         normalizeRawLines(in.DestinationPorts),
+		ExcludedDestinationPorts: normalizeRawLines(in.ExcludedDestinationPorts),
+		DestinationASNs:          normalizeRawLines(in.DestinationASNs),
+		ExcludedDestinationASNs:  normalizeRawLines(in.ExcludedDestinationASNs),
+		Domains:                  normalizeRawLines(in.Domains),
+		WildcardDomains:          normalizeRawLines(in.WildcardDomains),
 	}
 }
 
@@ -49,17 +57,29 @@ func hydrateRuleRawSelectorsFromRule(rawSelectors RuleRawSelectors, rule Routing
 	if len(rawSelectors.SourceCIDRs) == 0 {
 		rawSelectors.SourceCIDRs = cloneSelectorLines(rule.SourceCIDRs)
 	}
+	if len(rawSelectors.ExcludedSourceCIDRs) == 0 {
+		rawSelectors.ExcludedSourceCIDRs = cloneSelectorLines(rule.ExcludedSourceCIDRs)
+	}
 	if len(rawSelectors.SourceMACs) == 0 {
 		rawSelectors.SourceMACs = cloneSelectorLines(rule.SourceMACs)
 	}
 	if len(rawSelectors.DestinationCIDRs) == 0 {
 		rawSelectors.DestinationCIDRs = cloneSelectorLines(rule.DestinationCIDRs)
 	}
+	if len(rawSelectors.ExcludedDestinationCIDRs) == 0 {
+		rawSelectors.ExcludedDestinationCIDRs = cloneSelectorLines(rule.ExcludedDestinationCIDRs)
+	}
 	if len(rawSelectors.DestinationPorts) == 0 {
 		rawSelectors.DestinationPorts = formatPortSelectorLines(rule.DestinationPorts)
 	}
+	if len(rawSelectors.ExcludedDestinationPorts) == 0 {
+		rawSelectors.ExcludedDestinationPorts = formatPortSelectorLines(rule.ExcludedDestinationPorts)
+	}
 	if len(rawSelectors.DestinationASNs) == 0 {
 		rawSelectors.DestinationASNs = cloneSelectorLines(rule.DestinationASNs)
+	}
+	if len(rawSelectors.ExcludedDestinationASNs) == 0 {
+		rawSelectors.ExcludedDestinationASNs = cloneSelectorLines(rule.ExcludedDestinationASNs)
 	}
 	if len(rawSelectors.Domains) == 0 {
 		rawSelectors.Domains = cloneSelectorLines(rule.Domains)
@@ -77,17 +97,29 @@ func finalizeRuleRawSelectors(raw RuleRawSelectors, rule RoutingRule) RuleRawSel
 	if len(raw.SourceCIDRs) == 0 {
 		raw.SourceCIDRs = cloneSelectorLines(rule.SourceCIDRs)
 	}
+	if len(raw.ExcludedSourceCIDRs) == 0 {
+		raw.ExcludedSourceCIDRs = cloneSelectorLines(rule.ExcludedSourceCIDRs)
+	}
 	if len(raw.SourceMACs) == 0 {
 		raw.SourceMACs = cloneSelectorLines(rule.SourceMACs)
 	}
 	if len(raw.DestinationCIDRs) == 0 {
 		raw.DestinationCIDRs = cloneSelectorLines(rule.DestinationCIDRs)
 	}
+	if len(raw.ExcludedDestinationCIDRs) == 0 {
+		raw.ExcludedDestinationCIDRs = cloneSelectorLines(rule.ExcludedDestinationCIDRs)
+	}
 	if len(raw.DestinationPorts) == 0 {
 		raw.DestinationPorts = formatPortSelectorLines(rule.DestinationPorts)
 	}
+	if len(raw.ExcludedDestinationPorts) == 0 {
+		raw.ExcludedDestinationPorts = formatPortSelectorLines(rule.ExcludedDestinationPorts)
+	}
 	if len(raw.DestinationASNs) == 0 {
 		raw.DestinationASNs = cloneSelectorLines(rule.DestinationASNs)
+	}
+	if len(raw.ExcludedDestinationASNs) == 0 {
+		raw.ExcludedDestinationASNs = cloneSelectorLines(rule.ExcludedDestinationASNs)
 	}
 	if len(raw.Domains) == 0 {
 		raw.Domains = cloneSelectorLines(rule.Domains)

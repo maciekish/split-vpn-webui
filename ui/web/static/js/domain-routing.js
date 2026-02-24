@@ -272,17 +272,32 @@
         if (rule.sourceCidrs.length) {
           tokens.push(`src:${rule.sourceCidrs.length}`);
         }
+        if (rule.excludedSourceCidrs.length) {
+          tokens.push(`xsrc:${rule.excludedSourceCidrs.length}`);
+        }
         if (rule.sourceMacs.length) {
           tokens.push(`mac:${rule.sourceMacs.length}`);
         }
         if (rule.destinationCidrs.length) {
           tokens.push(`dst:${rule.destinationCidrs.length}`);
         }
+        if (rule.excludedDestinationCidrs.length) {
+          tokens.push(`xdst:${rule.excludedDestinationCidrs.length}`);
+        }
         if (rule.destinationPorts.length) {
           tokens.push(`port:${rule.destinationPorts.length}`);
         }
+        if (rule.excludedDestinationPorts.length) {
+          tokens.push(`xport:${rule.excludedDestinationPorts.length}`);
+        }
         if (rule.destinationAsns.length) {
           tokens.push(`asn:${rule.destinationAsns.length}`);
+        }
+        if (rule.excludedDestinationAsns.length) {
+          tokens.push(`xasn:${rule.excludedDestinationAsns.length}`);
+        }
+        if (rule.excludeMulticast !== false) {
+          tokens.push('xmc:on');
         }
         if (rule.domains.length) {
           tokens.push(`domain:${rule.domains.length}`);

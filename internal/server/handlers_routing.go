@@ -21,27 +21,36 @@ type groupUpsertPayload struct {
 }
 
 type ruleUpsertPayload struct {
-	Name             string                  `json:"name"`
-	SourceInterfaces []string                `json:"sourceInterfaces,omitempty"`
-	SourceCIDRs      []string                `json:"sourceCidrs,omitempty"`
-	SourceMACs       []string                `json:"sourceMacs,omitempty"`
-	DestinationCIDRs []string                `json:"destinationCidrs,omitempty"`
-	DestinationPorts []portUpsertPayload     `json:"destinationPorts,omitempty"`
-	DestinationASNs  []string                `json:"destinationAsns,omitempty"`
-	Domains          []string                `json:"domains,omitempty"`
-	WildcardDomains  []string                `json:"wildcardDomains,omitempty"`
-	RawSelectors     ruleRawSelectorsPayload `json:"rawSelectors,omitempty"`
+	Name                     string                  `json:"name"`
+	SourceInterfaces         []string                `json:"sourceInterfaces,omitempty"`
+	SourceCIDRs              []string                `json:"sourceCidrs,omitempty"`
+	ExcludedSourceCIDRs      []string                `json:"excludedSourceCidrs,omitempty"`
+	SourceMACs               []string                `json:"sourceMacs,omitempty"`
+	DestinationCIDRs         []string                `json:"destinationCidrs,omitempty"`
+	ExcludedDestinationCIDRs []string                `json:"excludedDestinationCidrs,omitempty"`
+	DestinationPorts         []portUpsertPayload     `json:"destinationPorts,omitempty"`
+	ExcludedDestinationPorts []portUpsertPayload     `json:"excludedDestinationPorts,omitempty"`
+	DestinationASNs          []string                `json:"destinationAsns,omitempty"`
+	ExcludedDestinationASNs  []string                `json:"excludedDestinationAsns,omitempty"`
+	ExcludeMulticast         *bool                   `json:"excludeMulticast,omitempty"`
+	Domains                  []string                `json:"domains,omitempty"`
+	WildcardDomains          []string                `json:"wildcardDomains,omitempty"`
+	RawSelectors             ruleRawSelectorsPayload `json:"rawSelectors,omitempty"`
 }
 
 type ruleRawSelectorsPayload struct {
-	SourceInterfaces []string `json:"sourceInterfaces,omitempty"`
-	SourceCIDRs      []string `json:"sourceCidrs,omitempty"`
-	SourceMACs       []string `json:"sourceMacs,omitempty"`
-	DestinationCIDRs []string `json:"destinationCidrs,omitempty"`
-	DestinationPorts []string `json:"destinationPorts,omitempty"`
-	DestinationASNs  []string `json:"destinationAsns,omitempty"`
-	Domains          []string `json:"domains,omitempty"`
-	WildcardDomains  []string `json:"wildcardDomains,omitempty"`
+	SourceInterfaces         []string `json:"sourceInterfaces,omitempty"`
+	SourceCIDRs              []string `json:"sourceCidrs,omitempty"`
+	ExcludedSourceCIDRs      []string `json:"excludedSourceCidrs,omitempty"`
+	SourceMACs               []string `json:"sourceMacs,omitempty"`
+	DestinationCIDRs         []string `json:"destinationCidrs,omitempty"`
+	ExcludedDestinationCIDRs []string `json:"excludedDestinationCidrs,omitempty"`
+	DestinationPorts         []string `json:"destinationPorts,omitempty"`
+	ExcludedDestinationPorts []string `json:"excludedDestinationPorts,omitempty"`
+	DestinationASNs          []string `json:"destinationAsns,omitempty"`
+	ExcludedDestinationASNs  []string `json:"excludedDestinationAsns,omitempty"`
+	Domains                  []string `json:"domains,omitempty"`
+	WildcardDomains          []string `json:"wildcardDomains,omitempty"`
 }
 
 type portUpsertPayload struct {
@@ -157,25 +166,42 @@ func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 				End:      port.End,
 			})
 		}
+		excludedPorts := make([]routing.PortRange, 0, len(rule.ExcludedDestinationPorts))
+		for _, port := range rule.ExcludedDestinationPorts {
+			excludedPorts = append(excludedPorts, routing.PortRange{
+				Protocol: port.Protocol,
+				Start:    port.Start,
+				End:      port.End,
+			})
+		}
 		rules = append(rules, routing.RoutingRule{
-			Name:             rule.Name,
-			SourceInterfaces: append([]string(nil), rule.SourceInterfaces...),
-			SourceCIDRs:      append([]string(nil), rule.SourceCIDRs...),
-			SourceMACs:       append([]string(nil), rule.SourceMACs...),
-			DestinationCIDRs: append([]string(nil), rule.DestinationCIDRs...),
-			DestinationPorts: ports,
-			DestinationASNs:  append([]string(nil), rule.DestinationASNs...),
-			Domains:          append([]string(nil), rule.Domains...),
-			WildcardDomains:  append([]string(nil), rule.WildcardDomains...),
+			Name:                     rule.Name,
+			SourceInterfaces:         append([]string(nil), rule.SourceInterfaces...),
+			SourceCIDRs:              append([]string(nil), rule.SourceCIDRs...),
+			ExcludedSourceCIDRs:      append([]string(nil), rule.ExcludedSourceCIDRs...),
+			SourceMACs:               append([]string(nil), rule.SourceMACs...),
+			DestinationCIDRs:         append([]string(nil), rule.DestinationCIDRs...),
+			ExcludedDestinationCIDRs: append([]string(nil), rule.ExcludedDestinationCIDRs...),
+			DestinationPorts:         ports,
+			ExcludedDestinationPorts: excludedPorts,
+			DestinationASNs:          append([]string(nil), rule.DestinationASNs...),
+			ExcludedDestinationASNs:  append([]string(nil), rule.ExcludedDestinationASNs...),
+			ExcludeMulticast:         rule.ExcludeMulticast,
+			Domains:                  append([]string(nil), rule.Domains...),
+			WildcardDomains:          append([]string(nil), rule.WildcardDomains...),
 			RawSelectors: &routing.RuleRawSelectors{
-				SourceInterfaces: append([]string(nil), rule.RawSelectors.SourceInterfaces...),
-				SourceCIDRs:      append([]string(nil), rule.RawSelectors.SourceCIDRs...),
-				SourceMACs:       append([]string(nil), rule.RawSelectors.SourceMACs...),
-				DestinationCIDRs: append([]string(nil), rule.RawSelectors.DestinationCIDRs...),
-				DestinationPorts: append([]string(nil), rule.RawSelectors.DestinationPorts...),
-				DestinationASNs:  append([]string(nil), rule.RawSelectors.DestinationASNs...),
-				Domains:          append([]string(nil), rule.RawSelectors.Domains...),
-				WildcardDomains:  append([]string(nil), rule.RawSelectors.WildcardDomains...),
+				SourceInterfaces:         append([]string(nil), rule.RawSelectors.SourceInterfaces...),
+				SourceCIDRs:              append([]string(nil), rule.RawSelectors.SourceCIDRs...),
+				ExcludedSourceCIDRs:      append([]string(nil), rule.RawSelectors.ExcludedSourceCIDRs...),
+				SourceMACs:               append([]string(nil), rule.RawSelectors.SourceMACs...),
+				DestinationCIDRs:         append([]string(nil), rule.RawSelectors.DestinationCIDRs...),
+				ExcludedDestinationCIDRs: append([]string(nil), rule.RawSelectors.ExcludedDestinationCIDRs...),
+				DestinationPorts:         append([]string(nil), rule.RawSelectors.DestinationPorts...),
+				ExcludedDestinationPorts: append([]string(nil), rule.RawSelectors.ExcludedDestinationPorts...),
+				DestinationASNs:          append([]string(nil), rule.RawSelectors.DestinationASNs...),
+				ExcludedDestinationASNs:  append([]string(nil), rule.RawSelectors.ExcludedDestinationASNs...),
+				Domains:                  append([]string(nil), rule.RawSelectors.Domains...),
+				WildcardDomains:          append([]string(nil), rule.RawSelectors.WildcardDomains...),
 			},
 		})
 	}

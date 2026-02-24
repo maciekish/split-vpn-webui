@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // Store persists routing groups and resolver cache rows in SQLite.
@@ -267,113 +266,6 @@ func (s *Store) ReplaceAll(
 	return tx.Commit()
 }
 
-func replaceRulesTx(ctx context.Context, tx *sql.Tx, groupID int64, rules []RoutingRule) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM routing_rules WHERE group_id = ?`, groupID); err != nil {
-		return err
-	}
-
-	for idx, rule := range rules {
-		result, err := tx.ExecContext(ctx, `
-			INSERT INTO routing_rules (group_id, name, position)
-			VALUES (?, ?, ?)
-		`, groupID, rule.Name, idx)
-		if err != nil {
-			return err
-		}
-		ruleID, err := result.LastInsertId()
-		if err != nil {
-			return err
-		}
-		for _, cidr := range rule.SourceCIDRs {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_source_cidrs (rule_id, cidr) VALUES (?, ?)
-			`, ruleID, cidr); err != nil {
-				return err
-			}
-		}
-		for _, iface := range rule.SourceInterfaces {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_source_interfaces (rule_id, iface) VALUES (?, ?)
-			`, ruleID, iface); err != nil {
-				return err
-			}
-		}
-		for _, mac := range rule.SourceMACs {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_source_macs (rule_id, mac) VALUES (?, ?)
-			`, ruleID, mac); err != nil {
-				return err
-			}
-		}
-		for _, cidr := range rule.DestinationCIDRs {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_destination_cidrs (rule_id, cidr) VALUES (?, ?)
-			`, ruleID, cidr); err != nil {
-				return err
-			}
-		}
-		for _, port := range rule.DestinationPorts {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_ports (rule_id, protocol, start_port, end_port)
-				VALUES (?, ?, ?, ?)
-			`, ruleID, port.Protocol, port.Start, port.End); err != nil {
-				return err
-			}
-		}
-		for _, asn := range rule.DestinationASNs {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_asns (rule_id, asn) VALUES (?, ?)
-			`, ruleID, asn); err != nil {
-				return err
-			}
-		}
-		for _, domain := range rule.Domains {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_domains (rule_id, domain, is_wildcard)
-				VALUES (?, ?, 0)
-			`, ruleID, domain); err != nil {
-				return err
-			}
-		}
-		for _, wildcard := range rule.WildcardDomains {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO routing_rule_domains (rule_id, domain, is_wildcard)
-				VALUES (?, ?, 1)
-			`, ruleID, wildcard); err != nil {
-				return err
-			}
-		}
-		if err := insertRuleRawSelectorsTx(ctx, tx, ruleID, rule.RawSelectors); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func replaceLegacyDomainsTx(ctx context.Context, tx *sql.Tx, groupID int64, domains []string) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_entries WHERE group_id = ?`, groupID); err != nil {
-		return err
-	}
-	seen := make(map[string]struct{}, len(domains))
-	for _, domain := range domains {
-		trimmed := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), "*.")
-		if trimmed == "" {
-			continue
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO domain_entries (group_id, domain)
-			VALUES (?, ?)
-		`, groupID, trimmed); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *Store) listRulesByGroup(ctx context.Context, groupID int64) ([]RoutingRule, error) {
 	rulesByGroup, err := s.listRulesForGroups(ctx)
 	if err != nil {
@@ -385,7 +277,7 @@ func (s *Store) listRulesByGroup(ctx context.Context, groupID int64) ([]RoutingR
 func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule, error) {
 	rulesByGroup := make(map[int64][]RoutingRule)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, group_id, name, position
+		SELECT id, group_id, name, position, exclude_multicast
 		FROM routing_rules
 		ORDER BY group_id ASC, position ASC, id ASC
 	`)
@@ -404,10 +296,12 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 	for rows.Next() {
 		var entry storedRule
 		var position int
-		if err := rows.Scan(&entry.ruleID, &entry.groupID, &entry.rule.Name, &position); err != nil {
+		var excludeMulticast int
+		if err := rows.Scan(&entry.ruleID, &entry.groupID, &entry.rule.Name, &position, &excludeMulticast); err != nil {
 			return nil, err
 		}
 		entry.rule.ID = entry.ruleID
+		entry.rule.ExcludeMulticast = boolPointer(excludeMulticast != 0)
 		stored = append(stored, entry)
 		ruleIDs = append(ruleIDs, entry.ruleID)
 	}
@@ -419,6 +313,10 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 	}
 
 	sourceByRule, err := listRuleCIDRs(ctx, s.db, "routing_rule_source_cidrs", ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	excludedSourceByRule, err := listRuleCIDRs(ctx, s.db, "routing_rule_excluded_source_cidrs", ruleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -434,11 +332,23 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 	if err != nil {
 		return nil, err
 	}
+	excludedDestByRule, err := listRuleCIDRs(ctx, s.db, "routing_rule_excluded_destination_cidrs", ruleIDs)
+	if err != nil {
+		return nil, err
+	}
 	portsByRule, err := listRulePorts(ctx, s.db, ruleIDs)
 	if err != nil {
 		return nil, err
 	}
+	excludedPortsByRule, err := listRuleExcludedPorts(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
 	asnByRule, err := listRuleASNs(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	excludedASNByRule, err := listRuleExcludedASNs(ctx, s.db, ruleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -455,10 +365,14 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 		rule := entry.rule
 		rule.SourceInterfaces = append([]string(nil), sourceInterfacesByRule[entry.ruleID]...)
 		rule.SourceCIDRs = append([]string(nil), sourceByRule[entry.ruleID]...)
+		rule.ExcludedSourceCIDRs = append([]string(nil), excludedSourceByRule[entry.ruleID]...)
 		rule.SourceMACs = append([]string(nil), sourceMACsByRule[entry.ruleID]...)
 		rule.DestinationCIDRs = append([]string(nil), destByRule[entry.ruleID]...)
+		rule.ExcludedDestinationCIDRs = append([]string(nil), excludedDestByRule[entry.ruleID]...)
 		rule.DestinationPorts = append([]PortRange(nil), portsByRule[entry.ruleID]...)
+		rule.ExcludedDestinationPorts = append([]PortRange(nil), excludedPortsByRule[entry.ruleID]...)
 		rule.DestinationASNs = append([]string(nil), asnByRule[entry.ruleID]...)
+		rule.ExcludedDestinationASNs = append([]string(nil), excludedASNByRule[entry.ruleID]...)
 		rule.Domains = append([]string(nil), domainsByRule[entry.ruleID]...)
 		rule.WildcardDomains = append([]string(nil), wildcardsByRule[entry.ruleID]...)
 		rawSelectors := rawSelectorsByRule[entry.ruleID]

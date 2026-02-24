@@ -141,8 +141,13 @@
 
     function renderRoutingRuleBlock(rule) {
       const sourceInterfaces = joinValues(rule?.sourceInterfaces);
+      const excludedSourceCidrs = joinValues(rule?.excludedSourceCidrs);
       const ports = formatPorts(rule?.destinationPorts);
+      const excludedPorts = formatPorts(rule?.excludedDestinationPorts);
       const asns = joinValues(rule?.destinationAsns);
+      const excludedAsns = joinValues(rule?.excludedDestinationAsns);
+      const excludedDestinationCidrs = joinValues(rule?.excludedDestinationCidrs);
+      const excludeMulticast = rule?.excludeMulticast !== false ? 'enabled' : 'disabled';
       const domains = joinValues(rule?.domains);
       const wildcards = joinValues(rule?.wildcardDomains);
       const sourceMACs = formatSourceMACs(rule?.sourceMacs);
@@ -159,16 +164,25 @@
       }));
       appendSetBadge(titleRow, rule?.sourceSetV4, 'src4');
       appendSetBadge(titleRow, rule?.sourceSetV6, 'src6');
+      appendSetBadge(titleRow, rule?.excludedSourceSetV4, 'xsrc4');
+      appendSetBadge(titleRow, rule?.excludedSourceSetV6, 'xsrc6');
       appendSetBadge(titleRow, rule?.destinationSetV4, 'dst4');
       appendSetBadge(titleRow, rule?.destinationSetV6, 'dst6');
+      appendSetBadge(titleRow, rule?.excludedDestinationSetV4, 'xdst4');
+      appendSetBadge(titleRow, rule?.excludedDestinationSetV6, 'xdst6');
       wrapper.appendChild(titleRow);
 
       const meta = document.createElement('div');
       meta.className = 'small text-body-secondary mb-2';
       meta.appendChild(createSearchLine(`Source interfaces: ${sourceInterfaces}`));
       meta.appendChild(createSearchLine(`Source MACs: ${sourceMACs}`));
+      meta.appendChild(createSearchLine(`Excluded source CIDRs: ${excludedSourceCidrs}`));
       meta.appendChild(createSearchLine(`Destination ports: ${ports}`));
+      meta.appendChild(createSearchLine(`Excluded destination ports: ${excludedPorts}`));
       meta.appendChild(createSearchLine(`Destination ASNs: ${asns}`));
+      meta.appendChild(createSearchLine(`Excluded destination ASNs: ${excludedAsns}`));
+      meta.appendChild(createSearchLine(`Excluded destination CIDRs: ${excludedDestinationCidrs}`));
+      meta.appendChild(createSearchLine(`Exclude multicast: ${excludeMulticast}`));
       meta.appendChild(createSearchLine(`Domains: ${domains}`));
       meta.appendChild(createSearchLine(`Wildcard domains: ${wildcards}`));
       wrapper.appendChild(meta);
@@ -176,8 +190,12 @@
       const blocks = [
         renderSetDetails('Source IPv4 Set', rule?.sourceSetV4),
         renderSetDetails('Source IPv6 Set', rule?.sourceSetV6),
+        renderSetDetails('Excluded Source IPv4 Set', rule?.excludedSourceSetV4),
+        renderSetDetails('Excluded Source IPv6 Set', rule?.excludedSourceSetV6),
         renderSetDetails('Destination IPv4 Set', rule?.destinationSetV4),
         renderSetDetails('Destination IPv6 Set', rule?.destinationSetV6),
+        renderSetDetails('Excluded Destination IPv4 Set', rule?.excludedDestinationSetV4),
+        renderSetDetails('Excluded Destination IPv6 Set', rule?.excludedDestinationSetV6),
       ];
       blocks.forEach((block) => {
         if (block) {

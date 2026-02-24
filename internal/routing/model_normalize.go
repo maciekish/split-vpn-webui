@@ -189,10 +189,23 @@ func normalizeDomains(raw []string, wildcard bool) ([]string, error) {
 func ruleHasSelectors(rule RoutingRule) bool {
 	return len(rule.SourceInterfaces) > 0 ||
 		len(rule.SourceCIDRs) > 0 ||
+		len(rule.ExcludedSourceCIDRs) > 0 ||
 		len(rule.SourceMACs) > 0 ||
 		len(rule.DestinationCIDRs) > 0 ||
+		len(rule.ExcludedDestinationCIDRs) > 0 ||
 		len(rule.DestinationPorts) > 0 ||
+		len(rule.ExcludedDestinationPorts) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
+		len(rule.ExcludedDestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
 		len(rule.WildcardDomains) > 0
+}
+
+// RuleExcludeMulticastEnabled returns whether multicast traffic should be excluded for a rule.
+// Nil means enabled by default for backward compatibility and safer behavior.
+func RuleExcludeMulticastEnabled(rule RoutingRule) bool {
+	if rule.ExcludeMulticast == nil {
+		return true
+	}
+	return *rule.ExcludeMulticast
 }

@@ -358,6 +358,65 @@ func TestManagerCreateGroupSupportsSourceInterfaceAndMACSelectors(t *testing.T) 
 	}
 }
 
+func TestManagerCreateGroupBuildsExclusionBindings(t *testing.T) {
+	ctx := context.Background()
+	manager, ipset, _, rules := newRoutingTestManager(t, &mockVPNLister{profiles: []*vpn.VPNProfile{{
+		Name:          "wg-sgp",
+		RouteTable:    201,
+		FWMark:        0x169,
+		InterfaceName: "wg-sgp",
+	}}})
+	disabled := false
+
+	_, err := manager.CreateGroup(ctx, DomainGroup{
+		Name:      "ExcludePolicy",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:                     "Rule 1",
+				SourceCIDRs:              []string{"10.0.0.0/24"},
+				ExcludedSourceCIDRs:      []string{"10.0.0.10/32"},
+				DestinationCIDRs:         []string{"1.1.1.0/24"},
+				ExcludedDestinationCIDRs: []string{"17.0.0.0/8"},
+				ExcludedDestinationASNs:  []string{"AS13335"},
+				ExcludedDestinationPorts: []PortRange{{Protocol: "udp", Start: 5353}},
+				ExcludeMulticast:         &disabled,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup failed: %v", err)
+	}
+	if rules.applyCount != 1 || len(rules.bindings) != 1 {
+		t.Fatalf("expected one binding apply call, apply=%d bindings=%d", rules.applyCount, len(rules.bindings))
+	}
+	binding := rules.bindings[0]
+	if !binding.HasExcludedSource || !binding.HasExcludedDestination {
+		t.Fatalf("expected excluded source+destination to be enabled: %+v", binding)
+	}
+	if binding.ExcludeMulticast {
+		t.Fatalf("expected exclude multicast to be disabled in binding")
+	}
+	if len(binding.ExcludedDestinationPorts) != 1 || binding.ExcludedDestinationPorts[0].Protocol != "udp" {
+		t.Fatalf("unexpected excluded destination ports: %#v", binding.ExcludedDestinationPorts)
+	}
+	sets := RuleSetNames("ExcludePolicy", 0)
+	for _, setName := range []string{
+		sets.SourceV4,
+		sets.SourceV6,
+		sets.ExcludedSourceV4,
+		sets.ExcludedSourceV6,
+		sets.DestinationV4,
+		sets.DestinationV6,
+		sets.ExcludedDestinationV4,
+		sets.ExcludedDestinationV6,
+	} {
+		if _, ok := ipset.Sets[setName]; !ok {
+			t.Fatalf("expected ipset %s to exist, got %#v", setName, ipset.Sets)
+		}
+	}
+}
+
 func TestManagerUpsertPrewarmSnapshotUpdatesDestinationSetsWithoutRuleReapply(t *testing.T) {
 	ctx := context.Background()
 	manager, ipset, _, rules := newRoutingTestManager(t, &mockVPNLister{profiles: []*vpn.VPNProfile{{

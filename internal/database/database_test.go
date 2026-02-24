@@ -19,11 +19,15 @@ func TestOpen_InMemory(t *testing.T) {
 		"domain_entries",
 		"routing_rules",
 		"routing_rule_source_cidrs",
+		"routing_rule_excluded_source_cidrs",
 		"routing_rule_source_interfaces",
 		"routing_rule_source_macs",
 		"routing_rule_destination_cidrs",
+		"routing_rule_excluded_destination_cidrs",
 		"routing_rule_ports",
+		"routing_rule_excluded_ports",
 		"routing_rule_asns",
+		"routing_rule_excluded_asns",
 		"routing_rule_domains",
 		"routing_rule_selector_lines",
 		"resolver_cache",
@@ -39,6 +43,15 @@ func TestOpen_InMemory(t *testing.T) {
 		if err != nil {
 			t.Errorf("table %q not found: %v", table, err)
 		}
+	}
+
+	var excludeMulticastCol string
+	if err := db.QueryRow(`
+		SELECT name
+		FROM pragma_table_info('routing_rules')
+		WHERE name = 'exclude_multicast'
+	`).Scan(&excludeMulticastCol); err != nil {
+		t.Fatalf("routing_rules.exclude_multicast column missing: %v", err)
 	}
 }
 

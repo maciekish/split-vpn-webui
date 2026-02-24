@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Added DHCP client-identifier (DUID/client-id) MAC extraction for UniFi `/services` records and improved source-MAC picker population with MAC deduplication and name-sorted device list ordering.
+**Last session summary:** Implemented rule-level exclusion selectors (source/destination CIDR, destination port, destination ASN) plus default-enabled multicast exclusion, with full model/store/runtime/API/UI integration and test coverage.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,69 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Rule-level exclusions + default multicast exclusion
+- Implemented full exclusion feature set at routing-rule level:
+  - New selectors:
+    - `excludedSourceCidrs`
+    - `excludedDestinationCidrs`
+    - `excludedDestinationPorts`
+    - `excludedDestinationAsns`
+  - New per-rule flag:
+    - `excludeMulticast` (defaults to enabled when unset).
+- Backend model/store/migrations:
+  - `internal/routing/model.go` / `internal/routing/model_raw_selectors.go` / `internal/routing/model_normalize.go`:
+    - normalization/validation for new selectors,
+    - raw selector line comment round-trip preserved for all new selector fields,
+    - default behavior for `excludeMulticast`.
+  - `internal/database/schema.go`:
+    - added exclusion selector tables:
+      - `routing_rule_excluded_source_cidrs`
+      - `routing_rule_excluded_destination_cidrs`
+      - `routing_rule_excluded_ports`
+      - `routing_rule_excluded_asns`
+    - `routing_rules.exclude_multicast` column support.
+  - `internal/database/database.go`:
+    - added migration-time column backfill helper for legacy DBs (`exclude_multicast`) without relying on unsupported SQL syntax.
+  - `internal/routing/store.go` + helpers:
+    - persist/load full exclusion selectors and multicast flag.
+- Runtime routing behavior:
+  - `internal/routing/manager.go` / `internal/routing/manager_sets.go`:
+    - builds include and exclusion ipsets for source/destination selectors.
+    - resolver cache updates now also refresh excluded-destination ASN-derived sets.
+  - `internal/routing/iptables.go`:
+    - moved to per-rule generation subchains (`SVPNA_*`/`SVPNB_*`) so exclusion `RETURN` logic is rule-local and does not short-circuit unrelated rules.
+    - applied exclusions before mark:
+      - excluded source/destination ipsets,
+      - excluded destination ports,
+      - multicast destination ranges (`224.0.0.0/4`, `ff00::/8`) when enabled.
+    - added cleanup for generation-specific subchains during chain preparation/flush.
+- API/UI updates:
+  - `internal/server/handlers_routing.go`:
+    - request/response payload support for all new selectors and `excludeMulticast`.
+  - `ui/web/static/js/domain-routing-rules.js` + `ui/web/static/js/domain-routing-utils.js` + `ui/web/static/js/domain-routing.js`:
+    - editor fields for all exclusions,
+    - multicast exclusion switch (default on),
+    - raw-line comment persistence maintained,
+    - summary badges include exclusion counts/state.
+  - `ui/web/templates/layout.html`:
+    - rule semantics note updated to include exclusion behavior.
+- Inspector/flow-matching updates:
+  - `internal/server/handlers_routing_inspector.go` + `ui/web/static/js/app-vpn-routing-inspector.js`:
+    - surfaces exclusion selectors/sets and multicast setting in inspector output.
+  - `internal/server/flow_inspector_matcher.go`:
+    - matcher now respects exclusion source/destination prefixes, exclusion ports, and multicast exclusion.
+- Tests expanded:
+  - `internal/database/database_test.go`
+  - `internal/routing/model_test.go`
+  - `internal/routing/store_test.go`
+  - `internal/routing/manager_test.go`
+  - `internal/routing/iptables_test.go`
+  - `internal/routing/resolver_test.go`
+  - `internal/server/server_test.go`
+- Validation run:
+  - `go test ./... -count=1`
+  - `node --check ui/web/static/js/domain-routing.js ui/web/static/js/domain-routing-rules.js ui/web/static/js/domain-routing-utils.js ui/web/static/js/app-vpn-routing-inspector.js`
 
 ### 2026-02-24 — DUID/client-id MAC extraction + source-MAC picker dedupe/sort improvements
 - Fixed missing client-name mapping from UniFi `/services` records:

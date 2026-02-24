@@ -6,27 +6,35 @@ import (
 )
 
 const (
-	selectorSourceInterfaces = "source_interfaces"
-	selectorSourceCIDRs      = "source_cidrs"
-	selectorSourceMACs       = "source_macs"
-	selectorDestinationCIDRs = "destination_cidrs"
-	selectorDestinationPorts = "destination_ports"
-	selectorDestinationASNs  = "destination_asns"
-	selectorDomains          = "domains"
-	selectorWildcardDomains  = "wildcard_domains"
+	selectorSourceInterfaces         = "source_interfaces"
+	selectorSourceCIDRs              = "source_cidrs"
+	selectorExcludedSourceCIDRs      = "excluded_source_cidrs"
+	selectorSourceMACs               = "source_macs"
+	selectorDestinationCIDRs         = "destination_cidrs"
+	selectorExcludedDestinationCIDRs = "excluded_destination_cidrs"
+	selectorDestinationPorts         = "destination_ports"
+	selectorExcludedDestinationPorts = "excluded_destination_ports"
+	selectorDestinationASNs          = "destination_asns"
+	selectorExcludedDestinationASNs  = "excluded_destination_asns"
+	selectorDomains                  = "domains"
+	selectorWildcardDomains          = "wildcard_domains"
 )
 
 func insertRuleRawSelectorsTx(ctx context.Context, tx *sql.Tx, ruleID int64, raw *RuleRawSelectors) error {
 	normalized := normalizeRuleRawSelectors(raw)
 	linesBySelector := map[string][]string{
-		selectorSourceInterfaces: normalized.SourceInterfaces,
-		selectorSourceCIDRs:      normalized.SourceCIDRs,
-		selectorSourceMACs:       normalized.SourceMACs,
-		selectorDestinationCIDRs: normalized.DestinationCIDRs,
-		selectorDestinationPorts: normalized.DestinationPorts,
-		selectorDestinationASNs:  normalized.DestinationASNs,
-		selectorDomains:          normalized.Domains,
-		selectorWildcardDomains:  normalized.WildcardDomains,
+		selectorSourceInterfaces:         normalized.SourceInterfaces,
+		selectorSourceCIDRs:              normalized.SourceCIDRs,
+		selectorExcludedSourceCIDRs:      normalized.ExcludedSourceCIDRs,
+		selectorSourceMACs:               normalized.SourceMACs,
+		selectorDestinationCIDRs:         normalized.DestinationCIDRs,
+		selectorExcludedDestinationCIDRs: normalized.ExcludedDestinationCIDRs,
+		selectorDestinationPorts:         normalized.DestinationPorts,
+		selectorExcludedDestinationPorts: normalized.ExcludedDestinationPorts,
+		selectorDestinationASNs:          normalized.DestinationASNs,
+		selectorExcludedDestinationASNs:  normalized.ExcludedDestinationASNs,
+		selectorDomains:                  normalized.Domains,
+		selectorWildcardDomains:          normalized.WildcardDomains,
 	}
 	for selector, lines := range linesBySelector {
 		for position, line := range lines {
@@ -66,14 +74,22 @@ func listRuleRawSelectors(ctx context.Context, db *sql.DB, ruleIDs []int64) (map
 			raw.SourceInterfaces = append(raw.SourceInterfaces, line)
 		case selectorSourceCIDRs:
 			raw.SourceCIDRs = append(raw.SourceCIDRs, line)
+		case selectorExcludedSourceCIDRs:
+			raw.ExcludedSourceCIDRs = append(raw.ExcludedSourceCIDRs, line)
 		case selectorSourceMACs:
 			raw.SourceMACs = append(raw.SourceMACs, line)
 		case selectorDestinationCIDRs:
 			raw.DestinationCIDRs = append(raw.DestinationCIDRs, line)
+		case selectorExcludedDestinationCIDRs:
+			raw.ExcludedDestinationCIDRs = append(raw.ExcludedDestinationCIDRs, line)
 		case selectorDestinationPorts:
 			raw.DestinationPorts = append(raw.DestinationPorts, line)
+		case selectorExcludedDestinationPorts:
+			raw.ExcludedDestinationPorts = append(raw.ExcludedDestinationPorts, line)
 		case selectorDestinationASNs:
 			raw.DestinationASNs = append(raw.DestinationASNs, line)
+		case selectorExcludedDestinationASNs:
+			raw.ExcludedDestinationASNs = append(raw.ExcludedDestinationASNs, line)
 		case selectorDomains:
 			raw.Domains = append(raw.Domains, line)
 		case selectorWildcardDomains:
