@@ -217,3 +217,46 @@ func TestStoreAllowsExactAndWildcardSelectorsInSameRule(t *testing.T) {
 		t.Fatalf("unexpected fetched wildcard domains: %#v", fetchedRule.WildcardDomains)
 	}
 }
+
+func TestStorePersistsRawSelectorLinesWithComments(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+
+	created, err := store.Create(ctx, DomainGroup{
+		Name:      "Commented",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{
+			{
+				Name:    "Rule 1",
+				Domains: []string{"www.apple.com"},
+				RawSelectors: &RuleRawSelectors{
+					SourceMACs:       []string{"#00:11:22:33:44:55", "00:11:22:33:44:66#Apple TV"},
+					Domains:          []string{"www.apple.com#enabled"},
+					WildcardDomains:  []string{"#*.contoso.com"},
+					DestinationPorts: []string{"tcp:443", "#udp:53"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+
+	fetched, err := store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get group: %v", err)
+	}
+	if len(fetched.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(fetched.Rules))
+	}
+	raw := fetched.Rules[0].RawSelectors
+	if raw == nil {
+		t.Fatalf("expected raw selectors")
+	}
+	if len(raw.SourceMACs) != 2 || raw.SourceMACs[0] != "#00:11:22:33:44:55" || raw.SourceMACs[1] != "00:11:22:33:44:66#Apple TV" {
+		t.Fatalf("unexpected source mac raw lines: %#v", raw.SourceMACs)
+	}
+	if len(raw.DestinationPorts) != 2 || raw.DestinationPorts[1] != "#udp:53" {
+		t.Fatalf("unexpected destination port raw lines: %#v", raw.DestinationPorts)
+	}
+}

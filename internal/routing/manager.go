@@ -278,6 +278,11 @@ func (m *Manager) applyLocked(ctx context.Context) error {
 		}
 
 		for ruleIndex, rule := range group.Rules {
+			if !ruleHasSelectors(rule) {
+				// Comment-only or disabled rule: persist for editing, but do not
+				// create runtime bindings.
+				continue
+			}
 			binding, err := m.buildBinding(group, rule, ruleIndex, profile, resolved, prewarmed, activeSets, desiredSets)
 			if err != nil {
 				return err

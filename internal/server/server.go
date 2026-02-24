@@ -64,6 +64,8 @@ type Server struct {
 	templates      *template.Template
 
 	systemdManaged bool
+	flowInspector  *vpnFlowInspector
+	flowRunner     conntrackRunner
 
 	watchersMu sync.Mutex
 	watchers   map[chan streamMessage]struct{}
@@ -108,6 +110,8 @@ func New(
 		updater:           updateManager,
 		templates:         tmpl,
 		systemdManaged:    systemdManaged,
+		flowInspector:     newVPNFlowInspector(),
+		flowRunner:        conntrackCLIRunner{},
 		watchers:          make(map[chan streamMessage]struct{}),
 		broadcastInterval: 2 * time.Second,
 		gateways:          make(map[string]string),
@@ -179,6 +183,10 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Delete("/vpns/{name}", s.handleDeleteVPN)
 			api.Post("/vpns/{name}/restart", s.handleRestartVPN)
 			api.Get("/vpns/{name}/routing-inspector", s.handleVPNRoutingInspector)
+			api.Post("/vpns/{name}/flow-inspector/start", s.handleStartVPNFlowInspector)
+			api.Get("/vpns/{name}/flow-inspector/{sessionID}", s.handlePollVPNFlowInspector)
+			api.Post("/vpns/{name}/flow-inspector/{sessionID}/stop", s.handleStopVPNFlowInspector)
+			api.Get("/devices", s.handleListDevices)
 
 			api.Get("/configs", s.handleListConfigs)
 			api.Get("/configs/{name}/file", s.handleReadConfig)

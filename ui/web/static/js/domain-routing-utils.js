@@ -4,16 +4,44 @@
     return input ? String(input.value || '').trim() : '';
   }
 
-  function parseLines(rawValue) {
+  function rawValueFrom(card, selector) {
+    const input = card.querySelector(selector);
+    return input ? String(input.value || '') : '';
+  }
+
+  function splitRawLines(rawValue) {
     return String(rawValue || '')
-      .split('\n')
-      .map((entry) => entry.trim())
+      .replace(/\r/g, '')
+      .split('\n');
+  }
+
+  function activeSelectorValue(line) {
+    const trimmed = String(line || '').trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      return '';
+    }
+    const hashIndex = trimmed.indexOf('#');
+    if (hashIndex < 0) {
+      return trimmed;
+    }
+    return trimmed.slice(0, hashIndex).trim();
+  }
+
+  function parseSelectorField(rawValue) {
+    const rawLines = splitRawLines(rawValue);
+    const activeValues = rawLines
+      .map((line) => activeSelectorValue(line))
       .filter((entry) => entry !== '');
+    return { rawLines, activeValues };
+  }
+
+  function parseLines(rawValue) {
+    return parseSelectorField(rawValue).activeValues;
   }
 
   function parsePorts(rawValue) {
     const parsed = [];
-    parseLines(rawValue).forEach((entry) => {
+    parseSelectorField(rawValue).activeValues.forEach((entry) => {
       const compact = entry.replace(/\s+/g, '');
       const match = compact.match(/^(tcp|udp|both)[:/](\d{1,5})(?:-(\d{1,5}))?$/i);
       if (!match) {
@@ -70,11 +98,37 @@
       .replaceAll("'", '&#39;');
   }
 
+  function fieldHasAnyLine(rawLines) {
+    return Array.isArray(rawLines) && rawLines.some((line) => String(line || '').trim() !== '');
+  }
+
+  function ruleHasEditableContent(rule) {
+    if (ruleHasSelectors(rule)) {
+      return true;
+    }
+    const raw = rule.rawSelectors || {};
+    return (
+      fieldHasAnyLine(raw.sourceInterfaces) ||
+      fieldHasAnyLine(raw.sourceCidrs) ||
+      fieldHasAnyLine(raw.sourceMacs) ||
+      fieldHasAnyLine(raw.destinationCidrs) ||
+      fieldHasAnyLine(raw.destinationPorts) ||
+      fieldHasAnyLine(raw.destinationAsns) ||
+      fieldHasAnyLine(raw.domains) ||
+      fieldHasAnyLine(raw.wildcardDomains)
+    );
+  }
+
   window.SplitVPNDomainRoutingUtils = {
     valueFrom,
+    rawValueFrom,
+    splitRawLines,
+    activeSelectorValue,
+    parseSelectorField,
     parseLines,
     parsePorts,
     ruleHasSelectors,
+    ruleHasEditableContent,
     formatPorts,
     escapeHTML,
   };

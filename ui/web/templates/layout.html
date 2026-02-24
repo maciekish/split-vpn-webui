@@ -293,6 +293,57 @@
   </div>
 </div>
 
+<div class="modal fade" id="flowInspectorModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="flow-inspector-title"><i class="bi bi-search me-2"></i>VPN Flow Inspector</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert d-none py-2 small mb-3" id="flow-inspector-status" role="status"></div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <span class="badge text-bg-primary" id="flow-inspector-summary-vpn">VPN</span>
+          <span class="badge text-bg-info" id="flow-inspector-summary-flows">Flows: 0</span>
+          <span class="badge text-bg-info" id="flow-inspector-summary-total">Session Data: 0 B</span>
+          <span class="text-body-secondary small ms-auto" id="flow-inspector-updated-at">Updated: –</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="flow-inspector-table">
+            <thead class="table-light">
+              <tr>
+                <th>
+                  <button class="btn btn-link btn-sm p-0 text-decoration-none flow-sort" type="button" data-sort-key="source">Source</button>
+                </th>
+                <th>
+                  <button class="btn btn-link btn-sm p-0 text-decoration-none flow-sort" type="button" data-sort-key="destination">Destination</button>
+                </th>
+                <th class="text-end">
+                  <button class="btn btn-link btn-sm p-0 text-decoration-none flow-sort" type="button" data-sort-key="download">Download</button>
+                </th>
+                <th class="text-end">
+                  <button class="btn btn-link btn-sm p-0 text-decoration-none flow-sort" type="button" data-sort-key="upload">Upload</button>
+                </th>
+                <th class="text-end">
+                  <button class="btn btn-link btn-sm p-0 text-decoration-none flow-sort" type="button" data-sort-key="total">Session Data</button>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="flow-inspector-table-body">
+              <tr>
+                <td class="text-body-secondary small" colspan="5">No active flow inspection session.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="vpnEditorModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
@@ -545,10 +596,12 @@
 <script src="/static/js/app-vpn-file-utils.js"></script>
 <script src="/static/js/app-line-search.js"></script>
 <script src="/static/js/app-vpn-routing-inspector.js"></script>
+<script src="/static/js/app-vpn-flow-inspector.js"></script>
 <script src="/static/js/app-vpn-helpers.js"></script>
 <script src="/static/js/app-updates.js"></script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/domain-routing-utils.js"></script>
+<script src="/static/js/domain-routing-rules.js"></script>
 <script src="/static/js/domain-routing.js"></script>
 <script src="/static/js/routing-resolver.js"></script>
 <script src="/static/js/prewarm-auth.js"></script>

@@ -41,16 +41,29 @@ type DomainGroup struct {
 
 // RoutingRule defines one AND-combined selector rule inside a group.
 type RoutingRule struct {
-	ID               int64       `json:"id,omitempty"`
-	Name             string      `json:"name,omitempty"`
-	SourceInterfaces []string    `json:"sourceInterfaces,omitempty"`
-	SourceCIDRs      []string    `json:"sourceCidrs,omitempty"`
-	SourceMACs       []string    `json:"sourceMacs,omitempty"`
-	DestinationCIDRs []string    `json:"destinationCidrs,omitempty"`
-	DestinationPorts []PortRange `json:"destinationPorts,omitempty"`
-	DestinationASNs  []string    `json:"destinationAsns,omitempty"`
-	Domains          []string    `json:"domains,omitempty"`
-	WildcardDomains  []string    `json:"wildcardDomains,omitempty"`
+	ID               int64             `json:"id,omitempty"`
+	Name             string            `json:"name,omitempty"`
+	SourceInterfaces []string          `json:"sourceInterfaces,omitempty"`
+	SourceCIDRs      []string          `json:"sourceCidrs,omitempty"`
+	SourceMACs       []string          `json:"sourceMacs,omitempty"`
+	DestinationCIDRs []string          `json:"destinationCidrs,omitempty"`
+	DestinationPorts []PortRange       `json:"destinationPorts,omitempty"`
+	DestinationASNs  []string          `json:"destinationAsns,omitempty"`
+	Domains          []string          `json:"domains,omitempty"`
+	WildcardDomains  []string          `json:"wildcardDomains,omitempty"`
+	RawSelectors     *RuleRawSelectors `json:"rawSelectors,omitempty"`
+}
+
+// RuleRawSelectors preserves user-entered selector lines (including comments).
+type RuleRawSelectors struct {
+	SourceInterfaces []string `json:"sourceInterfaces,omitempty"`
+	SourceCIDRs      []string `json:"sourceCidrs,omitempty"`
+	SourceMACs       []string `json:"sourceMacs,omitempty"`
+	DestinationCIDRs []string `json:"destinationCidrs,omitempty"`
+	DestinationPorts []string `json:"destinationPorts,omitempty"`
+	DestinationASNs  []string `json:"destinationAsns,omitempty"`
+	Domains          []string `json:"domains,omitempty"`
+	WildcardDomains  []string `json:"wildcardDomains,omitempty"`
 }
 
 // PortRange matches one destination port/range for a specific L4 protocol.
@@ -127,6 +140,8 @@ func normalizeRules(raw []RoutingRule) ([]RoutingRule, error) {
 }
 
 func normalizeRule(raw RoutingRule, idx int) (RoutingRule, error) {
+	rawSelectors := normalizeRuleRawSelectors(raw.RawSelectors)
+	rawSelectors = hydrateRuleRawSelectorsFromRule(rawSelectors, raw)
 	var err error
 	rule := RoutingRule{
 		ID:   raw.ID,
@@ -135,41 +150,61 @@ func normalizeRule(raw RoutingRule, idx int) (RoutingRule, error) {
 	if rule.Name == "" {
 		rule.Name = fmt.Sprintf("Rule %d", idx+1)
 	}
-	rule.SourceInterfaces, err = normalizeInterfaces(raw.SourceInterfaces)
+	sourceInterfaces := selectorValuesFromRaw(rawSelectors.SourceInterfaces)
+	rule.SourceInterfaces, err = normalizeInterfaces(sourceInterfaces)
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.SourceCIDRs, err = normalizeCIDRs(raw.SourceCIDRs, "source")
+	sourceCIDRs := selectorValuesFromRaw(rawSelectors.SourceCIDRs)
+	rule.SourceCIDRs, err = normalizeCIDRs(sourceCIDRs, "source")
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.SourceMACs, err = normalizeMACs(raw.SourceMACs)
+	sourceMACs := selectorValuesFromRaw(rawSelectors.SourceMACs)
+	rule.SourceMACs, err = normalizeMACs(sourceMACs)
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.DestinationCIDRs, err = normalizeCIDRs(raw.DestinationCIDRs, "destination")
+	destinationCIDRs := selectorValuesFromRaw(rawSelectors.DestinationCIDRs)
+	rule.DestinationCIDRs, err = normalizeCIDRs(destinationCIDRs, "destination")
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.DestinationPorts, err = normalizePorts(raw.DestinationPorts)
+	destinationPorts := append([]PortRange(nil), raw.DestinationPorts...)
+	if len(destinationPorts) == 0 {
+		destinationPorts, err = parsePortSelectorStrings(selectorValuesFromRaw(rawSelectors.DestinationPorts))
+		if err != nil {
+			return RoutingRule{}, err
+		}
+	}
+	rule.DestinationPorts, err = normalizePorts(destinationPorts)
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.DestinationASNs, err = normalizeASNs(raw.DestinationASNs)
+	destinationASNs := selectorValuesFromRaw(rawSelectors.DestinationASNs)
+	rule.DestinationASNs, err = normalizeASNs(destinationASNs)
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.Domains, err = normalizeDomains(raw.Domains, false)
+	domains := selectorValuesFromRaw(rawSelectors.Domains)
+	rule.Domains, err = normalizeDomains(domains, false)
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	rule.WildcardDomains, err = normalizeDomains(raw.WildcardDomains, true)
+	wildcards := selectorValuesFromRaw(rawSelectors.WildcardDomains)
+	rule.WildcardDomains, err = normalizeDomains(wildcards, true)
 	if err != nil {
 		return RoutingRule{}, err
 	}
-	if !ruleHasSelectors(rule) {
-		return RoutingRule{}, fmt.Errorf("%w: rule %d must include at least one selector", ErrGroupValidation, idx+1)
+	rawSelectors = finalizeRuleRawSelectors(rawSelectors, rule)
+	if !ruleHasSelectors(rule) && !rawSelectors.hasAnyLine() {
+		return RoutingRule{}, fmt.Errorf(
+			"%w: rule %d must include at least one selector or comment line",
+			ErrGroupValidation,
+			idx+1,
+		)
 	}
+	rule.RawSelectors = &rawSelectors
 	return rule, nil
 }
 

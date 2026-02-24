@@ -121,6 +121,40 @@ func TestDecodeGroupPayloadParsesSourceInterfaceAndMACSelectors(t *testing.T) {
 	}
 }
 
+func TestDecodeGroupPayloadParsesRawSelectors(t *testing.T) {
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(`{
+		"name":"LAN",
+		"egressVpn":"sgp.contoso.com",
+		"rules":[
+			{
+				"name":"Device",
+				"rawSelectors":{
+					"sourceMacs":["#00:11:22:33:44:55","00:11:22:33:44:66#Apple TV"],
+					"domains":["www.apple.com#All Apple"]
+				}
+			}
+		]
+	}`))
+
+	group, err := decodeGroupPayload(request)
+	if err != nil {
+		t.Fatalf("expected valid payload, got %v", err)
+	}
+	if len(group.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(group.Rules))
+	}
+	raw := group.Rules[0].RawSelectors
+	if raw == nil {
+		t.Fatalf("expected raw selectors")
+	}
+	if len(raw.SourceMACs) != 2 || raw.SourceMACs[1] != "00:11:22:33:44:66#Apple TV" {
+		t.Fatalf("unexpected raw source mac selectors: %#v", raw.SourceMACs)
+	}
+	if len(group.Rules[0].SourceMACs) != 1 || group.Rules[0].SourceMACs[0] != "00:11:22:33:44:66" {
+		t.Fatalf("unexpected normalized source MAC selectors: %#v", group.Rules[0].SourceMACs)
+	}
+}
+
 func requestWithVPNNameParam(name string) *http.Request {
 	request := httptest.NewRequest("GET", "/api/vpns/"+name, nil)
 	rctx := chi.NewRouteContext()

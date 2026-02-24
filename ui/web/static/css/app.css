@@ -222,6 +222,19 @@ textarea#vpn-config-editor {
   border-radius: 0.2rem;
 }
 
+#flow-inspector-table .flow-sort {
+  color: inherit;
+  font-weight: 600;
+}
+
+#flow-inspector-table .flow-sort:hover {
+  color: var(--bs-info);
+}
+
+#flow-inspector-table td {
+  vertical-align: top;
+}
+
 #prewarm-progress-bar {
   min-width: 3rem;
 }

@@ -21,6 +21,7 @@
       deleteVPNName,
       confirmDeleteVPNButton,
       routingInspectorController,
+      flowInspectorController,
       fetchJSON,
       setStatus,
       formatLatency,
@@ -51,6 +52,7 @@
       return { render: () => {} };
     }
     const inspectorEnabled = Boolean(routingInspectorController && typeof routingInspectorController.open === 'function');
+    const flowInspectorEnabled = Boolean(flowInspectorController && typeof flowInspectorController.open === 'function');
     const encodeFiles = window.SplitVPNUI && typeof window.SplitVPNUI.encodeSupportingFiles === 'function'
       ? window.SplitVPNUI.encodeSupportingFiles
       : encodeSupportingFiles;
@@ -165,6 +167,14 @@
         await routingInspectorController.open(name);
         return;
       }
+      if (action === 'inspect-flows') {
+        if (!flowInspectorEnabled) {
+          setStatus('Flow inspector is unavailable in this UI build.', true);
+          return;
+        }
+        await flowInspectorController.open(name);
+        return;
+      }
       if (action === 'delete') {
         openDeleteVPNModal(name);
       }
@@ -227,6 +237,9 @@
               </button>
               <button class="btn btn-outline-info" data-action="restart" data-name="${cfg.name}" title="Restart">
                 <i class="bi bi-arrow-repeat"></i>
+              </button>
+              <button class="btn btn-outline-primary" data-action="inspect-flows" data-name="${cfg.name}" title="Inspect live flows" ${flowInspectorEnabled ? '' : 'disabled'}>
+                <i class="bi bi-search"></i>
               </button>
               <button class="btn btn-outline-light" data-action="edit" data-name="${cfg.name}" title="Edit">
                 <i class="bi bi-pencil"></i>

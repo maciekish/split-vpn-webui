@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Added exact prefix-collapsing for runtime ipset programming via `go4.org/netipx` while preserving raw, per-IP visibility in the routing-set inspector entries.
+**Last session summary:** Implemented comment-preserving selector editing (including raw line persistence), searchable source-MAC picker with device-name comments, and a new live VPN flow inspector modal/API with 2-second updates, sortable columns, and 10-minute idle-flow retention.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,50 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Selector comments + source-MAC picker + live flow inspector
+- Added full raw-selector round-trip support (preserves order/comments exactly as entered):
+  - `internal/routing/model.go`: `RoutingRule.RawSelectors` support integrated into normalization.
+  - `internal/routing/model_raw_selectors.go`: raw-line hydration/finalization and active-value extraction from comment-capable lines.
+  - `internal/database/schema.go`: new `routing_rule_selector_lines` table.
+  - `internal/routing/store.go` + `internal/routing/store_rule_raw_lines.go`: raw selector lines now persisted/loaded with stable positions.
+  - `internal/server/handlers_routing.go`: API payload now accepts/emits `rawSelectors`.
+  - `internal/routing/manager.go`: comment-only rules are persisted for editing but skipped for runtime binding generation.
+- Added device listing API and robust directory handling:
+  - New endpoint `GET /api/devices` in `internal/server/handlers_devices.go`.
+  - `internal/server/device_directory.go` now exposes ordered device lists, reverse IP→MAC mapping, and nil-map-safe mutators.
+- Refactored selector-editor frontend and implemented new UX:
+  - New `ui/web/static/js/domain-routing-rules.js` rule-card controller (keeps `domain-routing.js` under file-size limits).
+  - `ui/web/static/js/domain-routing.js` now delegates rule parsing/rendering to controller.
+  - Added searchable source-MAC picker near Source MAC selector, insertion format `mac#Device Name`.
+  - Added comment support guidance to all selector textareas (`#` comment syntax persisted and round-tripped).
+  - Added script include in `ui/web/templates/layout.html`.
+- Added live VPN flow inspector (only active while modal is open):
+  - Backend:
+    - `internal/server/flow_inspector_conntrack.go`: conntrack snapshot runner/parser.
+    - `internal/server/flow_inspector_matcher.go`: per-VPN flow classification against active routing selectors/sets.
+    - `internal/server/flow_inspector.go`: session management, 2s-rate deltas, per-session totals, 10-minute idle retention.
+    - `internal/server/handlers_vpn_flow_inspector.go`: start/poll/stop APIs.
+    - `internal/server/server.go`: wired manager/runner and API routes.
+  - New API routes:
+    - `POST /api/vpns/{name}/flow-inspector/start`
+    - `GET /api/vpns/{name}/flow-inspector/{sessionID}`
+    - `POST /api/vpns/{name}/flow-inspector/{sessionID}/stop`
+  - Frontend:
+    - New modal in `ui/web/templates/layout.html` with sortable source/destination/download/upload/session-data columns.
+    - New `ui/web/static/js/app-vpn-flow-inspector.js` controller with polling lifecycle and modal teardown.
+    - Added loupe/search action on VPN interface cards (`ui/web/static/js/app-chart-helpers.js`) and VPN table rows (`ui/web/static/js/app-vpn-helpers.js`).
+    - Wired controller in `ui/web/static/js/app.js`.
+    - Added flow-table styles in `ui/web/static/css/app.css`.
+- Added/updated tests:
+  - `internal/server/flow_inspector_conntrack_test.go`
+  - `internal/server/flow_inspector_test.go`
+  - `internal/server/device_directory_test.go` (order + search text coverage)
+  - `internal/routing/store_test.go` (raw selector comment persistence)
+  - `internal/routing/model_test.go` (raw selector normalization with comments)
+  - `internal/server/server_test.go` (`decodeGroupPayload` raw selector coverage)
+- Validation run:
+  - `go test ./...`
 
 ### 2026-02-24 — Runtime ipset prefix collapse + raw inspector entries
 - Added exact CIDR aggregation for runtime set programming:

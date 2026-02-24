@@ -25,6 +25,7 @@ func TestOpen_InMemory(t *testing.T) {
 		"routing_rule_ports",
 		"routing_rule_asns",
 		"routing_rule_domains",
+		"routing_rule_selector_lines",
 		"resolver_cache",
 		"resolver_runs",
 		"prewarm_runs",

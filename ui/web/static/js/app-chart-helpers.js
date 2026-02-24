@@ -1,6 +1,5 @@
 (() => {
   window.SplitVPNUI = window.SplitVPNUI || {};
-
   window.SplitVPNUI.createChartHelpers = function createChartHelpers(ctx) {
     const palette = Array.isArray(ctx?.palette) && ctx.palette.length > 0
       ? ctx.palette
@@ -9,7 +8,6 @@
     const downloadFill = ctx?.downloadFill || 'rgba(96, 165, 250, 0.15)';
     const uploadColor = ctx?.uploadColor || '#f87171';
     const uploadFill = ctx?.uploadFill || 'rgba(248, 113, 113, 0.15)';
-
     function createGauge(canvasId, legendId, formatter) {
       const canvas = document.getElementById(canvasId);
       if (!canvas) {
@@ -51,7 +49,6 @@
       chart.$legend = legend;
       return chart;
     }
-
     function updateGaugeChart(chart, labels, data) {
       if (!chart) {
         return;
@@ -67,7 +64,6 @@
       chart.update('none');
       updateGaugeLegend(chart, labels, data);
     }
-
     function updateGaugeLegend(chart, labels, data) {
       if (!chart?.$legend) {
         return;
@@ -78,15 +74,12 @@
       labels.forEach((label, index) => {
         const row = document.createElement('div');
         row.className = 'gauge-legend-row';
-
         const labelWrap = document.createElement('div');
         labelWrap.className = 'gauge-legend-label';
-
         const swatch = document.createElement('span');
         swatch.className = 'gauge-legend-swatch';
         swatch.style.backgroundColor = colors[index] || palette[index % palette.length];
         labelWrap.appendChild(swatch);
-
         const text = document.createElement('span');
         text.className = 'gauge-legend-text';
         text.textContent = label || '';
@@ -94,18 +87,15 @@
           text.title = label;
         }
         labelWrap.appendChild(text);
-
         const value = document.createElement('div');
         value.className = 'gauge-legend-value';
         const formatter = chart.$formatter || ((val) => val.toString());
         value.textContent = formatter(data[index] || 0);
-
         row.appendChild(labelWrap);
         row.appendChild(value);
         legend.appendChild(row);
       });
     }
-
     function resolveGaugeColors(labels) {
       if (!(ctx?.state?.gaugeColors instanceof Map)) {
         return labels.map((_, index) => palette[index % palette.length]);
@@ -138,7 +128,6 @@
       }
       return colors;
     }
-
     function updateInterfaceCards(interfaces, configs, latency) {
       if (!(ctx?.state?.interfaceCharts instanceof Map) || !ctx.interfaceGrid) {
         return;
@@ -146,7 +135,6 @@
       const existing = new Set(ctx.state.interfaceCharts.keys());
       const configMap = new Map(configs.map((cfg) => [cfg.interfaceName, cfg]));
       const latencyMap = new Map(latency.map((item) => [item.name, item]));
-
       interfaces.forEach((iface, index) => {
         const key = iface.name;
         existing.delete(key);
@@ -160,7 +148,6 @@
         }
         updateInterfaceCard(iface, cfg, latencyInfo, index);
       });
-
       existing.forEach((name) => {
         const record = ctx.state.interfaceCharts.get(name);
         if (!record) {
@@ -171,16 +158,13 @@
         ctx.state.interfaceCharts.delete(name);
       });
     }
-
     function createInterfaceCard(iface, index) {
       const col = document.createElement('div');
       col.className = 'col-12 col-lg-6 col-xl-4';
       col.dataset.interface = iface.name;
       col.style.order = index + 1;
-
       const card = document.createElement('div');
       card.className = 'card interface-card h-100 shadow-sm';
-
       const header = document.createElement('div');
       header.className = 'card-header d-flex justify-content-between align-items-center';
       header.innerHTML = `
@@ -188,16 +172,30 @@
           <span class="fw-semibold" data-field="name">${iface.name}</span>
           <div class="small text-body-secondary" data-field="iface">${iface.interface || ''}</div>
         </div>`;
-
+      const actions = document.createElement('div');
+      actions.className = 'd-flex align-items-center gap-2';
+      const inspectButton = document.createElement('button');
+      inspectButton.type = 'button';
+      inspectButton.className = 'btn btn-outline-light btn-sm d-none';
+      inspectButton.title = 'Inspect live VPN flows';
+      inspectButton.innerHTML = '<i class="bi bi-search"></i>';
+      inspectButton.addEventListener('click', () => {
+        if (!inspectButton.dataset.vpnName) {
+          return;
+        }
+        if (typeof ctx?.onInspectFlows === 'function') {
+          ctx.onInspectFlows(inspectButton.dataset.vpnName);
+        }
+      });
       const badge = document.createElement('span');
       badge.className = 'badge rounded-pill text-bg-primary badge-operstate';
       badge.textContent = iface.type === 'wan' ? 'WAN' : 'VPN';
-      header.appendChild(badge);
+      actions.appendChild(inspectButton);
+      actions.appendChild(badge);
+      header.appendChild(actions);
       card.appendChild(header);
-
       const body = document.createElement('div');
       body.className = 'card-body d-flex flex-column gap-3';
-
       const statsRow = document.createElement('div');
       statsRow.className = 'stats-row';
       statsRow.innerHTML = `
@@ -218,21 +216,17 @@
           <div class="fw-semibold" data-field="total">–</div>
         </div>`;
       body.appendChild(statsRow);
-
       const statusLine = document.createElement('div');
       statusLine.className = 'text-body-secondary small';
       statusLine.dataset.field = 'status';
       body.appendChild(statusLine);
-
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-wrapper';
       const canvas = document.createElement('canvas');
       chartWrapper.appendChild(canvas);
       body.appendChild(chartWrapper);
-
       card.appendChild(body);
       col.appendChild(card);
-
       const chart = new Chart(canvas.getContext('2d'), {
         type: 'line',
         data: {
@@ -285,18 +279,17 @@
           },
         },
       });
-
       return {
         container: col,
         chart,
         body,
         badge,
+        inspectButton,
         statusLine,
         nameEl: header.querySelector('[data-field="name"]'),
         ifaceEl: header.querySelector('[data-field="iface"]'),
       };
     }
-
     function updateInterfaceCard(iface, cfg, latencyInfo, index) {
       const record = ctx?.state?.interfaceCharts?.get(iface.name);
       if (!record) {
@@ -314,7 +307,12 @@
       if (record.badge) {
         record.badge.textContent = iface.type === 'wan' ? 'WAN' : 'VPN';
       }
-
+      if (record.inspectButton) {
+        const vpnName = String(cfg?.name || '').trim();
+        const enabled = iface.type === 'vpn' && vpnName !== '';
+        record.inspectButton.classList.toggle('d-none', !enabled);
+        record.inspectButton.dataset.vpnName = enabled ? vpnName : '';
+      }
       const statsRow = record.body.querySelector('.stats-row');
       const downloadLabel = formatThroughput(iface.currentRxThroughput || 0);
       const uploadLabel = formatThroughput(iface.currentTxThroughput || 0);
@@ -322,7 +320,6 @@
       statsRow.querySelector('[data-field="rx"]').textContent = formatBytes(iface.rxBytes);
       statsRow.querySelector('[data-field="tx"]').textContent = formatBytes(iface.txBytes);
       statsRow.querySelector('[data-field="total"]').textContent = formatBytes(iface.totalBytes);
-
       if (record.statusLine) {
         const status = deriveInterfaceStatus(iface, cfg, latencyInfo);
         record.statusLine.textContent = status.text;
@@ -333,7 +330,6 @@
           record.statusLine.removeAttribute('title');
         }
       }
-
       const history = Array.isArray(iface.history) ? iface.history : [];
       const labels = buildTimeLabels(history);
       const downloads = history.map((point) => point.rxThroughput || 0);
@@ -347,7 +343,6 @@
       record.chart.options.scales.y.suggestedMax = Math.max(100000, peakValue > 0 ? peakValue * 1.2 : 0);
       record.chart.update('none');
     }
-
     function deriveInterfaceStatus(iface, cfg, latencyInfo) {
       if (!iface) {
         return { text: '', level: 'muted' };
@@ -378,7 +373,6 @@
       }
       return { text: `${displayName} • ${capitalizeWord(operState)}`, level: 'muted' };
     }
-
     function resolveInterfaceDisplayName(iface, cfg) {
       if (!iface) {
         return '';
@@ -394,7 +388,6 @@
       }
       return iface.interface || 'Interface';
     }
-
     function applyStatusTone(element, tone) {
       if (!element) {
         return;
@@ -416,7 +409,6 @@
           break;
       }
     }
-
     function formatThroughput(value) {
       const units = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'];
       let val = value;
@@ -427,14 +419,12 @@
       }
       return `${val.toFixed(val >= 100 ? 0 : val >= 10 ? 1 : 2)} ${units[index]}`;
     }
-
     function capitalizeWord(value) {
       if (!value) {
         return '';
       }
       return value.charAt(0).toUpperCase() + value.slice(1);
     }
-
     function formatBytes(value) {
       const units = ['B', 'KB', 'MB', 'GB', 'TB'];
       let val = value;
@@ -445,7 +435,6 @@
       }
       return `${val.toFixed(val >= 100 ? 0 : val >= 10 ? 1 : 2)} ${units[index]}`;
     }
-
     function formatLatency(value) {
       if (!value && value !== 0) {
         return '–';
@@ -455,7 +444,6 @@
       }
       return `${value.toFixed(0)} ms`;
     }
-
     function formatTime(timestamp) {
       const date = new Date(timestamp);
       if (Number.isNaN(date.getTime())) {
@@ -463,7 +451,6 @@
       }
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
-
     function buildTimeLabels(history) {
       let lastLabel = '';
       return history.map((point) => {
@@ -478,7 +465,6 @@
         return label;
       });
     }
-
     return {
       createGauge,
       updateGaugeChart,

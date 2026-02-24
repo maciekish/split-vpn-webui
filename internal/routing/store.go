@@ -343,6 +343,9 @@ func replaceRulesTx(ctx context.Context, tx *sql.Tx, groupID int64, rules []Rout
 				return err
 			}
 		}
+		if err := insertRuleRawSelectorsTx(ctx, tx, ruleID, rule.RawSelectors); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -443,6 +446,10 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 	if err != nil {
 		return nil, err
 	}
+	rawSelectorsByRule, err := listRuleRawSelectors(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, entry := range stored {
 		rule := entry.rule
@@ -454,6 +461,10 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 		rule.DestinationASNs = append([]string(nil), asnByRule[entry.ruleID]...)
 		rule.Domains = append([]string(nil), domainsByRule[entry.ruleID]...)
 		rule.WildcardDomains = append([]string(nil), wildcardsByRule[entry.ruleID]...)
+		rawSelectors := rawSelectorsByRule[entry.ruleID]
+		rawSelectors = hydrateRuleRawSelectorsFromRule(rawSelectors, rule)
+		rawSelectors = finalizeRuleRawSelectors(rawSelectors, rule)
+		rule.RawSelectors = &rawSelectors
 		rulesByGroup[entry.groupID] = append(rulesByGroup[entry.groupID], rule)
 	}
 	return rulesByGroup, nil

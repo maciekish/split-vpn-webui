@@ -21,15 +21,27 @@ type groupUpsertPayload struct {
 }
 
 type ruleUpsertPayload struct {
-	Name             string              `json:"name"`
-	SourceInterfaces []string            `json:"sourceInterfaces,omitempty"`
-	SourceCIDRs      []string            `json:"sourceCidrs,omitempty"`
-	SourceMACs       []string            `json:"sourceMacs,omitempty"`
-	DestinationCIDRs []string            `json:"destinationCidrs,omitempty"`
-	DestinationPorts []portUpsertPayload `json:"destinationPorts,omitempty"`
-	DestinationASNs  []string            `json:"destinationAsns,omitempty"`
-	Domains          []string            `json:"domains,omitempty"`
-	WildcardDomains  []string            `json:"wildcardDomains,omitempty"`
+	Name             string                  `json:"name"`
+	SourceInterfaces []string                `json:"sourceInterfaces,omitempty"`
+	SourceCIDRs      []string                `json:"sourceCidrs,omitempty"`
+	SourceMACs       []string                `json:"sourceMacs,omitempty"`
+	DestinationCIDRs []string                `json:"destinationCidrs,omitempty"`
+	DestinationPorts []portUpsertPayload     `json:"destinationPorts,omitempty"`
+	DestinationASNs  []string                `json:"destinationAsns,omitempty"`
+	Domains          []string                `json:"domains,omitempty"`
+	WildcardDomains  []string                `json:"wildcardDomains,omitempty"`
+	RawSelectors     ruleRawSelectorsPayload `json:"rawSelectors,omitempty"`
+}
+
+type ruleRawSelectorsPayload struct {
+	SourceInterfaces []string `json:"sourceInterfaces,omitempty"`
+	SourceCIDRs      []string `json:"sourceCidrs,omitempty"`
+	SourceMACs       []string `json:"sourceMacs,omitempty"`
+	DestinationCIDRs []string `json:"destinationCidrs,omitempty"`
+	DestinationPorts []string `json:"destinationPorts,omitempty"`
+	DestinationASNs  []string `json:"destinationAsns,omitempty"`
+	Domains          []string `json:"domains,omitempty"`
+	WildcardDomains  []string `json:"wildcardDomains,omitempty"`
 }
 
 type portUpsertPayload struct {
@@ -155,6 +167,16 @@ func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 			DestinationASNs:  append([]string(nil), rule.DestinationASNs...),
 			Domains:          append([]string(nil), rule.Domains...),
 			WildcardDomains:  append([]string(nil), rule.WildcardDomains...),
+			RawSelectors: &routing.RuleRawSelectors{
+				SourceInterfaces: append([]string(nil), rule.RawSelectors.SourceInterfaces...),
+				SourceCIDRs:      append([]string(nil), rule.RawSelectors.SourceCIDRs...),
+				SourceMACs:       append([]string(nil), rule.RawSelectors.SourceMACs...),
+				DestinationCIDRs: append([]string(nil), rule.RawSelectors.DestinationCIDRs...),
+				DestinationPorts: append([]string(nil), rule.RawSelectors.DestinationPorts...),
+				DestinationASNs:  append([]string(nil), rule.RawSelectors.DestinationASNs...),
+				Domains:          append([]string(nil), rule.RawSelectors.Domains...),
+				WildcardDomains:  append([]string(nil), rule.RawSelectors.WildcardDomains...),
+			},
 		})
 	}
 	return routing.NormalizeAndValidate(routing.DomainGroup{

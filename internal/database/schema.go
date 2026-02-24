@@ -104,6 +104,16 @@ CREATE TABLE IF NOT EXISTS routing_rule_domains (
 CREATE INDEX IF NOT EXISTS idx_routing_rule_domains_rule
     ON routing_rule_domains (rule_id);
 
+CREATE TABLE IF NOT EXISTS routing_rule_selector_lines (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id  INTEGER NOT NULL REFERENCES routing_rules(id) ON DELETE CASCADE,
+    selector TEXT    NOT NULL,
+    line     TEXT    NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_routing_rule_selector_lines_rule
+    ON routing_rule_selector_lines (rule_id, selector, position, id);
+
 CREATE TABLE IF NOT EXISTS resolver_cache (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     selector_type TEXT    NOT NULL,

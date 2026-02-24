@@ -14,16 +14,22 @@ import (
 )
 
 type deviceDirectory struct {
-	byMAC  map[string]string
-	byIP   map[string]string
-	ipsMAC map[string]map[string]struct{}
+	byMAC   map[string]string
+	byIP    map[string]string
+	ipsMAC  map[string]map[string]struct{}
+	macByIP map[string]string
+	order   []string
+	seenMAC map[string]struct{}
 }
 
 func loadDeviceDirectory(ctx context.Context) deviceDirectory {
 	directory := deviceDirectory{
-		byMAC:  make(map[string]string),
-		byIP:   make(map[string]string),
-		ipsMAC: make(map[string]map[string]struct{}),
+		byMAC:   make(map[string]string),
+		byIP:    make(map[string]string),
+		ipsMAC:  make(map[string]map[string]struct{}),
+		macByIP: make(map[string]string),
+		order:   make([]string, 0),
+		seenMAC: make(map[string]struct{}),
 	}
 	loadDHCPLeaseDeviceNames(&directory)
 	loadUDAPIClientDeviceNames(ctx, &directory)
@@ -31,15 +37,21 @@ func loadDeviceDirectory(ctx context.Context) deviceDirectory {
 }
 
 func (d *deviceDirectory) addMACName(mac, name string) {
+	d.ensureMaps()
 	normalizedMAC := normalizeMAC(mac)
 	normalizedName := normalizeDeviceName(name)
-	if normalizedMAC == "" || normalizedName == "" {
+	if normalizedMAC == "" {
+		return
+	}
+	d.ensureOrderedMAC(normalizedMAC)
+	if normalizedName == "" {
 		return
 	}
 	d.byMAC[normalizedMAC] = normalizedName
 }
 
 func (d *deviceDirectory) addIPName(ip, name string) {
+	d.ensureMaps()
 	normalizedIP := normalizeIP(ip)
 	normalizedName := normalizeDeviceName(name)
 	if normalizedIP == "" || normalizedName == "" {
@@ -49,17 +61,50 @@ func (d *deviceDirectory) addIPName(ip, name string) {
 }
 
 func (d *deviceDirectory) addMACIP(mac, ip string) {
+	d.ensureMaps()
 	normalizedMAC := normalizeMAC(mac)
 	normalizedIP := normalizeIP(ip)
 	if normalizedMAC == "" || normalizedIP == "" {
 		return
 	}
+	d.ensureOrderedMAC(normalizedMAC)
 	bucket := d.ipsMAC[normalizedMAC]
 	if bucket == nil {
 		bucket = make(map[string]struct{})
 		d.ipsMAC[normalizedMAC] = bucket
 	}
 	bucket[normalizedIP] = struct{}{}
+	d.macByIP[normalizedIP] = normalizedMAC
+}
+
+func (d *deviceDirectory) ensureOrderedMAC(mac string) {
+	d.ensureMaps()
+	if _, exists := d.seenMAC[mac]; exists {
+		return
+	}
+	d.seenMAC[mac] = struct{}{}
+	d.order = append(d.order, mac)
+}
+
+func (d *deviceDirectory) ensureMaps() {
+	if d.byMAC == nil {
+		d.byMAC = make(map[string]string)
+	}
+	if d.byIP == nil {
+		d.byIP = make(map[string]string)
+	}
+	if d.ipsMAC == nil {
+		d.ipsMAC = make(map[string]map[string]struct{})
+	}
+	if d.macByIP == nil {
+		d.macByIP = make(map[string]string)
+	}
+	if d.order == nil {
+		d.order = make([]string, 0)
+	}
+	if d.seenMAC == nil {
+		d.seenMAC = make(map[string]struct{})
+	}
 }
 
 func (d *deviceDirectory) lookupMAC(mac string) (string, []string) {
@@ -82,6 +127,42 @@ func (d *deviceDirectory) lookupMAC(mac string) (string, []string) {
 
 func (d *deviceDirectory) lookupIP(value string) string {
 	return d.byIP[normalizeIP(value)]
+}
+
+func (d *deviceDirectory) lookupIPMAC(value string) string {
+	return d.macByIP[normalizeIP(value)]
+}
+
+type discoveredDevice struct {
+	MAC        string   `json:"mac"`
+	Name       string   `json:"name,omitempty"`
+	IPHints    []string `json:"ipHints,omitempty"`
+	SearchText string   `json:"searchText,omitempty"`
+}
+
+func (d *deviceDirectory) listDevices() []discoveredDevice {
+	devices := make([]discoveredDevice, 0, len(d.order))
+	for _, mac := range d.order {
+		name := strings.TrimSpace(d.byMAC[mac])
+		ipsMap := d.ipsMAC[mac]
+		ips := make([]string, 0, len(ipsMap))
+		for ip := range ipsMap {
+			ips = append(ips, ip)
+		}
+		sort.Strings(ips)
+		searchParts := []string{mac}
+		if name != "" {
+			searchParts = append(searchParts, name)
+		}
+		searchParts = append(searchParts, ips...)
+		devices = append(devices, discoveredDevice{
+			MAC:        mac,
+			Name:       name,
+			IPHints:    ips,
+			SearchText: strings.ToLower(strings.Join(searchParts, " ")),
+		})
+	}
+	return devices
 }
 
 func normalizeMAC(raw string) string {

@@ -54,3 +54,22 @@ func TestIngestDevicePayloadMapsMACAndIP(t *testing.T) {
 		t.Fatalf("expected ip name mapping for 10.0.1.30")
 	}
 }
+
+func TestDeviceDirectoryListDevicesPreservesDiscoveryOrder(t *testing.T) {
+	directory := deviceDirectory{}
+	directory.addMACName("00:11:22:33:44:55", "First Device")
+	directory.addMACIP("00:11:22:33:44:55", "10.0.1.10")
+	directory.addMACName("00:11:22:33:44:66", "Second Device")
+	directory.addMACIP("00:11:22:33:44:66", "10.0.1.20")
+
+	list := directory.listDevices()
+	if len(list) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(list))
+	}
+	if list[0].MAC != "00:11:22:33:44:55" || list[1].MAC != "00:11:22:33:44:66" {
+		t.Fatalf("expected insertion order to be preserved, got %#v", list)
+	}
+	if list[0].SearchText == "" || list[1].SearchText == "" {
+		t.Fatalf("expected non-empty search text fields")
+	}
+}

@@ -37,6 +37,17 @@
   const routingInspectorSearchRegex = document.getElementById('routing-inspector-search-regex');
   const routingInspectorSearchMeta = document.getElementById('routing-inspector-search-meta');
   const routingInspectorContent = document.getElementById('routing-inspector-content');
+  const flowInspectorModalElement = document.getElementById('flowInspectorModal');
+  const flowInspectorModal = flowInspectorModalElement
+    ? new bootstrap.Modal(flowInspectorModalElement)
+    : null;
+  const flowInspectorTitle = document.getElementById('flow-inspector-title');
+  const flowInspectorStatus = document.getElementById('flow-inspector-status');
+  const flowInspectorSummaryVPN = document.getElementById('flow-inspector-summary-vpn');
+  const flowInspectorSummaryFlows = document.getElementById('flow-inspector-summary-flows');
+  const flowInspectorSummaryTotal = document.getElementById('flow-inspector-summary-total');
+  const flowInspectorUpdatedAt = document.getElementById('flow-inspector-updated-at');
+  const flowInspectorTableBody = document.getElementById('flow-inspector-table-body');
   const settingsModalElement = document.getElementById('settingsModal');
   const settingsModal = new bootstrap.Modal(settingsModalElement);
   const listenSelect = document.getElementById('listen-interface');
@@ -72,6 +83,7 @@
   const chartHelpersFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createChartHelpers === 'function'
     ? window.SplitVPNUI.createChartHelpers
     : null;
+  let flowInspectorController = null;
   const chartHelpers = chartHelpersFactory
     ? chartHelpersFactory({
       interfaceGrid,
@@ -81,6 +93,13 @@
       downloadFill,
       uploadColor,
       uploadFill,
+      onInspectFlows: (vpnName) => {
+        if (flowInspectorController?.open) {
+          flowInspectorController.open(vpnName);
+          return;
+        }
+        setStatus('Flow inspector is unavailable in this UI build.', true);
+      },
     })
     : null;
   const formatThroughput = chartHelpers?.formatThroughput || ((value) => `${Number(value || 0)} bps`);
@@ -197,6 +216,26 @@
       setStatus,
     })
     : null;
+  const flowInspectorFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createFlowInspectorController === 'function'
+    ? window.SplitVPNUI.createFlowInspectorController
+    : null;
+  flowInspectorController = flowInspectorFactory
+    ? flowInspectorFactory({
+      flowInspectorModalElement,
+      flowInspectorModal,
+      flowInspectorTitle,
+      flowInspectorStatus,
+      flowInspectorSummaryVPN,
+      flowInspectorSummaryFlows,
+      flowInspectorSummaryTotal,
+      flowInspectorUpdatedAt,
+      flowInspectorTableBody,
+      fetchJSON,
+      setStatus,
+      formatThroughput,
+      formatBytes,
+    })
+    : null;
   const vpnControllerFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createVPNController === 'function'
     ? window.SplitVPNUI.createVPNController
     : null;
@@ -220,6 +259,7 @@
       deleteVPNName,
       confirmDeleteVPNButton,
       routingInspectorController,
+      flowInspectorController,
       fetchJSON,
       setStatus,
       formatLatency,
