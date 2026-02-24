@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Added client-side search to the routing-set inspector modal (plain text + regex) with line-level filtering, match highlighting, and result/meta feedback for quick inspection of large routing sets.
+**Last session summary:** Added exact prefix-collapsing for runtime ipset programming via `go4.org/netipx` while preserving raw, per-IP visibility in the routing-set inspector entries.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,23 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Runtime ipset prefix collapse + raw inspector entries
+- Added exact CIDR aggregation for runtime set programming:
+  - New helper: `internal/routing/prefix_aggregate.go`
+  - Uses `go4.org/netipx` (`IPSetBuilder`) to collapse deduped entries into minimal equivalent prefixes with no over-inclusion.
+  - Integrated into `internal/routing/manager_sets.go` (`applyDesiredSets`) before atomic ipset apply.
+- Kept routing-set inspector detailed and human-debuggable:
+  - Inspector entry lines now render from raw merged rule/resolver/prewarm data (pre-collapse), while `entryCount` still reports the actual runtime ipset member count.
+  - Updated backend in `internal/server/handlers_routing_inspector.go` with raw-member builders and family split helpers.
+- Added regression tests:
+  - `internal/routing/prefix_aggregate_test.go` (IPv4/IPv6 collapse, dedup/host-form handling, family mismatch guard).
+  - `internal/server/routing_inspector_test.go` extended to verify raw-member display with runtime-count preservation.
+- Dependency update:
+  - Added `go4.org/netipx` to `go.mod`/`go.sum`.
+- Validation run:
+  - `go test ./internal/routing ./internal/server -count=1`
+  - `go test ./... -count=1`
 
 ### 2026-02-24 — Routing inspector modal search/filter/highlight
 - Added browser-side searchable routing inspector modal controls:

@@ -127,10 +127,12 @@ func (s *Server) buildVPNRoutingInspector(r *http.Request, vpnName string) (*rou
 			}
 			if ruleNeedsSourceSet(rule) {
 				sourceProvenance := sourceSetProvenance(rule)
+				sourceEntriesV4, sourceEntriesV6 := splitRawMembersByFamily(rule.SourceCIDRs)
 				ruleView.SourceSetV4 = buildRoutingInspectorSet(
 					pair.SourceV4,
 					"inet",
 					setSnapshots[pair.SourceV4],
+					sourceEntriesV4,
 					sourceProvenance,
 					devices,
 					true,
@@ -139,6 +141,7 @@ func (s *Server) buildVPNRoutingInspector(r *http.Request, vpnName string) (*rou
 					pair.SourceV6,
 					"inet6",
 					setSnapshots[pair.SourceV6],
+					sourceEntriesV6,
 					sourceProvenance,
 					devices,
 					true,
@@ -149,10 +152,13 @@ func (s *Server) buildVPNRoutingInspector(r *http.Request, vpnName string) (*rou
 			if ruleNeedsDestinationSet(rule) {
 				destV4Provenance := destinationSetProvenance(rule, pair.DestinationV4, "inet", resolved, prewarmed)
 				destV6Provenance := destinationSetProvenance(rule, pair.DestinationV6, "inet6", resolved, prewarmed)
+				destEntries := destinationRawMembers(rule, pair, resolved, prewarmed)
+				destEntriesV4, destEntriesV6 := splitRawMembersByFamily(destEntries)
 				ruleView.DestinationSetV4 = buildRoutingInspectorSet(
 					pair.DestinationV4,
 					"inet",
 					setSnapshots[pair.DestinationV4],
+					destEntriesV4,
 					destV4Provenance,
 					devices,
 					false,
@@ -161,6 +167,7 @@ func (s *Server) buildVPNRoutingInspector(r *http.Request, vpnName string) (*rou
 					pair.DestinationV6,
 					"inet6",
 					setSnapshots[pair.DestinationV6],
+					destEntriesV6,
 					destV6Provenance,
 					devices,
 					false,
@@ -270,16 +277,21 @@ func buildRoutingInspectorSet(
 	name string,
 	family string,
 	snapshot ipsetSnapshot,
+	rawMembers []string,
 	provenance map[string]map[string]struct{},
 	devices deviceDirectory,
 	includeDevice bool,
 ) routingInspectorSetSnapshot {
+	members := rawMembers
+	if len(members) == 0 {
+		members = snapshot.Members
+	}
 	out := routingInspectorSetSnapshot{
 		Name:       name,
 		EntryCount: snapshot.Count,
-		Entries:    make([]routingInspectorSetEntry, 0, len(snapshot.Members)),
+		Entries:    make([]routingInspectorSetEntry, 0, len(members)),
 	}
-	for _, value := range snapshot.Members {
+	for _, value := range members {
 		canonical := canonicalizeSetValue(value, family)
 		entry := routingInspectorSetEntry{
 			Value:     value,
@@ -303,6 +315,78 @@ func buildRoutingInspectorSet(
 		}
 		return left < right
 	})
+	return out
+}
+
+func destinationRawMembers(
+	rule routing.RoutingRule,
+	pair routing.RuleSetPair,
+	resolved map[routing.ResolverSelector]routing.ResolverValues,
+	prewarmed map[string]routing.ResolverValues,
+) []string {
+	entries := make([]string, 0, len(rule.DestinationCIDRs))
+	entries = append(entries, rule.DestinationCIDRs...)
+	for _, asn := range rule.DestinationASNs {
+		key := normalizeASNSelector(asn)
+		values := resolved[routing.ResolverSelector{Type: "asn", Key: key}]
+		entries = append(entries, values.V4...)
+		entries = append(entries, values.V6...)
+	}
+	for _, domain := range rule.Domains {
+		values := resolved[routing.ResolverSelector{Type: "domain", Key: domain}]
+		entries = append(entries, values.V4...)
+		entries = append(entries, values.V6...)
+	}
+	for _, wildcard := range rule.WildcardDomains {
+		values := resolved[routing.ResolverSelector{Type: "wildcard", Key: wildcard}]
+		entries = append(entries, values.V4...)
+		entries = append(entries, values.V6...)
+	}
+	if values, ok := prewarmed[pair.DestinationV4]; ok {
+		entries = append(entries, values.V4...)
+		entries = append(entries, values.V6...)
+	}
+	if values, ok := prewarmed[pair.DestinationV6]; ok {
+		entries = append(entries, values.V4...)
+		entries = append(entries, values.V6...)
+	}
+	return dedupeAndSortMembers(entries)
+}
+
+func splitRawMembersByFamily(entries []string) (v4 []string, v6 []string) {
+	v4 = make([]string, 0, len(entries))
+	v6 = make([]string, 0, len(entries))
+	for _, value := range entries {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if canonicalizeSetValue(trimmed, "inet6") != "" {
+			v6 = append(v6, trimmed)
+			continue
+		}
+		if canonicalizeSetValue(trimmed, "inet") != "" {
+			v4 = append(v4, trimmed)
+		}
+	}
+	return dedupeAndSortMembers(v4), dedupeAndSortMembers(v6)
+}
+
+func dedupeAndSortMembers(entries []string) []string {
+	seen := make(map[string]struct{}, len(entries))
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
 	return out
 }
 

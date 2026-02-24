@@ -36,6 +36,7 @@ func TestBuildRoutingInspectorSetIncludesProvenanceAndDevice(t *testing.T) {
 		"svpn_lan_r1s4",
 		"inet",
 		ipsetSnapshot{Count: 1, Members: []string{"192.168.1.20"}},
+		[]string{"192.168.1.20"},
 		provenance,
 		directory,
 		true,
@@ -52,6 +53,30 @@ func TestBuildRoutingInspectorSetIncludesProvenanceAndDevice(t *testing.T) {
 	}
 	if len(entry.Provenance) != 1 || entry.Provenance[0] != "source CIDR: 192.168.1.20/32" {
 		t.Fatalf("unexpected provenance: %#v", entry.Provenance)
+	}
+}
+
+func TestBuildRoutingInspectorSetUsesRawMembersWhenProvided(t *testing.T) {
+	provenance := map[string]map[string]struct{}{
+		"198.51.100.10/32": {"domain api.contoso.com (resolver)": {}},
+	}
+	set := buildRoutingInspectorSet(
+		"svpn_web_r1d4",
+		"inet",
+		ipsetSnapshot{Count: 1, Members: []string{"198.51.100.10/31"}},
+		[]string{"198.51.100.10/32"},
+		provenance,
+		deviceDirectory{},
+		false,
+	)
+	if set.EntryCount != 1 {
+		t.Fatalf("expected runtime entry count to stay 1, got %d", set.EntryCount)
+	}
+	if len(set.Entries) != 1 {
+		t.Fatalf("expected one displayed entry, got %d", len(set.Entries))
+	}
+	if set.Entries[0].Value != "198.51.100.10/32" {
+		t.Fatalf("expected raw member display, got %q", set.Entries[0].Value)
 	}
 }
 

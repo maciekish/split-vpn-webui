@@ -103,6 +103,10 @@ func (m *Manager) applyDesiredSets(desiredSets map[string]desiredSetDefinition) 
 			return fmt.Errorf("invalid set family %q for %s", def.Family, setName)
 		}
 		entries := dedupeSortedStrings(def.Entries)
+		entries, err := collapseSetEntries(entries, family)
+		if err != nil {
+			return fmt.Errorf("collapse entries for %s: %w", setName, err)
+		}
 		if err := m.applySetAtomically(setName, family, entries); err != nil {
 			return err
 		}
