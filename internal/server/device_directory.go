@@ -32,6 +32,7 @@ func loadDeviceDirectory(ctx context.Context) deviceDirectory {
 		seenMAC: make(map[string]struct{}),
 	}
 	loadDHCPLeaseDeviceNames(&directory)
+	loadIPNeighborDeviceMACs(ctx, &directory)
 	loadUDAPIClientDeviceNames(ctx, &directory)
 	return directory
 }
@@ -270,6 +271,66 @@ func loadUDAPIClientDeviceNames(ctx context.Context, directory *deviceDirectory)
 		}
 		ingestDevicePayload(payload, directory)
 	}
+}
+
+func loadIPNeighborDeviceMACs(ctx context.Context, directory *deviceDirectory) {
+	commands := [][]string{
+		{"ip", "neigh", "show"},
+		{"ip", "-6", "neigh", "show"},
+	}
+	for _, command := range commands {
+		if len(command) == 0 {
+			continue
+		}
+		runCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+		output, err := exec.CommandContext(runCtx, command[0], command[1:]...).Output()
+		cancel()
+		if err != nil || len(output) == 0 {
+			continue
+		}
+		for _, row := range parseIPNeighborRows(string(output)) {
+			directory.addMACIP(row.MAC, row.IP)
+		}
+	}
+}
+
+type ipNeighborRow struct {
+	IP  string
+	MAC string
+}
+
+func parseIPNeighborRows(raw string) []ipNeighborRow {
+	lines := strings.Split(raw, "\n")
+	rows := make([]ipNeighborRow, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) < 3 {
+			continue
+		}
+		ipValue := normalizeIP(fields[0])
+		if ipValue == "" {
+			continue
+		}
+		macValue := ""
+		for index := 1; index < len(fields)-1; index++ {
+			if strings.EqualFold(fields[index], "lladdr") {
+				macValue = normalizeMAC(fields[index+1])
+				break
+			}
+		}
+		if macValue == "" {
+			continue
+		}
+		rows = append(rows, ipNeighborRow{
+			IP:  ipValue,
+			MAC: macValue,
+		})
+	}
+	return rows
 }
 
 func commandJSON(ctx context.Context, argv []string) (any, error) {

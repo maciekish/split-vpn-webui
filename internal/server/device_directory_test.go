@@ -73,3 +73,21 @@ func TestDeviceDirectoryListDevicesPreservesDiscoveryOrder(t *testing.T) {
 		t.Fatalf("expected non-empty search text fields")
 	}
 }
+
+func TestParseIPNeighborRows(t *testing.T) {
+	raw := `
+10.0.1.20 dev br0 lladdr 00:11:22:33:44:55 REACHABLE
+fd00::10 dev br0 lladdr 00:11:22:33:44:66 STALE
+10.0.1.30 dev br0 INCOMPLETE
+`
+	rows := parseIPNeighborRows(raw)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 neighbor rows, got %d", len(rows))
+	}
+	if rows[0].IP != "10.0.1.20" || rows[0].MAC != "00:11:22:33:44:55" {
+		t.Fatalf("unexpected first row: %#v", rows[0])
+	}
+	if rows[1].IP != "fd00::10" || rows[1].MAC != "00:11:22:33:44:66" {
+		t.Fatalf("unexpected second row: %#v", rows[1])
+	}
+}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"sort"
@@ -33,6 +34,17 @@ type interfacePrefix struct {
 	Name   string
 	Prefix netip.Prefix
 }
+
+type flowNoMatchReason string
+
+const (
+	flowNoMatchUnknown           flowNoMatchReason = "unknown"
+	flowNoMatchSourcePrefix      flowNoMatchReason = "source-prefix"
+	flowNoMatchSourceInterface   flowNoMatchReason = "source-interface"
+	flowNoMatchSourceMAC         flowNoMatchReason = "source-mac"
+	flowNoMatchDestinationPrefix flowNoMatchReason = "destination-prefix"
+	flowNoMatchDestinationPort   flowNoMatchReason = "destination-port"
+)
 
 func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]flowInspectorSample, string, error) {
 	if s.routingManager == nil || s.flowRunner == nil {
@@ -87,6 +99,7 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 	sourceParsed := 0
 	matched := 0
 	matchedByMark := 0
+	unmatchedReasons := map[flowNoMatchReason]int{}
 
 	for _, flow := range conntrackFlows {
 		sourceAddr, sourceOK := parseIPToAddr(flow.SourceIP)
@@ -109,6 +122,8 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 			matchedViaMark = true
 		}
 		if matchedRule == nil && !matchedViaMark {
+			reason := detectFlowNoMatchReason(compiledRules, flow, sourceAddr, destinationAddr, sourceMAC, sourceInterface)
+			unmatchedReasons[reason]++
 			continue
 		}
 		matched++
@@ -152,6 +167,18 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 		)
 		if matchedByMark > 0 {
 			s.diagLog.Debugf("flow_inspector collect vpn=%s matched_via_conntrack_mark=%d mark=0x%x", vpnName, matchedByMark, vpnMark)
+		}
+		if len(unmatchedReasons) > 0 {
+			s.diagLog.Debugf("flow_inspector collect vpn=%s unmatched_reasons=%s", vpnName, formatFlowNoMatchReasons(unmatchedReasons))
+		}
+		if matched == 0 && sourceParsed > 0 {
+			s.diagLog.Warnf(
+				"flow_inspector collect vpn=%s produced zero matches from %d parsed flows (compiled_rules=%d, unmatched=%s)",
+				vpnName,
+				sourceParsed,
+				len(compiledRules),
+				formatFlowNoMatchReasons(unmatchedReasons),
+			)
 		}
 	}
 	return result, interfaceName, nil
@@ -239,7 +266,17 @@ func makeMACSet(values []string) map[string]struct{} {
 	}
 	out := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		normalized := strings.ToLower(strings.TrimSpace(value))
+		candidate := strings.TrimSpace(value)
+		if commentIndex := strings.Index(candidate, "#"); commentIndex >= 0 {
+			candidate = strings.TrimSpace(candidate[:commentIndex])
+		}
+		if candidate == "" {
+			continue
+		}
+		normalized := normalizeMAC(candidate)
+		if normalized == "" {
+			normalized = strings.ToLower(candidate)
+		}
 		if normalized == "" {
 			continue
 		}
@@ -383,6 +420,106 @@ func matchFlowRule(
 		return rule
 	}
 	return nil
+}
+
+func detectFlowNoMatchReason(
+	rules []compiledFlowRule,
+	flow conntrackFlowSample,
+	sourceAddr netip.Addr,
+	destinationAddr netip.Addr,
+	sourceMAC string,
+	sourceInterface string,
+) flowNoMatchReason {
+	sourceMAC = strings.ToLower(strings.TrimSpace(sourceMAC))
+	sourceInterface = strings.ToLower(strings.TrimSpace(sourceInterface))
+	counts := map[flowNoMatchReason]int{}
+	for _, rule := range rules {
+		if rule.RequiresSourcePrefix && !prefixContains(rule.SourcePrefixes, sourceAddr) {
+			counts[flowNoMatchSourcePrefix]++
+			continue
+		}
+		if len(rule.SourceInterfaces) > 0 {
+			if sourceInterface == "" {
+				counts[flowNoMatchSourceInterface]++
+				continue
+			}
+			if _, ok := rule.SourceInterfaces[sourceInterface]; !ok {
+				counts[flowNoMatchSourceInterface]++
+				continue
+			}
+		}
+		if len(rule.SourceMACs) > 0 {
+			if sourceMAC == "" {
+				counts[flowNoMatchSourceMAC]++
+				continue
+			}
+			if _, ok := rule.SourceMACs[sourceMAC]; !ok {
+				counts[flowNoMatchSourceMAC]++
+				continue
+			}
+		}
+		if rule.RequiresDestinationPrefix && !prefixContains(rule.DestinationPrefixes, destinationAddr) {
+			counts[flowNoMatchDestinationPrefix]++
+			continue
+		}
+		if len(rule.DestinationPorts) > 0 && !matchDestinationPort(rule.DestinationPorts, flow.Protocol, flow.DestinationPort) {
+			counts[flowNoMatchDestinationPort]++
+			continue
+		}
+	}
+	if len(counts) == 0 {
+		return flowNoMatchUnknown
+	}
+	return dominantFlowNoMatchReason(counts)
+}
+
+func dominantFlowNoMatchReason(counts map[flowNoMatchReason]int) flowNoMatchReason {
+	if len(counts) == 0 {
+		return flowNoMatchUnknown
+	}
+	bestReason := flowNoMatchUnknown
+	bestCount := -1
+	for _, reason := range []flowNoMatchReason{
+		flowNoMatchSourcePrefix,
+		flowNoMatchSourceInterface,
+		flowNoMatchSourceMAC,
+		flowNoMatchDestinationPrefix,
+		flowNoMatchDestinationPort,
+		flowNoMatchUnknown,
+	} {
+		count := counts[reason]
+		if count > bestCount {
+			bestCount = count
+			bestReason = reason
+		}
+	}
+	if bestCount <= 0 {
+		return flowNoMatchUnknown
+	}
+	return bestReason
+}
+
+func formatFlowNoMatchReasons(counts map[flowNoMatchReason]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	ordered := make([]flowNoMatchReason, 0, len(counts))
+	for reason := range counts {
+		ordered = append(ordered, reason)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		leftCount := counts[ordered[i]]
+		rightCount := counts[ordered[j]]
+		if leftCount == rightCount {
+			return ordered[i] < ordered[j]
+		}
+		return leftCount > rightCount
+	})
+	parts := make([]string, 0, len(ordered))
+	for _, reason := range ordered {
+		parts = append(parts, fmt.Sprintf("%s=%d", reason, counts[reason]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func prefixContains(prefixes []netip.Prefix, address netip.Addr) bool {

@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Hardened VPN Flow Inspector reliability (conntrack format compatibility + session auto-recovery), added configurable persistent diagnostics logging (on/off + level), and improved rule-editor placeholder contrast.
+**Last session summary:** Improved VPN Flow Inspector matching diagnostics and source-MAC resolution by ingesting `ip neigh` mappings to reduce false "no matching flows" cases on active VPN traffic.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,27 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Flow inspector selector-match diagnostics + neighbor MAC resolution
+- Added additional source-MAC discovery for flow matching:
+  - `internal/server/device_directory.go` now ingests IPv4/IPv6 neighbor tables via `ip neigh show` and `ip -6 neigh show`.
+  - This populates IP→MAC mappings even when DHCP/UDAPI sources are incomplete, improving `source mac` selector matching in the flow inspector.
+  - Added parser/test coverage:
+    - `internal/server/device_directory_test.go` (`parseIPNeighborRows`).
+- Improved flow-inspector mismatch observability:
+  - `internal/server/flow_inspector_matcher.go` now tracks and logs dominant no-match reasons:
+    - `source-prefix`
+    - `source-interface`
+    - `source-mac`
+    - `destination-prefix`
+    - `destination-port`
+  - When zero flows match, logs now include an explicit warning with unmatched-reason distribution to speed up field debugging.
+- Hardened MAC selector normalization in flow matching:
+  - Flow inspector matcher now canonicalizes MAC selector values (including inline-comment trimming and non-canonical separator normalization) before comparison.
+  - Added matcher tests:
+    - new `internal/server/flow_inspector_matcher_test.go`.
+- Validation run:
+  - `go test ./...`
 
 ### 2026-02-24 — Flow inspector reliability + diagnostics logging controls
 - Added configurable persistent diagnostics logging:
