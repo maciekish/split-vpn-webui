@@ -20,14 +20,7 @@
       deleteVPNModal,
       deleteVPNName,
       confirmDeleteVPNButton,
-      routingInspectorModal,
-      routingInspectorTitle,
-      routingInspectorStatus,
-      routingInspectorSummaryVPN,
-      routingInspectorSummaryV4,
-      routingInspectorSummaryV6,
-      routingInspectorUpdatedAt,
-      routingInspectorContent,
+      routingInspectorController,
       fetchJSON,
       setStatus,
       formatLatency,
@@ -57,23 +50,6 @@
     ) {
       return { render: () => {} };
     }
-    const routingInspectorFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createRoutingInspectorController === 'function'
-      ? window.SplitVPNUI.createRoutingInspectorController
-      : null;
-    const routingInspectorController = routingInspectorFactory
-      ? routingInspectorFactory({
-        routingInspectorModal,
-        routingInspectorTitle,
-        routingInspectorStatus,
-        routingInspectorSummaryVPN,
-        routingInspectorSummaryV4,
-        routingInspectorSummaryV6,
-        routingInspectorUpdatedAt,
-        routingInspectorContent,
-        fetchJSON,
-        setStatus,
-      })
-      : null;
     const inspectorEnabled = Boolean(routingInspectorController && typeof routingInspectorController.open === 'function');
     const encodeFiles = window.SplitVPNUI && typeof window.SplitVPNUI.encodeSupportingFiles === 'function'
       ? window.SplitVPNUI.encodeSupportingFiles

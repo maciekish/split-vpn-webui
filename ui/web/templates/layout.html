@@ -270,6 +270,20 @@
           <span class="badge text-bg-info" id="routing-inspector-summary-v6">IPv6: 0</span>
           <span class="text-body-secondary small ms-auto" id="routing-inspector-updated-at">Updated: –</span>
         </div>
+        <div class="row g-2 align-items-center mb-3">
+          <div class="col-12 col-md-8">
+            <input class="form-control form-control-sm" id="routing-inspector-search" type="text" placeholder="Search visible lines (full text)">
+          </div>
+          <div class="col-auto">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="routing-inspector-search-regex">
+              <label class="form-check-label small" for="routing-inspector-search-regex">Regex</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="small text-body-secondary d-none" id="routing-inspector-search-meta"></div>
+          </div>
+        </div>
         <div id="routing-inspector-content"></div>
       </div>
       <div class="modal-footer">
@@ -529,6 +543,7 @@
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 <script src="/static/js/app-chart-helpers.js"></script>
 <script src="/static/js/app-vpn-file-utils.js"></script>
+<script src="/static/js/app-line-search.js"></script>
 <script src="/static/js/app-vpn-routing-inspector.js"></script>
 <script src="/static/js/app-vpn-helpers.js"></script>
 <script src="/static/js/app-updates.js"></script>

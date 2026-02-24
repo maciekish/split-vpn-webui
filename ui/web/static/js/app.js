@@ -33,6 +33,9 @@
   const routingInspectorSummaryV4 = document.getElementById('routing-inspector-summary-v4');
   const routingInspectorSummaryV6 = document.getElementById('routing-inspector-summary-v6');
   const routingInspectorUpdatedAt = document.getElementById('routing-inspector-updated-at');
+  const routingInspectorSearch = document.getElementById('routing-inspector-search');
+  const routingInspectorSearchRegex = document.getElementById('routing-inspector-search-regex');
+  const routingInspectorSearchMeta = document.getElementById('routing-inspector-search-meta');
   const routingInspectorContent = document.getElementById('routing-inspector-content');
   const settingsModalElement = document.getElementById('settingsModal');
   const settingsModal = new bootstrap.Modal(settingsModalElement);
@@ -174,6 +177,26 @@
       saveSettingsButton.disabled = false;
     }
   });
+  const routingInspectorFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createRoutingInspectorController === 'function'
+    ? window.SplitVPNUI.createRoutingInspectorController
+    : null;
+  const routingInspectorController = routingInspectorFactory
+    ? routingInspectorFactory({
+      routingInspectorModal,
+      routingInspectorTitle,
+      routingInspectorStatus,
+      routingInspectorSummaryVPN,
+      routingInspectorSummaryV4,
+      routingInspectorSummaryV6,
+      routingInspectorUpdatedAt,
+      routingInspectorSearch,
+      routingInspectorSearchRegex,
+      routingInspectorSearchMeta,
+      routingInspectorContent,
+      fetchJSON,
+      setStatus,
+    })
+    : null;
   const vpnControllerFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createVPNController === 'function'
     ? window.SplitVPNUI.createVPNController
     : null;
@@ -196,14 +219,7 @@
       deleteVPNModal,
       deleteVPNName,
       confirmDeleteVPNButton,
-      routingInspectorModal,
-      routingInspectorTitle,
-      routingInspectorStatus,
-      routingInspectorSummaryVPN,
-      routingInspectorSummaryV4,
-      routingInspectorSummaryV6,
-      routingInspectorUpdatedAt,
-      routingInspectorContent,
+      routingInspectorController,
       fetchJSON,
       setStatus,
       formatLatency,

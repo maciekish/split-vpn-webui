@@ -206,6 +206,22 @@ textarea#vpn-config-editor {
   color: #dbe7ff;
 }
 
+.routing-inspector-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.routing-inspector-pre-line {
+  font-family: var(--bs-font-monospace);
+}
+
+.routing-inspector-line mark {
+  background: rgba(250, 204, 21, 0.42);
+  color: #fff7d6;
+  padding: 0 0.15rem;
+  border-radius: 0.2rem;
+}
+
 #prewarm-progress-bar {
   min-width: 3rem;
 }

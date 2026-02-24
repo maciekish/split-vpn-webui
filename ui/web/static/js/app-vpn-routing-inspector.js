@@ -10,6 +10,9 @@
       routingInspectorSummaryV4,
       routingInspectorSummaryV6,
       routingInspectorUpdatedAt,
+      routingInspectorSearch,
+      routingInspectorSearchRegex,
+      routingInspectorSearchMeta,
       routingInspectorContent,
       fetchJSON,
       setStatus,
@@ -29,12 +32,25 @@
       return null;
     }
 
+    const lineSearchFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createLineSearchController === 'function'
+      ? window.SplitVPNUI.createLineSearchController
+      : null;
+    const lineSearch = lineSearchFactory
+      ? lineSearchFactory({
+        root: routingInspectorContent,
+        input: routingInspectorSearch,
+        regexToggle: routingInspectorSearchRegex,
+        meta: routingInspectorSearchMeta,
+      })
+      : { apply: () => {}, refreshTargets: () => {}, reset: () => {} };
+
     async function open(name) {
       routingInspectorTitle.innerHTML = `<i class="bi bi-diagram-2 me-2"></i>Routing Set Inspector — ${escapeHTML(name)}`;
       routingInspectorSummaryVPN.textContent = `VPN: ${name}`;
       routingInspectorSummaryV4.textContent = 'IPv4: …';
       routingInspectorSummaryV6.textContent = 'IPv6: …';
       routingInspectorUpdatedAt.textContent = 'Updated: loading…';
+      lineSearch.reset();
       routingInspectorContent.innerHTML = '';
       setInspectorStatus('Loading routing sets…', false);
       routingInspectorModal.show();
@@ -67,27 +83,60 @@
       } else {
         routingInspectorUpdatedAt.textContent = 'Updated: now';
       }
+
+      routingInspectorContent.innerHTML = '';
       if (groups.length === 0) {
-        routingInspectorContent.innerHTML = '<div class="text-body-secondary small">No routing policy groups currently assigned to this VPN.</div>';
+        const empty = document.createElement('div');
+        empty.className = 'text-body-secondary small';
+        empty.textContent = 'No routing policy groups currently assigned to this VPN.';
+        routingInspectorContent.appendChild(empty);
+        lineSearch.refreshTargets();
         setInspectorStatus('No routing groups assigned to this VPN.', false);
         return;
       }
 
-      const blocks = groups.map((group) => {
-        const rules = Array.isArray(group?.rules) ? group.rules : [];
-        const ruleBlocks = rules.map((rule) => renderRoutingRuleBlock(rule)).join('');
-        return `
-          <div class="border rounded p-3 mb-3 routing-inspector-group">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <div class="fw-semibold">${escapeHTML(group?.name || 'Group')}</div>
-              <span class="badge text-bg-secondary">${rules.length} rule${rules.length === 1 ? '' : 's'}</span>
-            </div>
-            ${ruleBlocks || '<div class="text-body-secondary small">No rules in this group.</div>'}
-          </div>
-        `;
-      }).join('');
-      routingInspectorContent.innerHTML = blocks;
+      const fragment = document.createDocumentFragment();
+      groups.forEach((group) => {
+        fragment.appendChild(renderGroupBlock(group));
+      });
+      routingInspectorContent.appendChild(fragment);
+      lineSearch.refreshTargets();
+      lineSearch.apply();
       setInspectorStatus(`Loaded ${groups.length} group${groups.length === 1 ? '' : 's'} for ${inspector?.vpnName || 'VPN'}.`, false);
+    }
+
+    function renderGroupBlock(group) {
+      const rules = Array.isArray(group?.rules) ? group.rules : [];
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'border rounded p-3 mb-3 routing-inspector-group';
+      wrapper.dataset.searchScope = 'group';
+
+      const header = document.createElement('div');
+      header.className = 'd-flex align-items-center justify-content-between mb-2';
+
+      const title = createSearchLine(String(group?.name || 'Group'), {
+        className: 'fw-semibold mb-0',
+      });
+      const badge = document.createElement('span');
+      badge.className = 'badge text-bg-secondary';
+      badge.textContent = `${rules.length} rule${rules.length === 1 ? '' : 's'}`;
+
+      header.appendChild(title);
+      header.appendChild(badge);
+      wrapper.appendChild(header);
+
+      if (rules.length === 0) {
+        wrapper.appendChild(createSearchLine('No rules in this group.', {
+          className: 'text-body-secondary small',
+        }));
+        return wrapper;
+      }
+
+      rules.forEach((rule) => {
+        wrapper.appendChild(renderRoutingRuleBlock(rule));
+      });
+      return wrapper;
     }
 
     function renderRoutingRuleBlock(rule) {
@@ -97,58 +146,107 @@
       const domains = joinValues(rule?.domains);
       const wildcards = joinValues(rule?.wildcardDomains);
       const sourceMACs = formatSourceMACs(rule?.sourceMacs);
-      return `
-        <div class="routing-inspector-rule border rounded p-2 mb-3">
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-            <span class="fw-semibold">${escapeHTML(ruleLabel(rule))}</span>
-            ${renderSetBadge(rule?.sourceSetV4, 'src4')}
-            ${renderSetBadge(rule?.sourceSetV6, 'src6')}
-            ${renderSetBadge(rule?.destinationSetV4, 'dst4')}
-            ${renderSetBadge(rule?.destinationSetV6, 'dst6')}
-          </div>
-          <div class="small text-body-secondary mb-2">
-            <div><span class="fw-semibold text-body">Source interfaces:</span> ${escapeHTML(sourceInterfaces)}</div>
-            <div><span class="fw-semibold text-body">Source MACs:</span> ${escapeHTML(sourceMACs)}</div>
-            <div><span class="fw-semibold text-body">Destination ports:</span> ${escapeHTML(ports)}</div>
-            <div><span class="fw-semibold text-body">Destination ASNs:</span> ${escapeHTML(asns)}</div>
-            <div><span class="fw-semibold text-body">Domains:</span> ${escapeHTML(domains)}</div>
-            <div><span class="fw-semibold text-body">Wildcard domains:</span> ${escapeHTML(wildcards)}</div>
-          </div>
-          ${renderSetDetails('Source IPv4 Set', rule?.sourceSetV4)}
-          ${renderSetDetails('Source IPv6 Set', rule?.sourceSetV6)}
-          ${renderSetDetails('Destination IPv4 Set', rule?.destinationSetV4)}
-          ${renderSetDetails('Destination IPv6 Set', rule?.destinationSetV6)}
-        </div>
-      `;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'routing-inspector-rule border rounded p-2 mb-3';
+      wrapper.dataset.searchScope = 'rule';
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'd-flex flex-wrap align-items-center gap-2 mb-2';
+      titleRow.appendChild(createSearchLine(ruleLabel(rule), {
+        className: 'fw-semibold mb-0',
+        tag: 'span',
+      }));
+      appendSetBadge(titleRow, rule?.sourceSetV4, 'src4');
+      appendSetBadge(titleRow, rule?.sourceSetV6, 'src6');
+      appendSetBadge(titleRow, rule?.destinationSetV4, 'dst4');
+      appendSetBadge(titleRow, rule?.destinationSetV6, 'dst6');
+      wrapper.appendChild(titleRow);
+
+      const meta = document.createElement('div');
+      meta.className = 'small text-body-secondary mb-2';
+      meta.appendChild(createSearchLine(`Source interfaces: ${sourceInterfaces}`));
+      meta.appendChild(createSearchLine(`Source MACs: ${sourceMACs}`));
+      meta.appendChild(createSearchLine(`Destination ports: ${ports}`));
+      meta.appendChild(createSearchLine(`Destination ASNs: ${asns}`));
+      meta.appendChild(createSearchLine(`Domains: ${domains}`));
+      meta.appendChild(createSearchLine(`Wildcard domains: ${wildcards}`));
+      wrapper.appendChild(meta);
+
+      const blocks = [
+        renderSetDetails('Source IPv4 Set', rule?.sourceSetV4),
+        renderSetDetails('Source IPv6 Set', rule?.sourceSetV6),
+        renderSetDetails('Destination IPv4 Set', rule?.destinationSetV4),
+        renderSetDetails('Destination IPv6 Set', rule?.destinationSetV6),
+      ];
+      blocks.forEach((block) => {
+        if (block) {
+          wrapper.appendChild(block);
+        }
+      });
+      return wrapper;
     }
 
-    function renderSetBadge(setInfo, label) {
+    function appendSetBadge(parent, setInfo, label) {
       const setName = String(setInfo?.name || '').trim();
       if (!setName) {
-        return '';
+        return;
       }
       const count = Number(setInfo?.entryCount || 0);
-      return `<span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">${escapeHTML(label)}: ${Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0}</span>`;
+      const badge = document.createElement('span');
+      badge.className = 'badge rounded-pill text-bg-info-subtle text-info-emphasis';
+      badge.textContent = `${label}: ${Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0}`;
+      parent.appendChild(badge);
     }
 
     function renderSetDetails(title, setInfo) {
       const setName = String(setInfo?.name || '').trim();
       if (!setName) {
-        return '';
+        return null;
       }
+
       const entries = Array.isArray(setInfo?.entries) ? setInfo.entries : [];
-      const lines = entries.map((entry) => formatSetEntry(entry)).join('\n');
       const count = Number(setInfo?.entryCount || 0);
       const safeCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
-      return `
-        <details class="routing-inspector-set mb-2">
-          <summary class="small">
-            <span class="fw-semibold">${escapeHTML(title)}</span>
-            <span class="text-body-secondary ms-2">${escapeHTML(setName)} (${safeCount})</span>
-          </summary>
-          <pre class="routing-inspector-pre mb-0 mt-2">${escapeHTML(lines || '(empty set)')}</pre>
-        </details>
-      `;
+
+      const details = document.createElement('details');
+      details.className = 'routing-inspector-set mb-2';
+      details.dataset.searchScope = 'set';
+
+      const summary = document.createElement('summary');
+      summary.className = 'small';
+      summary.appendChild(createSearchLine(`${title} ${setName} (${safeCount})`, {
+        className: 'routing-inspector-summary-line',
+        tag: 'span',
+      }));
+      details.appendChild(summary);
+
+      const pre = document.createElement('div');
+      pre.className = 'routing-inspector-pre mb-0 mt-2';
+      if (entries.length === 0) {
+        pre.appendChild(createSearchLine('(empty set)', {
+          className: 'routing-inspector-pre-line',
+        }));
+      } else {
+        entries.forEach((entry) => {
+          pre.appendChild(createSearchLine(formatSetEntry(entry), {
+            className: 'routing-inspector-pre-line',
+          }));
+        });
+      }
+      details.appendChild(pre);
+      return details;
+    }
+
+    function createSearchLine(text, opts = {}) {
+      const value = String(text || '');
+      const tag = opts.tag || 'div';
+      const line = document.createElement(tag);
+      line.dataset.searchLine = '1';
+      line.dataset.searchRaw = value;
+      line.className = `routing-inspector-line ${opts.className || ''}`.trim();
+      line.textContent = value;
+      return line;
     }
 
     function formatSetEntry(entry) {

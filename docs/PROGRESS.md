@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Added a new per-VPN routing set inspector (clickable routing-set counts in VPN table + modal details), including runtime ipset member/provenance breakdown and best-effort MAC/IP-to-device name enrichment from DHCP leases and UniFi udapi data when available.
+**Last session summary:** Added client-side search to the routing-set inspector modal (plain text + regex) with line-level filtering, match highlighting, and result/meta feedback for quick inspection of large routing sets.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,17 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Routing inspector modal search/filter/highlight
+- Added browser-side searchable routing inspector modal controls:
+  - Search input + regex toggle + live result/status text in `ui/web/templates/layout.html`.
+  - Search engine extracted to `ui/web/static/js/app-line-search.js` for reusable line-based filtering/highlighting.
+  - Routing inspector now renders searchable line elements and delegates filtering/highlighting to the shared line-search controller in `ui/web/static/js/app-vpn-routing-inspector.js`.
+  - Wiring updates in `ui/web/static/js/app.js` and `ui/web/static/js/app-vpn-helpers.js` to keep inspector lifecycle clean and modular.
+- Added UI styling for search/highlight readability in `ui/web/static/css/app.css` (line wrapping + monospace entry lines + `<mark>` highlight theme).
+- Validation run:
+  - `node --check ui/web/static/js/app-line-search.js ui/web/static/js/app-vpn-routing-inspector.js ui/web/static/js/app-vpn-helpers.js ui/web/static/js/app.js ui/web/static/js/domain-routing.js ui/web/static/js/routing-resolver.js ui/web/static/js/prewarm-auth.js`
+  - `go test ./...`
 
 ### 2026-02-24 — Routing set inspector (first implementation)
 - Added new on-demand routing inspector API endpoint:
