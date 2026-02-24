@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Converted resolver/pre-warm discovery to additive 24-hour SQLite-backed caches (no full-replace drops), made runtime destination set generation use inclusive resolver+prewarm cache state, and added UI/API clear-cache+rerun actions for both subsystems.
+**Last session summary:** Added a new per-VPN routing set inspector (clickable routing-set counts in VPN table + modal details), including runtime ipset member/provenance breakdown and best-effort MAC/IP-to-device name enrichment from DHCP leases and UniFi udapi data when available.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,48 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Routing set inspector (first implementation)
+- Added new on-demand routing inspector API endpoint:
+  - `GET /api/vpns/{name}/routing-inspector`
+  - Returns grouped per-rule routing details for the selected VPN, including:
+    - source/destination set names, counts, and active member values
+    - selector metadata (source interfaces, source MACs, destination ports, ASNs, domains, wildcard domains)
+    - per-entry provenance labels (`destination CIDR`, resolver domain/wildcard/ASN sources, pre-warm cache)
+- Added backend runtime ipset snapshot parsing for inspector use:
+  - `internal/server/routing_sizes.go` now supports parsing both entry counts and member lines from `ipset list`.
+  - Existing routing-size aggregation kept intact and now reuses the shared snapshot parser.
+- Added best-effort device name enrichment for source-MAC and source-IP context:
+  - `internal/server/device_directory.go` loads mappings from:
+    - DHCP lease files (`/tmp/dhcp.leases`, `/run/dnsmasq.leases`, `/var/lib/misc/dnsmasq.leases`)
+    - `ubios-udapi-client` JSON payloads (`/services` and `/clients` probes, when available)
+  - Inspector now surfaces MAC-associated device names/IP hints and source-IP device names where resolvable.
+- Added UI inspector flow:
+  - VPN table routing-set value (`v4 / v6`) is now clickable.
+  - New large modal `Routing Set Inspector` shows grouped/rule-scoped details and per-set member provenance.
+  - New UI scripts:
+    - `ui/web/static/js/app-vpn-routing-inspector.js`
+    - `ui/web/static/js/app-vpn-file-utils.js` (small extraction to keep JS files under size limit)
+  - Updated script loading order in `ui/web/templates/layout.html`.
+- Added tests:
+  - `internal/server/routing_sizes_test.go` coverage for member parsing.
+  - `internal/server/device_directory_test.go` for DHCP and generic payload mapping.
+  - `internal/server/routing_inspector_test.go` for canonicalization/provenance helpers.
+- Validation run:
+  - `node --check ui/web/static/js/app-vpn-file-utils.js ui/web/static/js/app-vpn-routing-inspector.js ui/web/static/js/app-vpn-helpers.js ui/web/static/js/app.js`
+  - `go test ./...`
+
+### 2026-02-24 — Research docs: regional lookup + per-VPN connection inspector plan
+- Added `docs/REGIONAL_IP_LOOKUP_RESEARCH.md`:
+  - Compared self-hosted regional resolver probes, ECS-based lookups, measurement platforms, and bulk passive-DNS datasets.
+  - Recommended architecture: self-hosted regional probes as primary, ECS and dataset inputs as optional fallback/enrichment.
+  - Documented rate-limit, reliability, and data-confidence tradeoffs with references.
+- Added `docs/VPN_CONNECTION_INSPECTOR_PLAN.md`:
+  - Detailed end-to-end plan for per-VPN active connection visibility (source MAC/IP:port, destination IP:port, protocol/state, domain hints).
+  - Included flow attribution strategy using conntrack + CONNMARK persistence, best-effort MAC resolution, and cache-backed domain correlation.
+  - Included per-connection throughput feasibility analysis, adaptive degradation model, API/UI plan, acceptance criteria, and risk mitigations for high-throughput gateways.
+- Validation run:
+  - Docs-only change; no code/test execution required.
 
 ### 2026-02-24 — Additive 24h discovery cache + clear-and-rerun controls
 - Reworked resolver cache behavior from replace-on-run to additive upsert with TTL eviction:

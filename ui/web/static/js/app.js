@@ -23,6 +23,17 @@
   const deleteVPNModal = new bootstrap.Modal(deleteVPNModalElement);
   const deleteVPNName = document.getElementById('delete-vpn-name');
   const confirmDeleteVPNButton = document.getElementById('confirm-delete-vpn');
+  const routingInspectorModalElement = document.getElementById('routingInspectorModal');
+  const routingInspectorModal = routingInspectorModalElement
+    ? new bootstrap.Modal(routingInspectorModalElement)
+    : null;
+  const routingInspectorTitle = document.getElementById('routing-inspector-title');
+  const routingInspectorStatus = document.getElementById('routing-inspector-status');
+  const routingInspectorSummaryVPN = document.getElementById('routing-inspector-summary-vpn');
+  const routingInspectorSummaryV4 = document.getElementById('routing-inspector-summary-v4');
+  const routingInspectorSummaryV6 = document.getElementById('routing-inspector-summary-v6');
+  const routingInspectorUpdatedAt = document.getElementById('routing-inspector-updated-at');
+  const routingInspectorContent = document.getElementById('routing-inspector-content');
   const settingsModalElement = document.getElementById('settingsModal');
   const settingsModal = new bootstrap.Modal(settingsModalElement);
   const listenSelect = document.getElementById('listen-interface');
@@ -185,6 +196,14 @@
       deleteVPNModal,
       deleteVPNName,
       confirmDeleteVPNButton,
+      routingInspectorModal,
+      routingInspectorTitle,
+      routingInspectorStatus,
+      routingInspectorSummaryVPN,
+      routingInspectorSummaryV4,
+      routingInspectorSummaryV6,
+      routingInspectorUpdatedAt,
+      routingInspectorContent,
       fetchJSON,
       setStatus,
       formatLatency,

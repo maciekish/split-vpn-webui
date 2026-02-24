@@ -20,6 +20,14 @@
       deleteVPNModal,
       deleteVPNName,
       confirmDeleteVPNButton,
+      routingInspectorModal,
+      routingInspectorTitle,
+      routingInspectorStatus,
+      routingInspectorSummaryVPN,
+      routingInspectorSummaryV4,
+      routingInspectorSummaryV6,
+      routingInspectorUpdatedAt,
+      routingInspectorContent,
       fetchJSON,
       setStatus,
       formatLatency,
@@ -49,6 +57,27 @@
     ) {
       return { render: () => {} };
     }
+    const routingInspectorFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createRoutingInspectorController === 'function'
+      ? window.SplitVPNUI.createRoutingInspectorController
+      : null;
+    const routingInspectorController = routingInspectorFactory
+      ? routingInspectorFactory({
+        routingInspectorModal,
+        routingInspectorTitle,
+        routingInspectorStatus,
+        routingInspectorSummaryVPN,
+        routingInspectorSummaryV4,
+        routingInspectorSummaryV6,
+        routingInspectorUpdatedAt,
+        routingInspectorContent,
+        fetchJSON,
+        setStatus,
+      })
+      : null;
+    const inspectorEnabled = Boolean(routingInspectorController && typeof routingInspectorController.open === 'function');
+    const encodeFiles = window.SplitVPNUI && typeof window.SplitVPNUI.encodeSupportingFiles === 'function'
+      ? window.SplitVPNUI.encodeSupportingFiles
+      : encodeSupportingFiles;
 
     addVPNButton.addEventListener('click', () => {
       openAddVPNModal();
@@ -90,7 +119,7 @@
     vpnSupportingFilesInput.addEventListener('change', async () => {
       const files = Array.from(vpnSupportingFilesInput.files || []);
       try {
-        const encoded = await encodeSupportingFiles(files);
+        const encoded = await encodeFiles(files);
         state.vpnEditor.supportingFiles = encoded;
         renderSupportingFilesMeta();
       } catch (err) {
@@ -152,6 +181,14 @@
         await openEditVPNModal(name);
         return;
       }
+      if (action === 'inspect-routing') {
+        if (!inspectorEnabled) {
+          setStatus('Routing inspector is unavailable in this UI build.', true);
+          return;
+        }
+        await routingInspectorController.open(name);
+        return;
+      }
       if (action === 'delete') {
         openDeleteVPNModal(name);
       }
@@ -190,7 +227,11 @@
           <td>${cfg.interfaceName || '–'}</td>
           <td class="text-uppercase">${cfg.vpnType || 'n/a'}</td>
           <td>${cfg.gateway || '–'}</td>
-          <td class="font-monospace">${formatRoutingSizes(cfg)}</td>
+          <td class="font-monospace">
+            <button class="btn btn-link btn-sm p-0 font-monospace text-decoration-none" data-action="inspect-routing" data-name="${cfg.name}" title="Inspect routing sets" ${inspectorEnabled ? '' : 'disabled'}>
+              ${formatRoutingSizes(cfg)}
+            </button>
+          </td>
           <td data-field="latency">–</td>
           <td>
             <span class="badge ${cfg.connected ? 'text-bg-success' : 'text-bg-secondary'}">${cfg.connected ? 'Connected' : 'Stopped'}</span>
@@ -444,28 +485,6 @@
         return;
       }
       vpnSupportingFilesMeta.textContent = 'Upload files referenced by `.ovpn` directives (for example `ca`, `cert`, `key`, `auth-user-pass`).';
-    }
-
-    async function encodeSupportingFiles(files) {
-      if (!Array.isArray(files) || files.length === 0) {
-        return [];
-      }
-      const encoded = [];
-      for (const file of files) {
-        if (!file || !file.name) {
-          continue;
-        }
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = '';
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          const slice = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-          binary += String.fromCharCode(...slice);
-        }
-        encoded.push({ name: file.name, contentBase64: btoa(binary) });
-      }
-      return encoded;
     }
 
     return { render };

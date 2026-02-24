@@ -178,6 +178,7 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Put("/vpns/{name}", s.handleUpdateVPN)
 			api.Delete("/vpns/{name}", s.handleDeleteVPN)
 			api.Post("/vpns/{name}/restart", s.handleRestartVPN)
+			api.Get("/vpns/{name}/routing-inspector", s.handleVPNRoutingInspector)
 
 			api.Get("/configs", s.handleListConfigs)
 			api.Get("/configs/{name}/file", s.handleReadConfig)

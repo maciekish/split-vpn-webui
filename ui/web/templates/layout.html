@@ -255,6 +255,30 @@
   </div>
 </main>
 
+<div class="modal fade" id="routingInspectorModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="routing-inspector-title"><i class="bi bi-diagram-2 me-2"></i>Routing Set Inspector</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert d-none py-2 small mb-3" id="routing-inspector-status" role="status"></div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <span class="badge text-bg-primary" id="routing-inspector-summary-vpn">VPN</span>
+          <span class="badge text-bg-info" id="routing-inspector-summary-v4">IPv4: 0</span>
+          <span class="badge text-bg-info" id="routing-inspector-summary-v6">IPv6: 0</span>
+          <span class="text-body-secondary small ms-auto" id="routing-inspector-updated-at">Updated: –</span>
+        </div>
+        <div id="routing-inspector-content"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="vpnEditorModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
@@ -504,6 +528,8 @@
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 <script src="/static/js/app-chart-helpers.js"></script>
+<script src="/static/js/app-vpn-file-utils.js"></script>
+<script src="/static/js/app-vpn-routing-inspector.js"></script>
 <script src="/static/js/app-vpn-helpers.js"></script>
 <script src="/static/js/app-updates.js"></script>
 <script src="/static/js/app.js"></script>

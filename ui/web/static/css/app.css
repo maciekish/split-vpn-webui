@@ -179,6 +179,33 @@ textarea#vpn-config-editor {
   border-color: rgba(148, 163, 184, 0.22) !important;
 }
 
+.routing-inspector-group {
+  background: rgba(15, 23, 42, 0.32);
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+.routing-inspector-rule {
+  background: rgba(2, 6, 23, 0.45);
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.routing-inspector-set > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.routing-inspector-pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.65);
+  color: #dbe7ff;
+}
+
 #prewarm-progress-bar {
   min-width: 3rem;
 }
