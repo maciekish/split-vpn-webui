@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/bits"
 	"net"
 	"net/netip"
 	"sort"
@@ -99,6 +100,7 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 	sourceParsed := 0
 	matched := 0
 	matchedByMark := 0
+	eligibleByMark := 0
 	unmatchedReasons := map[flowNoMatchReason]int{}
 
 	for _, flow := range conntrackFlows {
@@ -118,7 +120,10 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 		sourceInterface := resolveSourceInterface(localInterfacePrefixes, sourceAddr)
 		matchedRule := matchFlowRule(compiledRules, flow, sourceAddr, destinationAddr, sourceMAC, sourceInterface)
 		matchedViaMark := false
-		if matchedRule == nil && vpnMark >= 200 && flow.Mark == vpnMark {
+		if flowMarkMatchesVPN(flow.Mark, vpnMark) {
+			eligibleByMark++
+		}
+		if matchedRule == nil && flowMarkMatchesVPN(flow.Mark, vpnMark) {
 			matchedViaMark = true
 		}
 		if matchedRule == nil && !matchedViaMark {
@@ -167,6 +172,9 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 		)
 		if matchedByMark > 0 {
 			s.diagLog.Debugf("flow_inspector collect vpn=%s matched_via_conntrack_mark=%d mark=0x%x", vpnName, matchedByMark, vpnMark)
+		}
+		if vpnMark >= 200 {
+			s.diagLog.Debugf("flow_inspector collect vpn=%s mark_candidates=%d vpn_mark=0x%x", vpnName, eligibleByMark, vpnMark)
 		}
 		if len(unmatchedReasons) > 0 {
 			s.diagLog.Debugf("flow_inspector collect vpn=%s unmatched_reasons=%s", vpnName, formatFlowNoMatchReasons(unmatchedReasons))
@@ -520,6 +528,37 @@ func formatFlowNoMatchReasons(counts map[flowNoMatchReason]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", reason, counts[reason]))
 	}
 	return strings.Join(parts, ",")
+}
+
+func flowMarkMatchesVPN(flowMark uint32, vpnMark uint32) bool {
+	if flowMark == 0 || vpnMark < 200 {
+		return false
+	}
+	if flowMark == vpnMark {
+		return true
+	}
+	mask := flowMarkMask(vpnMark)
+	if mask == 0 {
+		return false
+	}
+	return (flowMark & mask) == vpnMark
+}
+
+func flowMarkMask(vpnMark uint32) uint32 {
+	if vpnMark == 0 {
+		return 0
+	}
+	bitLen := bits.Len32(vpnMark)
+	switch {
+	case bitLen <= 8:
+		return 0xff
+	case bitLen <= 16:
+		return 0xffff
+	case bitLen <= 24:
+		return 0xffffff
+	default:
+		return 0xffffffff
+	}
 }
 
 func prefixContains(prefixes []netip.Prefix, address netip.Addr) bool {

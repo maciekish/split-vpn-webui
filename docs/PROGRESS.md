@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Improved VPN Flow Inspector matching diagnostics and source-MAC resolution by ingesting `ip neigh` mappings to reduce false "no matching flows" cases on active VPN traffic.
+**Last session summary:** Improved VPN Flow Inspector routed-flow detection by adding masked conntrack-mark matching fallback and expanded UniFi client discovery endpoints for better source naming coverage.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,24 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Flow inspector mark fallback hardening + broader UniFi client endpoint discovery
+- Improved routed-flow fallback matching:
+  - `internal/server/flow_inspector_matcher.go` now treats conntrack mark matches as eligible even when higher bits are present (byte-boundary mask-aware matching).
+  - Added helper logic:
+    - `flowMarkMatchesVPN`
+    - `flowMarkMask`
+  - Added diagnostics metric `mark_candidates=<count>` to show how many conntrack entries carried the VPN mark signature.
+  - Added tests:
+    - new `internal/server/flow_inspector_mark_test.go`.
+- Expanded UniFi client-name discovery attempts:
+  - `internal/server/device_directory.go` now probes additional `ubios-udapi-client` endpoints:
+    - `/clients/active`
+    - `/network/clients`
+    - `/stat/sta`
+  - Existing `/services` and `/clients` probes retained.
+- Validation run:
+  - `go test ./...`
 
 ### 2026-02-24 — Flow inspector selector-match diagnostics + neighbor MAC resolution
 - Added additional source-MAC discovery for flow matching:

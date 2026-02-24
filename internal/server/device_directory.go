@@ -263,6 +263,12 @@ func loadUDAPIClientDeviceNames(ctx context.Context, directory *deviceDirectory)
 		{"ubios-udapi-client", "get", "-r", "/services"},
 		{"ubios-udapi-client", "GET", "/clients"},
 		{"ubios-udapi-client", "get", "-r", "/clients"},
+		{"ubios-udapi-client", "GET", "/clients/active"},
+		{"ubios-udapi-client", "get", "-r", "/clients/active"},
+		{"ubios-udapi-client", "GET", "/network/clients"},
+		{"ubios-udapi-client", "get", "-r", "/network/clients"},
+		{"ubios-udapi-client", "GET", "/stat/sta"},
+		{"ubios-udapi-client", "get", "-r", "/stat/sta"},
 	}
 	for _, command := range commands {
 		payload, err := commandJSON(ctx, command)
