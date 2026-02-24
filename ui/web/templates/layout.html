@@ -207,6 +207,9 @@
             <button class="btn btn-outline-danger btn-sm" id="clear-prewarm-cache">
               <i class="bi bi-trash3 me-1"></i>Clear Cache + Re-Run
             </button>
+            <button class="btn btn-outline-warning btn-sm" id="stop-prewarm-run">
+              <i class="bi bi-stop-fill me-1"></i>Stop
+            </button>
             <button class="btn btn-outline-success btn-sm" id="run-prewarm-now">
               <i class="bi bi-play-fill me-1"></i>Run Now
             </button>
@@ -215,7 +218,7 @@
         <div class="card-body">
           <div class="alert d-none py-2 small mb-3" id="prewarm-status" role="status"></div>
           <div class="row g-3 align-items-end">
-            <div class="col-12 col-md-3">
+            <div class="col-12 col-md-2">
               <div class="small text-body-secondary">Last Run</div>
               <div class="fw-semibold" id="prewarm-last-run-at">Never</div>
             </div>
@@ -231,12 +234,16 @@
               <div class="small text-body-secondary">IPs Inserted</div>
               <div class="fw-semibold" id="prewarm-last-ips">–</div>
             </div>
-            <div class="col-6 col-md-3">
+            <div class="col-6 col-md-2">
               <label class="form-label small text-body-secondary mb-1" for="prewarm-interval-minutes">Schedule (minutes)</label>
               <div class="input-group input-group-sm">
                 <input class="form-control" id="prewarm-interval-minutes" type="number" min="1" step="1" placeholder="120">
                 <button class="btn btn-outline-primary" id="save-prewarm-schedule" type="button">Save</button>
               </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label small text-body-secondary mb-1" for="prewarm-timeout-seconds">Timeout (seconds)</label>
+              <input class="form-control form-control-sm" id="prewarm-timeout-seconds" type="number" min="1" max="60" step="1" placeholder="10">
             </div>
           </div>
           <div class="row g-3 mt-1">

@@ -23,6 +23,8 @@ const (
 var (
 	// ErrRunInProgress indicates a run is already active.
 	ErrRunInProgress = errors.New("prewarm run already in progress")
+	// ErrRunNotActive indicates there is no active run to stop.
+	ErrRunNotActive = errors.New("prewarm run is not active")
 )
 
 // Status is returned by the API status endpoint.
@@ -40,6 +42,7 @@ type Scheduler struct {
 	vpns     VPNSource
 	ipset    routing.IPSetOperator
 	cache    prewarmCacheManager
+	logger   Logger
 
 	now func() time.Time
 
@@ -103,6 +106,13 @@ func NewScheduler(db *sql.DB, settingsManager *settings.Manager, groups GroupSou
 		defaultInterval: interval,
 		lastRun:         lastRun,
 	}, nil
+}
+
+// SetLogger registers an optional diagnostics logger.
+func (s *Scheduler) SetLogger(logger Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logger = logger
 }
 
 // SetProgressHandler registers a callback invoked on progress updates.
@@ -183,6 +193,7 @@ func (s *Scheduler) TriggerNow() error {
 		return err
 	}
 	if err := validateQuerySettings(current); err != nil {
+		s.logWarnf("prewarm trigger rejected: %v", err)
 		return err
 	}
 
@@ -203,6 +214,14 @@ func (s *Scheduler) TriggerNow() error {
 	s.mu.Unlock()
 
 	s.emitProgress(initial)
+	s.logInfof(
+		"prewarm run started interval=%ds timeout=%ds parallelism=%d extra_nameservers=%d ecs_profiles=%d",
+		current.PrewarmIntervalSeconds,
+		timeoutFromSettings(current)/time.Second,
+		parallelismFromSettings(current),
+		lenOrZero(current.PrewarmExtraNameservers),
+		lenOrZero(current.PrewarmECSProfiles),
+	)
 	go s.executeRun(runCtx, current)
 	return nil
 }
@@ -220,7 +239,22 @@ func (s *Scheduler) ClearCacheAndRun() error {
 			return err
 		}
 	}
+	s.logInfof("prewarm cache cleared by request")
 	return s.TriggerNow()
+}
+
+// CancelRun stops the currently active pre-warm run while keeping the scheduler active.
+func (s *Scheduler) CancelRun() error {
+	s.mu.RLock()
+	running := s.running
+	runCancel := s.runCancel
+	s.mu.RUnlock()
+	if !running || runCancel == nil {
+		return ErrRunNotActive
+	}
+	s.logWarnf("prewarm run cancellation requested")
+	runCancel()
+	return nil
 }
 
 func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
@@ -315,6 +349,37 @@ func (s *Scheduler) finishRun(started time.Time, stats RunStats, runErr error) {
 	if emit != nil {
 		s.emitProgress(*emit)
 	}
+	if runErr != nil {
+		if errors.Is(runErr, context.Canceled) {
+			s.logWarnf(
+				"prewarm run canceled duration_ms=%d domains=%d/%d ips=%d errors=%d",
+				record.DurationMS,
+				record.DomainsDone,
+				record.DomainsTotal,
+				record.IPsInserted,
+				progressErrorCount(stats.Progress),
+			)
+			return
+		}
+		s.logErrorf(
+			"prewarm run failed duration_ms=%d domains=%d/%d ips=%d errors=%d err=%v",
+			record.DurationMS,
+			record.DomainsDone,
+			record.DomainsTotal,
+			record.IPsInserted,
+			progressErrorCount(stats.Progress),
+			runErr,
+		)
+		return
+	}
+	s.logInfof(
+		"prewarm run finished duration_ms=%d domains=%d/%d ips=%d errors=%d",
+		record.DurationMS,
+		record.DomainsDone,
+		record.DomainsTotal,
+		record.IPsInserted,
+		progressErrorCount(stats.Progress),
+	)
 }
 
 func toRoutingCacheSnapshot(snapshot map[string]CachedSetValues) map[string]routing.ResolverValues {
@@ -407,30 +472,4 @@ func intervalFromSettings(current settings.Settings) time.Duration {
 		seconds = maxIntervalSeconds
 	}
 	return time.Duration(seconds) * time.Second
-}
-
-func validateQuerySettings(current settings.Settings) error {
-	if _, err := nameserversFromSettings(current); err != nil {
-		return err
-	}
-	if _, err := ecsProfilesFromSettings(current); err != nil {
-		return err
-	}
-	return nil
-}
-
-func nameserversFromSettings(current settings.Settings) ([]string, error) {
-	return ParseNameserverLines(current.PrewarmExtraNameservers)
-}
-
-func ecsProfilesFromSettings(current settings.Settings) ([]string, error) {
-	profiles, err := ParseECSProfiles(current.PrewarmECSProfiles)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, len(profiles))
-	for _, profile := range profiles {
-		out = append(out, profile.Subnet)
-	}
-	return out, nil
 }

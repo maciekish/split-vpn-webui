@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Added ASN ipset entry preview (rule-editor modal + API) that resolves ASN prefixes and reports collapsed IPv4/IPv6 ipset entry counts using runtime-equivalent collapse logic.
+**Last session summary:** Improved pre-warm operability with stop control, configurable timeout in UI, and diagnostics logging for run lifecycle/errors.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,34 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Pre-warm stop control + timeout setting + diagnostics logs
+- Added explicit stop support for active pre-warm runs:
+  - New scheduler API:
+    - `internal/prewarm/scheduler.go`: `CancelRun()` with `ErrRunNotActive`.
+  - New HTTP endpoint:
+    - `POST /api/prewarm/stop` via `internal/server/handlers_prewarm.go`.
+  - Route registration:
+    - `internal/server/server.go` now mounts `/api/prewarm/stop`.
+- Added pre-warm diagnostics logging:
+  - `internal/prewarm/logger.go`: logger interface + progress error counting helper.
+  - `internal/prewarm/scheduler.go` + `internal/prewarm/scheduler_helpers.go`:
+    - logs run start parameters, cache-clear actions, cancellation requests,
+    - logs finished/failed/canceled run summaries including domain/IP/error counts.
+  - `internal/server/server.go` now wires configured diagnostics logger into pre-warm scheduler (`SetLogger`), so logs follow existing on/off and log-level settings.
+- Added configurable pre-warm timeout control in UI:
+  - `ui/web/templates/layout.html`:
+    - added `Timeout (seconds)` input (`prewarm-timeout-seconds`),
+    - added `Stop` button (`stop-prewarm-run`).
+  - `ui/web/static/js/prewarm-auth.js`:
+    - load/save timeout via `prewarmDoHTimeoutSeconds`,
+    - stop-run action calling `/api/prewarm/stop`,
+    - running-state button toggles (`Run Now` disabled while running, `Stop` enabled only while running).
+- Kept file-size guardrails:
+  - split scheduler helpers to `internal/prewarm/scheduler_helpers.go` so source files remain under the AGENTS target size.
+- Validation run:
+  - `go test ./... -count=1`
+  - `node --check ui/web/static/js/prewarm-auth.js ui/web/static/js/app.js ui/web/static/js/routing-resolver.js ui/web/static/js/domain-routing.js ui/web/static/js/domain-routing-rules.js ui/web/static/js/domain-routing-asn-preview.js`
 
 ### 2026-02-24 — ASN ipset entry preview modal + API
 - Added an ASN preview feature to estimate runtime ipset footprint before saving rules:

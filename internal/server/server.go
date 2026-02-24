@@ -121,6 +121,9 @@ func New(
 		gateways:          make(map[string]string),
 	}
 	if prewarmScheduler != nil {
+		if diagLogger != nil {
+			prewarmScheduler.SetLogger(diagLogger)
+		}
 		prewarmScheduler.SetProgressHandler(func(progress prewarm.Progress) {
 			server.broadcastEvent("prewarm", progress)
 		})
@@ -177,6 +180,7 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/prewarm/status", s.handlePrewarmStatus)
 			api.Post("/prewarm/run", s.handlePrewarmRun)
 			api.Post("/prewarm/clear-run", s.handlePrewarmClearRun)
+			api.Post("/prewarm/stop", s.handlePrewarmStop)
 			api.Get("/auth/token", s.handleGetAuthToken)
 			api.Post("/auth/token", s.handleRegenerateAuthToken)
 			api.Post("/auth/password", s.handleChangePassword)
