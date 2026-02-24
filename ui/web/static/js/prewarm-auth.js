@@ -333,6 +333,8 @@
       resolverDomainEnabled: current.resolverDomainEnabled !== false,
       resolverAsnEnabled: current.resolverAsnEnabled !== false,
       resolverWildcardEnabled: current.resolverWildcardEnabled !== false,
+      debugLogEnabled: current.debugLogEnabled === true,
+      debugLogLevel: String(current.debugLogLevel || 'info').toLowerCase(),
     };
     await fetchJSON('/api/settings', {
       method: 'PUT',

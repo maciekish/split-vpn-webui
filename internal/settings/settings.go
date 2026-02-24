@@ -18,15 +18,18 @@ type Settings struct {
 	PrewarmDoHTimeoutSeconds int `json:"prewarmDoHTimeoutSeconds,omitempty"`
 	PrewarmIntervalSeconds   int `json:"prewarmIntervalSeconds,omitempty"`
 	// Policy resolver refresh
-	ResolverParallelism           int   `json:"resolverParallelism,omitempty"`
-	ResolverTimeoutSeconds        int   `json:"resolverTimeoutSeconds,omitempty"`
-	ResolverIntervalSeconds       int   `json:"resolverIntervalSeconds,omitempty"`
-	ResolverDomainTimeoutSeconds  int   `json:"resolverDomainTimeoutSeconds,omitempty"`
-	ResolverASNTimeoutSeconds     int   `json:"resolverAsnTimeoutSeconds,omitempty"`
-	ResolverWildcardTimeoutSeconds int  `json:"resolverWildcardTimeoutSeconds,omitempty"`
-	ResolverDomainEnabled         *bool `json:"resolverDomainEnabled,omitempty"`
-	ResolverASNEnabled            *bool `json:"resolverAsnEnabled,omitempty"`
-	ResolverWildcardEnabled       *bool `json:"resolverWildcardEnabled,omitempty"`
+	ResolverParallelism            int   `json:"resolverParallelism,omitempty"`
+	ResolverTimeoutSeconds         int   `json:"resolverTimeoutSeconds,omitempty"`
+	ResolverIntervalSeconds        int   `json:"resolverIntervalSeconds,omitempty"`
+	ResolverDomainTimeoutSeconds   int   `json:"resolverDomainTimeoutSeconds,omitempty"`
+	ResolverASNTimeoutSeconds      int   `json:"resolverAsnTimeoutSeconds,omitempty"`
+	ResolverWildcardTimeoutSeconds int   `json:"resolverWildcardTimeoutSeconds,omitempty"`
+	ResolverDomainEnabled          *bool `json:"resolverDomainEnabled,omitempty"`
+	ResolverASNEnabled             *bool `json:"resolverAsnEnabled,omitempty"`
+	ResolverWildcardEnabled        *bool `json:"resolverWildcardEnabled,omitempty"`
+	// Diagnostics logging
+	DebugLogEnabled *bool  `json:"debugLogEnabled,omitempty"`
+	DebugLogLevel   string `json:"debugLogLevel,omitempty"`
 
 	// Auth — stored as bcrypt hash and random token.
 	// These fields are omitted from JSON output on API responses;

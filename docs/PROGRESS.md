@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Implemented comment-preserving selector editing (including raw line persistence), searchable source-MAC picker with device-name comments, and a new live VPN flow inspector modal/API with 2-second updates, sortable columns, and 10-minute idle-flow retention.
+**Last session summary:** Hardened VPN Flow Inspector reliability (conntrack format compatibility + session auto-recovery), added configurable persistent diagnostics logging (on/off + level), and improved rule-editor placeholder contrast.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,31 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Flow inspector reliability + diagnostics logging controls
+- Added configurable persistent diagnostics logging:
+  - New package `internal/diaglog` with runtime-configurable file logger (`debug/info/warn/error`, enable/disable toggle).
+  - Logs write to `/data/split-vpn-webui/logs/diagnostics.log`.
+  - `cmd/splitvpnwebui/main.go` now initializes logger and applies settings-driven defaults on startup.
+  - `internal/server/server.go` now wires diagnostics logger into server runtime.
+  - Settings model/API expanded with:
+    - `debugLogEnabled`
+    - `debugLogLevel`
+  - Settings UI now includes a Diagnostics Logging section (toggle + level selector).
+  - Settings save paths in `app.js`, `prewarm-auth.js`, and `routing-resolver.js` now preserve diagnostics settings to avoid accidental resets.
+- Improved flow inspector resiliency and observability:
+  - Added diagnostics instrumentation around flow-inspector start/poll/stop lifecycle and sample collection.
+  - Frontend flow inspector now auto-recovers when backend returns `flow inspector session not found` by transparently starting a new session.
+  - Flow matching now has an additional conntrack-mark fallback path when rule-based matching misses.
+  - Expanded conntrack parser compatibility:
+    - supports `ipv4`/`ipv6` prefixed conntrack output variants.
+    - supports one-way/single-tuple flows (download defaults to `0`).
+  - Added conntrack parser coverage for these formats in `internal/server/flow_inspector_conntrack_test.go`.
+- Improved rule-editor placeholder clarity:
+  - Adjusted routing rule textarea/input placeholder styling to be more visually distinct (`lower contrast + italic`) in `ui/web/static/css/app.css`.
+- Validation run:
+  - `go test ./...`
+  - `node --check ui/web/static/js/app-vpn-flow-inspector.js ui/web/static/js/app.js ui/web/static/js/prewarm-auth.js ui/web/static/js/routing-resolver.js`
 
 ### 2026-02-24 — Selector comments + source-MAC picker + live flow inspector
 - Added full raw-selector round-trip support (preserves order/comments exactly as entered):

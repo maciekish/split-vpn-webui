@@ -72,6 +72,7 @@
       pollIntervalMS: 2000,
       pollTimer: null,
       pollInFlight: false,
+      recoveryInFlight: false,
       running: false,
       rows: [],
       sortKey: 'total',
@@ -155,6 +156,7 @@
       state.vpnName = '';
       state.rows = [];
       state.pollInFlight = false;
+      state.recoveryInFlight = false;
       if (activeSession && activeVPN) {
         try {
           await fetchJSON(`/api/vpns/${encodeURIComponent(activeVPN)}/flow-inspector/${encodeURIComponent(activeSession)}/stop`, {
@@ -205,12 +207,46 @@
         renderSnapshot(response?.snapshot || {});
       } catch (err) {
         const message = err.message || 'Failed to refresh flow inspector.';
+        if (message.toLowerCase().includes('session not found')) {
+          await recoverSession();
+          return;
+        }
         setInspectorStatus(message, true);
         if (typeof setStatus === 'function') {
           setStatus(message, true);
         }
       } finally {
         state.pollInFlight = false;
+      }
+    }
+
+    async function recoverSession() {
+      if (state.recoveryInFlight || !state.running || !state.vpnName) {
+        return;
+      }
+      state.recoveryInFlight = true;
+      try {
+        const response = await fetchJSON(`/api/vpns/${encodeURIComponent(state.vpnName)}/flow-inspector/start`, {
+          method: 'POST',
+        });
+        const newSessionID = String(response?.sessionId || '').trim();
+        if (!newSessionID) {
+          throw new Error('Flow inspector recovery did not return a session.');
+        }
+        state.sessionID = newSessionID;
+        const intervalSeconds = Number(response?.pollIntervalSeconds || 2);
+        state.pollIntervalMS = Math.max(1, Math.trunc(intervalSeconds)) * 1000;
+        renderSnapshot(response?.snapshot || {});
+        startPolling();
+        setInspectorStatus('Flow inspector session recovered.', false);
+      } catch (err) {
+        const message = err.message || 'Flow inspector recovery failed.';
+        setInspectorStatus(message, true);
+        if (typeof setStatus === 'function') {
+          setStatus(message, true);
+        }
+      } finally {
+        state.recoveryInFlight = false;
       }
     }
 

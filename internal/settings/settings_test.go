@@ -21,23 +21,26 @@ func TestManagerSaveAndGetRoundTrip(t *testing.T) {
 	domainEnabled := true
 	asnEnabled := false
 	wildcardEnabled := true
+	debugLogEnabled := true
 	input := Settings{
-		ListenInterface:              "br0",
-		WANInterface:                 "eth8",
-		PrewarmParallelism:           8,
-		PrewarmDoHTimeoutSeconds:     12,
-		PrewarmIntervalSeconds:       600,
-		ResolverParallelism:          4,
-		ResolverTimeoutSeconds:       9,
-		ResolverIntervalSeconds:      120,
-		ResolverDomainTimeoutSeconds: 7,
-		ResolverASNTimeoutSeconds:    11,
+		ListenInterface:                "br0",
+		WANInterface:                   "eth8",
+		PrewarmParallelism:             8,
+		PrewarmDoHTimeoutSeconds:       12,
+		PrewarmIntervalSeconds:         600,
+		ResolverParallelism:            4,
+		ResolverTimeoutSeconds:         9,
+		ResolverIntervalSeconds:        120,
+		ResolverDomainTimeoutSeconds:   7,
+		ResolverASNTimeoutSeconds:      11,
 		ResolverWildcardTimeoutSeconds: 13,
-		ResolverDomainEnabled:        &domainEnabled,
-		ResolverASNEnabled:           &asnEnabled,
-		ResolverWildcardEnabled:      &wildcardEnabled,
-		AuthPasswordHash:             "hash",
-		AuthToken:                    "token",
+		ResolverDomainEnabled:          &domainEnabled,
+		ResolverASNEnabled:             &asnEnabled,
+		ResolverWildcardEnabled:        &wildcardEnabled,
+		DebugLogEnabled:                &debugLogEnabled,
+		DebugLogLevel:                  "debug",
+		AuthPasswordHash:               "hash",
+		AuthToken:                      "token",
 	}
 	if err := manager.Save(input); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -57,6 +60,9 @@ func TestManagerSaveAndGetRoundTrip(t *testing.T) {
 	}
 	if output.ResolverWildcardEnabled == nil || *output.ResolverWildcardEnabled != true {
 		t.Fatalf("expected resolverWildcardEnabled=true, got %+v", output.ResolverWildcardEnabled)
+	}
+	if output.DebugLogEnabled == nil || *output.DebugLogEnabled != true || output.DebugLogLevel != "debug" {
+		t.Fatalf("unexpected debug log settings: enabled=%+v level=%q", output.DebugLogEnabled, output.DebugLogLevel)
 	}
 	if output.AuthToken != "token" || output.AuthPasswordHash != "hash" {
 		t.Fatalf("unexpected auth fields: %+v", output)

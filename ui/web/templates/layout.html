@@ -492,6 +492,28 @@
           <div class="form-text">Overrides automatic WAN detection for throughput calculations.</div>
         </div>
         <hr class="my-4">
+        <h6 class="mb-3"><i class="bi bi-bug me-2"></i>Diagnostics Logging</h6>
+        <div class="row g-2">
+          <div class="col-12 col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="debug-log-enabled">
+              <label class="form-check-label small" for="debug-log-enabled">Enable persistent diagnostics log</label>
+            </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small text-body-secondary mb-1" for="debug-log-level">Log Level</label>
+            <select class="form-select form-select-sm" id="debug-log-level">
+              <option value="debug">Debug</option>
+              <option value="info">Info</option>
+              <option value="warn">Warn</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <div class="form-text">Logs are written to <code>/data/split-vpn-webui/logs/diagnostics.log</code>. Disable logging to stop writing new entries.</div>
+          </div>
+        </div>
+        <hr class="my-4">
         <h6 class="mb-3"><i class="bi bi-shield-lock me-2"></i>Auth</h6>
         <div class="row g-2">
           <div class="col-12 col-md-6">

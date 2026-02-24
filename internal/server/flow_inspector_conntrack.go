@@ -68,16 +68,12 @@ func parseConntrackLine(rawLine string) (conntrackFlowSample, bool) {
 	if line == "" {
 		return conntrackFlowSample{}, false
 	}
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
+	protocol, protocolOK := detectConntrackProtocol(line)
+	if !protocolOK {
 		return conntrackFlowSample{}, false
 	}
-	protocol := strings.ToLower(strings.TrimSpace(fields[0]))
-	if protocol != "tcp" && protocol != "udp" {
-		return conntrackFlowSample{}, false
-	}
-	tuples := conntrackTuplePattern.FindAllStringSubmatch(line, 2)
-	if len(tuples) < 2 {
+	tuples := conntrackTuplePattern.FindAllStringSubmatch(line, -1)
+	if len(tuples) < 1 {
 		return conntrackFlowSample{}, false
 	}
 	sourcePort, sourcePortOK := parseIntStrict(tuples[0][3])
@@ -86,7 +82,10 @@ func parseConntrackLine(rawLine string) (conntrackFlowSample, bool) {
 		return conntrackFlowSample{}, false
 	}
 	uploadBytes, _ := parseUintStrict(tuples[0][6])
-	downloadBytes, _ := parseUintStrict(tuples[1][6])
+	downloadBytes := uint64(0)
+	if len(tuples) > 1 {
+		downloadBytes, _ = parseUintStrict(tuples[1][6])
+	}
 
 	mark := uint32(0)
 	markMatch := conntrackMarkPattern.FindStringSubmatch(line)
@@ -115,6 +114,17 @@ func parseConntrackLine(rawLine string) (conntrackFlowSample, bool) {
 		DownloadBytes:   downloadBytes,
 		Mark:            mark,
 	}, true
+}
+
+func detectConntrackProtocol(line string) (string, bool) {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(line)))
+	for _, field := range fields {
+		switch strings.TrimSpace(field) {
+		case "tcp", "udp":
+			return field, true
+		}
+	}
+	return "", false
 }
 
 func flowSampleKey(protocol string, sourceIP string, sourcePort int, destinationIP string, destinationPort int) string {

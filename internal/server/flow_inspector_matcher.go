@@ -58,13 +58,25 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 	if err != nil {
 		return nil, "", err
 	}
+	if s.diagLog != nil {
+		s.diagLog.Debugf("flow_inspector collect snapshot vpn=%s conntrack_flows=%d groups=%d", vpnName, len(conntrackFlows), len(groups))
+	}
 
 	interfaceName := ""
+	vpnMark := uint32(0)
 	if cfg, cfgErr := s.configManager.Get(vpnName); cfgErr == nil && cfg != nil {
 		interfaceName = strings.TrimSpace(cfg.InterfaceName)
 	}
+	if s.vpnManager != nil {
+		if profile, profileErr := s.vpnManager.Get(vpnName); profileErr == nil && profile != nil {
+			vpnMark = profile.FWMark
+		}
+	}
 	compiledRules := compileFlowRules(vpnName, groups, setSnapshots, resolved, prewarmed)
 	if len(compiledRules) == 0 {
+		if s.diagLog != nil {
+			s.diagLog.Warnf("flow_inspector collect vpn=%s has no compiled routing rules", vpnName)
+		}
 		return nil, interfaceName, nil
 	}
 	domainHints := buildDomainPrefixHints(resolved)
@@ -72,6 +84,9 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 	devices := loadDeviceDirectory(ctx)
 	result := make([]flowInspectorSample, 0, len(conntrackFlows))
 	seen := make(map[string]struct{}, len(conntrackFlows))
+	sourceParsed := 0
+	matched := 0
+	matchedByMark := 0
 
 	for _, flow := range conntrackFlows {
 		sourceAddr, sourceOK := parseIPToAddr(flow.SourceIP)
@@ -79,6 +94,7 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 		if !sourceOK || !destinationOK {
 			continue
 		}
+		sourceParsed++
 		sourceMAC := strings.ToLower(strings.TrimSpace(devices.lookupIPMAC(flow.SourceIP)))
 		sourceDevice := strings.TrimSpace(devices.lookupIP(flow.SourceIP))
 		if sourceDevice == "" && sourceMAC != "" {
@@ -88,12 +104,20 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 		}
 		sourceInterface := resolveSourceInterface(localInterfacePrefixes, sourceAddr)
 		matchedRule := matchFlowRule(compiledRules, flow, sourceAddr, destinationAddr, sourceMAC, sourceInterface)
-		if matchedRule == nil {
+		matchedViaMark := false
+		if matchedRule == nil && vpnMark >= 200 && flow.Mark == vpnMark {
+			matchedViaMark = true
+		}
+		if matchedRule == nil && !matchedViaMark {
 			continue
+		}
+		matched++
+		if matchedViaMark {
+			matchedByMark++
 		}
 
 		destinationDomain := lookupDestinationDomain(domainHints, destinationAddr)
-		if destinationDomain == "" && len(matchedRule.DomainHints) > 0 {
+		if matchedRule != nil && destinationDomain == "" && len(matchedRule.DomainHints) > 0 {
 			destinationDomain = matchedRule.DomainHints[0]
 		}
 
@@ -115,6 +139,20 @@ func (s *Server) collectVPNFlowSamples(ctx context.Context, vpnName string) ([]f
 			UploadBytes:       flow.UploadBytes,
 			DownloadBytes:     flow.DownloadBytes,
 		})
+	}
+	if s.diagLog != nil {
+		s.diagLog.Debugf(
+			"flow_inspector collect vpn=%s interface=%s compiled_rules=%d parsed=%d matched=%d emitted=%d",
+			vpnName,
+			interfaceName,
+			len(compiledRules),
+			sourceParsed,
+			matched,
+			len(result),
+		)
+		if matchedByMark > 0 {
+			s.diagLog.Debugf("flow_inspector collect vpn=%s matched_via_conntrack_mark=%d mark=0x%x", vpnName, matchedByMark, vpnMark)
+		}
 	}
 	return result, interfaceName, nil
 }

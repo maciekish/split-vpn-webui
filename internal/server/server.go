@@ -14,6 +14,7 @@ import (
 	"split-vpn-webui/internal/auth"
 	"split-vpn-webui/internal/backup"
 	"split-vpn-webui/internal/config"
+	"split-vpn-webui/internal/diaglog"
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/prewarm"
 	"split-vpn-webui/internal/routing"
@@ -58,6 +59,7 @@ type Server struct {
 	stats          *stats.Collector
 	latency        *latency.Monitor
 	settings       *settings.Manager
+	diagLog        *diaglog.Manager
 	auth           *auth.Manager
 	backup         *backup.Manager
 	updater        *update.Manager
@@ -86,6 +88,7 @@ func New(
 	statsCollector *stats.Collector,
 	latencyMonitor *latency.Monitor,
 	settingsManager *settings.Manager,
+	diagLogger *diaglog.Manager,
 	authManager *auth.Manager,
 	backupManager *backup.Manager,
 	updateManager *update.Manager,
@@ -105,6 +108,7 @@ func New(
 		stats:             statsCollector,
 		latency:           latencyMonitor,
 		settings:          settingsManager,
+		diagLog:           diagLogger,
 		auth:              authManager,
 		backup:            backupManager,
 		updater:           updateManager,

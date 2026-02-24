@@ -305,6 +305,8 @@
       resolverDomainEnabled: resolverDomainEnabled.checked,
       resolverAsnEnabled: resolverAsnEnabled.checked,
       resolverWildcardEnabled: resolverWildcardEnabled.checked,
+      debugLogEnabled: current.debugLogEnabled === true,
+      debugLogLevel: String(current.debugLogLevel || 'info').toLowerCase(),
     };
     await fetchJSON('/api/settings', {
       method: 'PUT',

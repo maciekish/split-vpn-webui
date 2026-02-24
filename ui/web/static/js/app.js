@@ -52,6 +52,8 @@
   const settingsModal = new bootstrap.Modal(settingsModalElement);
   const listenSelect = document.getElementById('listen-interface');
   const wanSelect = document.getElementById('wan-interface');
+  const debugLogEnabledInput = document.getElementById('debug-log-enabled');
+  const debugLogLevelSelect = document.getElementById('debug-log-level');
   const saveSettingsButton = document.getElementById('save-settings');
 
   const palette = ['#3b82f6', '#22d3ee', '#f97316', '#a855f7', '#f43f5e', '#14b8a6', '#eab308'];
@@ -164,6 +166,8 @@
   });
 
   saveSettingsButton.addEventListener('click', async () => {
+    const debugLogEnabled = Boolean(debugLogEnabledInput?.checked);
+    const debugLogLevel = String(debugLogLevelSelect?.value || 'info').trim().toLowerCase();
     const payload = {
       listenInterface: listenSelect.value || '',
       wanInterface: wanSelect.value || '',
@@ -179,6 +183,8 @@
       resolverDomainEnabled: state.settings?.resolverDomainEnabled !== false,
       resolverAsnEnabled: state.settings?.resolverAsnEnabled !== false,
       resolverWildcardEnabled: state.settings?.resolverWildcardEnabled !== false,
+      debugLogEnabled,
+      debugLogLevel,
     };
     saveSettingsButton.disabled = true;
     try {
@@ -305,6 +311,21 @@
       state.settings?.wanInterface || '',
       'Automatic detection'
     );
+    if (debugLogEnabledInput) {
+      debugLogEnabledInput.checked = state.settings?.debugLogEnabled === true;
+    }
+    if (debugLogLevelSelect) {
+      const level = String(state.settings?.debugLogLevel || 'info').trim().toLowerCase();
+      const validLevels = new Set(['debug', 'info', 'warn', 'error']);
+      debugLogLevelSelect.value = validLevels.has(level) ? level : 'info';
+      debugLogLevelSelect.disabled = !(debugLogEnabledInput?.checked);
+    }
+  }
+
+  if (debugLogEnabledInput && debugLogLevelSelect) {
+    debugLogEnabledInput.addEventListener('change', () => {
+      debugLogLevelSelect.disabled = !debugLogEnabledInput.checked;
+    });
   }
 
   function populateInterfaceSelect(select, interfaces, selected, emptyLabel) {

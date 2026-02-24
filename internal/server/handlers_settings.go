@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"split-vpn-webui/internal/settings"
@@ -22,22 +23,24 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		interfaces = nil
 	}
 	// Scrub auth fields — never expose hash or token via settings API.
-		safe := settings.Settings{
-			ListenInterface:          current.ListenInterface,
-			WANInterface:             current.WANInterface,
-			PrewarmParallelism:       current.PrewarmParallelism,
-			PrewarmDoHTimeoutSeconds: current.PrewarmDoHTimeoutSeconds,
-			PrewarmIntervalSeconds:   current.PrewarmIntervalSeconds,
-			ResolverParallelism:           current.ResolverParallelism,
-			ResolverTimeoutSeconds:        current.ResolverTimeoutSeconds,
-			ResolverIntervalSeconds:       current.ResolverIntervalSeconds,
-			ResolverDomainTimeoutSeconds:  current.ResolverDomainTimeoutSeconds,
-			ResolverASNTimeoutSeconds:     current.ResolverASNTimeoutSeconds,
-			ResolverWildcardTimeoutSeconds: current.ResolverWildcardTimeoutSeconds,
-			ResolverDomainEnabled:         current.ResolverDomainEnabled,
-			ResolverASNEnabled:            current.ResolverASNEnabled,
-			ResolverWildcardEnabled:       current.ResolverWildcardEnabled,
-		}
+	safe := settings.Settings{
+		ListenInterface:                current.ListenInterface,
+		WANInterface:                   current.WANInterface,
+		PrewarmParallelism:             current.PrewarmParallelism,
+		PrewarmDoHTimeoutSeconds:       current.PrewarmDoHTimeoutSeconds,
+		PrewarmIntervalSeconds:         current.PrewarmIntervalSeconds,
+		ResolverParallelism:            current.ResolverParallelism,
+		ResolverTimeoutSeconds:         current.ResolverTimeoutSeconds,
+		ResolverIntervalSeconds:        current.ResolverIntervalSeconds,
+		ResolverDomainTimeoutSeconds:   current.ResolverDomainTimeoutSeconds,
+		ResolverASNTimeoutSeconds:      current.ResolverASNTimeoutSeconds,
+		ResolverWildcardTimeoutSeconds: current.ResolverWildcardTimeoutSeconds,
+		ResolverDomainEnabled:          current.ResolverDomainEnabled,
+		ResolverASNEnabled:             current.ResolverASNEnabled,
+		ResolverWildcardEnabled:        current.ResolverWildcardEnabled,
+		DebugLogEnabled:                current.DebugLogEnabled,
+		DebugLogLevel:                  current.DebugLogLevel,
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings":   safe,
 		"interfaces": interfaces,
@@ -46,22 +49,24 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	// Decode only the public, user-editable fields.
-		var payload struct {
-			ListenInterface          string `json:"listenInterface"`
-			WANInterface             string `json:"wanInterface"`
-			PrewarmParallelism       int    `json:"prewarmParallelism"`
-			PrewarmDoHTimeoutSeconds int    `json:"prewarmDoHTimeoutSeconds"`
-			PrewarmIntervalSeconds   int    `json:"prewarmIntervalSeconds"`
-			ResolverParallelism           int   `json:"resolverParallelism"`
-			ResolverTimeoutSeconds        int   `json:"resolverTimeoutSeconds"`
-			ResolverIntervalSeconds       int   `json:"resolverIntervalSeconds"`
-			ResolverDomainTimeoutSeconds  int   `json:"resolverDomainTimeoutSeconds"`
-			ResolverASNTimeoutSeconds     int   `json:"resolverAsnTimeoutSeconds"`
-			ResolverWildcardTimeoutSeconds int  `json:"resolverWildcardTimeoutSeconds"`
-			ResolverDomainEnabled         *bool `json:"resolverDomainEnabled"`
-			ResolverASNEnabled            *bool `json:"resolverAsnEnabled"`
-			ResolverWildcardEnabled       *bool `json:"resolverWildcardEnabled"`
-		}
+	var payload struct {
+		ListenInterface                string `json:"listenInterface"`
+		WANInterface                   string `json:"wanInterface"`
+		PrewarmParallelism             int    `json:"prewarmParallelism"`
+		PrewarmDoHTimeoutSeconds       int    `json:"prewarmDoHTimeoutSeconds"`
+		PrewarmIntervalSeconds         int    `json:"prewarmIntervalSeconds"`
+		ResolverParallelism            int    `json:"resolverParallelism"`
+		ResolverTimeoutSeconds         int    `json:"resolverTimeoutSeconds"`
+		ResolverIntervalSeconds        int    `json:"resolverIntervalSeconds"`
+		ResolverDomainTimeoutSeconds   int    `json:"resolverDomainTimeoutSeconds"`
+		ResolverASNTimeoutSeconds      int    `json:"resolverAsnTimeoutSeconds"`
+		ResolverWildcardTimeoutSeconds int    `json:"resolverWildcardTimeoutSeconds"`
+		ResolverDomainEnabled          *bool  `json:"resolverDomainEnabled"`
+		ResolverASNEnabled             *bool  `json:"resolverAsnEnabled"`
+		ResolverWildcardEnabled        *bool  `json:"resolverWildcardEnabled"`
+		DebugLogEnabled                *bool  `json:"debugLogEnabled"`
+		DebugLogLevel                  string `json:"debugLogLevel"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 		return
@@ -89,10 +94,25 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	updated.ResolverDomainEnabled = payload.ResolverDomainEnabled
 	updated.ResolverASNEnabled = payload.ResolverASNEnabled
 	updated.ResolverWildcardEnabled = payload.ResolverWildcardEnabled
+	if payload.DebugLogEnabled != nil {
+		updated.DebugLogEnabled = payload.DebugLogEnabled
+	}
+	if payload.DebugLogLevel != "" {
+		updated.DebugLogLevel = strings.ToLower(strings.TrimSpace(payload.DebugLogLevel))
+	}
 
 	if err := s.settings.Save(updated); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if s.diagLog != nil {
+		enabled := false
+		if updated.DebugLogEnabled != nil {
+			enabled = *updated.DebugLogEnabled
+		}
+		if err := s.diagLog.Configure(enabled, updated.DebugLogLevel); err != nil {
+			log.Printf("diagnostics logging configure warning: %v", err)
+		}
 	}
 	if err := s.refreshState(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

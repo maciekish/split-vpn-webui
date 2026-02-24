@@ -179,6 +179,13 @@ textarea#vpn-config-editor {
   border-color: rgba(148, 163, 184, 0.22) !important;
 }
 
+.routing-rules-list .routing-rule-card textarea::placeholder,
+.routing-rules-list .routing-rule-card input::placeholder {
+  color: rgba(148, 163, 184, 0.28) !important;
+  font-style: italic;
+  opacity: 1;
+}
+
 .routing-inspector-group {
   background: rgba(15, 23, 42, 0.32);
   border-color: rgba(148, 163, 184, 0.22) !important;

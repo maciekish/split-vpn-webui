@@ -18,6 +18,7 @@ import (
 	"split-vpn-webui/internal/backup"
 	"split-vpn-webui/internal/config"
 	"split-vpn-webui/internal/database"
+	"split-vpn-webui/internal/diaglog"
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/prewarm"
 	"split-vpn-webui/internal/routing"
@@ -98,6 +99,12 @@ func main() {
 
 	settingsPath := filepath.Join(*dataDir, "settings.json")
 	settingsManager := settings.NewManager(settingsPath)
+	diagLogger := diaglog.New(filepath.Join(*dataDir, "logs", "diagnostics.log"))
+	defer func() {
+		if err := diagLogger.Close(); err != nil {
+			log.Printf("warning: failed to close diagnostics log: %v", err)
+		}
+	}()
 
 	authManager := auth.NewManager(settingsManager)
 	if err := authManager.EnsureDefaults(); err != nil {
@@ -147,6 +154,13 @@ func main() {
 	if err != nil {
 		log.Printf("warning: failed to load settings: %v", err)
 	}
+	diagEnabled := false
+	if storedSettings.DebugLogEnabled != nil {
+		diagEnabled = *storedSettings.DebugLogEnabled
+	}
+	if err := diagLogger.Configure(diagEnabled, storedSettings.DebugLogLevel); err != nil {
+		log.Printf("warning: failed to configure diagnostics logging: %v", err)
+	}
 
 	collector := stats.NewCollector("", *poll, *history)
 	if storedSettings.WANInterface != "" {
@@ -166,6 +180,7 @@ func main() {
 		collector,
 		latencyMonitor,
 		settingsManager,
+		diagLogger,
 		authManager,
 		backupManager,
 		updater,
