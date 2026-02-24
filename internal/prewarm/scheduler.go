@@ -279,6 +279,16 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 		ExtraNameservers: extraNameservers,
 		ECSProfiles:      ecsProfiles,
 		WildcardResolver: newCRTSHWildcardResolver(timeout),
+		ErrorCallback: func(event QueryError) {
+			s.logDebugf(
+				"prewarm query error stage=%s iface=%s domain=%s resolver=%s err=%v",
+				event.Stage,
+				event.Interface,
+				event.Domain,
+				event.Resolver,
+				event.Err,
+			)
+		},
 		ProgressCallback: func(progress Progress) {
 			s.mu.Lock()
 			cloned := progress.Clone()
@@ -312,6 +322,7 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 }
 
 func (s *Scheduler) finishRun(started time.Time, stats RunStats, runErr error) {
+	stats = s.mergeStatsWithCurrentProgress(started, stats)
 	finished := s.now()
 	record := RunRecord{
 		StartedAt:    started.Unix(),
@@ -383,14 +394,7 @@ func (s *Scheduler) finishRun(started time.Time, stats RunStats, runErr error) {
 }
 
 func toRoutingCacheSnapshot(snapshot map[string]CachedSetValues) map[string]routing.ResolverValues {
-	out := make(map[string]routing.ResolverValues, len(snapshot))
-	for setName, values := range snapshot {
-		out[setName] = routing.ResolverValues{
-			V4: append([]string(nil), values.V4...),
-			V6: append([]string(nil), values.V6...),
-		}
-	}
-	return out
+	return cacheSnapshotToResolverValues(snapshot)
 }
 
 // Status returns live and historical scheduler state.
@@ -435,41 +439,17 @@ func (s *Scheduler) emitProgress(progress Progress) {
 }
 
 func cloneRunRecord(run *RunRecord) *RunRecord {
-	if run == nil {
-		return nil
-	}
-	cloned := *run
-	return &cloned
+	return cloneStoredRunRecord(run)
 }
 
 func parallelismFromSettings(current settings.Settings) int {
-	if current.PrewarmParallelism <= 0 {
-		return defaultParallelism
-	}
-	if current.PrewarmParallelism > maxParallelism {
-		return maxParallelism
-	}
-	return current.PrewarmParallelism
+	return configuredParallelism(current)
 }
 
 func timeoutFromSettings(current settings.Settings) time.Duration {
-	seconds := current.PrewarmDoHTimeoutSeconds
-	if seconds <= 0 {
-		seconds = defaultTimeoutSeconds
-	}
-	if seconds > maxTimeoutSeconds {
-		seconds = maxTimeoutSeconds
-	}
-	return time.Duration(seconds) * time.Second
+	return configuredTimeout(current)
 }
 
 func intervalFromSettings(current settings.Settings) time.Duration {
-	seconds := current.PrewarmIntervalSeconds
-	if seconds <= 0 {
-		seconds = defaultIntervalSeconds
-	}
-	if seconds > maxIntervalSeconds {
-		seconds = maxIntervalSeconds
-	}
-	return time.Duration(seconds) * time.Second
+	return configuredInterval(current)
 }

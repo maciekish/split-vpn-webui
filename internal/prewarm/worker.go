@@ -41,6 +41,7 @@ type WorkerOptions struct {
 	ECSProfiles         []string
 	AdditionalResolvers []DoHClient
 	ProgressCallback    func(Progress)
+	ErrorCallback       func(QueryError)
 	InterfaceActive     func(name string) (bool, error)
 	InterfaceList       func() ([]string, error)
 	WildcardResolver    WildcardResolver
@@ -55,6 +56,7 @@ type Worker struct {
 	resolvers []DoHClient
 	parallel  int
 	progress  func(Progress)
+	onError   func(QueryError)
 	ifaceUp   func(name string) (bool, error)
 	ifaceList func() ([]string, error)
 	wildcard  WildcardResolver
@@ -125,6 +127,7 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 		resolvers: resolvers,
 		parallel:  parallelism,
 		progress:  opts.ProgressCallback,
+		onError:   opts.ErrorCallback,
 		ifaceUp:   ifaceActive,
 		ifaceList: ifaceList,
 		wildcard:  wildcard,
@@ -234,36 +237,36 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 		}()
 	}
 
+	snapshotStats := func() RunStats {
+		mu.Lock()
+		defer mu.Unlock()
+		return buildRunStats(progress, cacheV4BySet, cacheV6BySet)
+	}
+
 	for _, task := range tasks {
 		select {
 		case <-runCtx.Done():
 			close(jobs)
 			wg.Wait()
+			stats := snapshotStats()
 			if runErr != nil {
-				return RunStats{}, runErr
+				return stats, runErr
 			}
-			return RunStats{}, runCtx.Err()
+			return stats, runCtx.Err()
 		case jobs <- task:
 		}
 	}
 	close(jobs)
 	wg.Wait()
+	final := snapshotStats()
 
 	if runErr != nil {
-		return RunStats{}, runErr
+		return final, runErr
 	}
 	if err := runCtx.Err(); err != nil {
-		return RunStats{}, err
+		return final, err
 	}
-	final := progress.Clone()
-	cacheSnapshot := materializeCacheSnapshot(cacheV4BySet, cacheV6BySet)
-	return RunStats{
-		DomainsTotal:  final.TotalDomains,
-		DomainsDone:   final.ProcessedDomains,
-		IPsInserted:   final.TotalIPs,
-		Progress:      final,
-		CacheSnapshot: cacheSnapshot,
-	}, nil
+	return final, nil
 }
 
 func (w *Worker) activeInterfaces() ([]string, error) {
@@ -363,6 +366,13 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 	if task.Wildcard && w.wildcard != nil {
 		discovered, err := w.wildcard.Resolve(ctx, "*."+task.Domain)
 		if err != nil {
+			w.emitQueryError(QueryError{
+				Stage:     "wildcard-discovery",
+				Domain:    task.Domain,
+				Interface: "*",
+				Resolver:  "crt.sh",
+				Err:       err,
+			})
 			for _, iface := range ifaces {
 				perVPNErrors[iface]++
 			}
@@ -382,8 +392,16 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 		perIfaceV4[iface] = make(map[string]struct{})
 		perIfaceV6[iface] = make(map[string]struct{})
 		for _, resolver := range w.resolvers {
+			resolverName := resolverLabel(resolver)
 			cnames, err := resolver.QueryCNAME(ctx, task.Domain, iface)
 			if err != nil {
+				w.emitQueryError(QueryError{
+					Stage:     "cname",
+					Domain:    task.Domain,
+					Interface: iface,
+					Resolver:  resolverName,
+					Err:       err,
+				})
 				perVPNErrors[iface]++
 				continue
 			}
@@ -410,8 +428,16 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 		}
 		for _, iface := range ifaces {
 			for _, resolver := range w.resolvers {
+				resolverName := resolverLabel(resolver)
 				v4, err := resolver.QueryA(ctx, target, iface)
 				if err != nil {
+					w.emitQueryError(QueryError{
+						Stage:     "a",
+						Domain:    target,
+						Interface: iface,
+						Resolver:  resolverName,
+						Err:       err,
+					})
 					perVPNErrors[iface]++
 				} else {
 					for _, ip := range v4 {
@@ -422,6 +448,13 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 
 				v6, err := resolver.QueryAAAA(ctx, target, iface)
 				if err != nil {
+					w.emitQueryError(QueryError{
+						Stage:     "aaaa",
+						Domain:    target,
+						Interface: iface,
+						Resolver:  resolverName,
+						Err:       err,
+					})
 					perVPNErrors[iface]++
 				} else {
 					for _, ip := range v6 {
@@ -446,44 +479,4 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 		V4:            v4List,
 		V6:            v6List,
 	}, nil
-}
-
-func appendSetIPs(cache map[string]map[string]struct{}, setName string, ips []string) {
-	if len(ips) == 0 || strings.TrimSpace(setName) == "" {
-		return
-	}
-	existing := cache[setName]
-	if existing == nil {
-		existing = make(map[string]struct{}, len(ips))
-		cache[setName] = existing
-	}
-	for _, ip := range ips {
-		trimmed := strings.TrimSpace(ip)
-		if trimmed == "" {
-			continue
-		}
-		existing[trimmed] = struct{}{}
-	}
-}
-
-func materializeCacheSnapshot(v4BySet, v6BySet map[string]map[string]struct{}) map[string]CachedSetValues {
-	snapshot := make(map[string]CachedSetValues, len(v4BySet)+len(v6BySet))
-	for setName, values := range v4BySet {
-		entry := snapshot[setName]
-		entry.V4 = mapKeysSorted(values)
-		snapshot[setName] = entry
-	}
-	for setName, values := range v6BySet {
-		entry := snapshot[setName]
-		entry.V6 = mapKeysSorted(values)
-		snapshot[setName] = entry
-	}
-	return snapshot
-}
-
-func (w *Worker) emitProgress(progress Progress) {
-	if w.progress == nil {
-		return
-	}
-	w.progress(progress.Clone())
 }

@@ -39,6 +39,7 @@ func (m *mockVPNSource) List() ([]*vpn.VPNProfile, error) {
 type mockDoH struct {
 	mu    sync.Mutex
 	data  map[string][]string
+	errs  map[string]error
 	calls []string
 }
 
@@ -61,8 +62,12 @@ func (m *mockDoH) query(ctx context.Context, qType, domain, iface string) ([]str
 	key := fmt.Sprintf("%s|%s|%s", strings.ToLower(strings.TrimSpace(iface)), strings.ToLower(strings.TrimSpace(domain)), qType)
 	m.mu.Lock()
 	m.calls = append(m.calls, key)
+	queryErr := m.errs[key]
 	values := append([]string(nil), m.data[key]...)
 	m.mu.Unlock()
+	if queryErr != nil {
+		return nil, queryErr
+	}
 	return values, nil
 }
 
@@ -203,6 +208,59 @@ func TestWorkerRespectsContextCancellation(t *testing.T) {
 	cancel()
 	if _, err := worker.Run(ctx); err == nil {
 		t.Fatalf("expected context cancellation error")
+	}
+}
+
+func TestWorkerReturnsPartialStatsOnCancel(t *testing.T) {
+	groups := &mockGroupSource{
+		groups: []routing.DomainGroup{
+			{Name: "Partial", EgressVPN: "wg-a", Domains: []string{"one.example", "two.example"}},
+		},
+	}
+	vpns := &mockVPNSource{
+		profiles: []*vpn.VPNProfile{{Name: "wg-a", InterfaceName: "wg-a"}},
+	}
+	doh := &mockDoH{
+		data: map[string][]string{
+			"wg-a|one.example|CNAME": {},
+			"wg-a|one.example|A":     {"203.0.113.11"},
+			"wg-a|one.example|AAAA":  {},
+			"wg-a|two.example|CNAME": {},
+			"wg-a|two.example|A":     {"203.0.113.22"},
+			"wg-a|two.example|AAAA":  {},
+		},
+	}
+	ipset := &mockIPSet{}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	worker, err := NewWorker(groups, vpns, doh, ipset, WorkerOptions{
+		Parallelism: 1,
+		InterfaceActive: func(name string) (bool, error) {
+			return true, nil
+		},
+		ProgressCallback: func(progress Progress) {
+			if progress.ProcessedDomains >= 1 {
+				cancel()
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
+
+	stats, err := worker.Run(ctx)
+	if err == nil {
+		t.Fatalf("expected cancellation error")
+	}
+	if stats.DomainsTotal != 2 {
+		t.Fatalf("expected domains total to be retained, got %d", stats.DomainsTotal)
+	}
+	if stats.DomainsDone < 1 {
+		t.Fatalf("expected at least one processed domain before cancel, got %d", stats.DomainsDone)
+	}
+	if stats.IPsInserted < 1 {
+		t.Fatalf("expected partial inserted IPs to be retained, got %d", stats.IPsInserted)
 	}
 }
 
@@ -391,5 +449,58 @@ func TestWorkerUsesAdditionalResolvers(t *testing.T) {
 	}
 	if len(primary.calls) == 0 || len(additional.calls) == 0 {
 		t.Fatalf("expected both primary and additional resolvers to be queried")
+	}
+}
+
+func TestWorkerErrorCallbackReceivesResolverFailures(t *testing.T) {
+	groups := &mockGroupSource{
+		groups: []routing.DomainGroup{
+			{Name: "Errors", EgressVPN: "wg-a", Domains: []string{"broken.example"}},
+		},
+	}
+	vpns := &mockVPNSource{
+		profiles: []*vpn.VPNProfile{{Name: "wg-a", InterfaceName: "wg-a"}},
+	}
+	doh := &mockDoH{
+		data: map[string][]string{
+			"wg-a|broken.example|CNAME": {},
+			"wg-a|broken.example|AAAA":  {},
+		},
+		errs: map[string]error{
+			"wg-a|broken.example|A": fmt.Errorf("synthetic resolver failure"),
+		},
+	}
+	ipset := &mockIPSet{}
+	events := make([]QueryError, 0, 1)
+
+	worker, err := NewWorker(groups, vpns, doh, ipset, WorkerOptions{
+		InterfaceActive: func(name string) (bool, error) { return true, nil },
+		ErrorCallback: func(event QueryError) {
+			events = append(events, event)
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
+
+	stats, err := worker.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if stats.Progress.PerVPN["wg-a"].Errors == 0 {
+		t.Fatalf("expected vpn error count to increase")
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected query error callback events")
+	}
+	foundA := false
+	for _, event := range events {
+		if event.Stage == "a" && event.Domain == "broken.example" && event.Interface == "wg-a" {
+			foundA = true
+			break
+		}
+	}
+	if !foundA {
+		t.Fatalf("expected at least one IPv4 resolver error event, got %#v", events)
 	}
 }

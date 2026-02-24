@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-02-24
-**Last session summary:** Improved pre-warm operability with stop control, configurable timeout in UI, and diagnostics logging for run lifecycle/errors.
+**Last session summary:** Fixed pre-warm diagnostics gaps by logging per-query failures and preserving partial run stats on cancellation/failure, so error-heavy runs no longer report `0/0`.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,27 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Pre-warm error visibility + cancellation stats fix
+- Fixed missing error diagnostics for pre-warm query failures:
+  - `internal/prewarm/worker.go` now emits structured query-failure events for wildcard discovery, CNAME, A, and AAAA lookups.
+  - `internal/prewarm/worker_helpers.go` adds resolver labeling (`dns://...`, DoH host/ECS profile) and query-error emission helpers.
+  - `internal/prewarm/scheduler.go` wires worker query errors into diagnostics logs with detailed context:
+    - stage, interface, domain, resolver, error.
+- Fixed canceled-run stats incorrectly collapsing to zeros:
+  - `internal/prewarm/worker.go` now returns partial `RunStats` snapshots when a run is canceled or fails mid-run, instead of returning empty stats.
+  - `internal/prewarm/scheduler_helpers.go` adds a fallback merge so persisted/logged final run stats use the latest in-memory progress if worker stats are sparse.
+  - This keeps `domains done/total`, inserted IPs, and error counters accurate in both API status and diagnostics logs during interrupted runs.
+- Refactoring to keep file-size guardrails:
+  - Moved worker runtime helpers to `internal/prewarm/worker_helpers.go`.
+  - Moved scheduler utility helpers to `internal/prewarm/scheduler_helpers.go`.
+- Tests:
+  - `internal/prewarm/worker_test.go`
+    - Added cancellation partial-stats coverage.
+    - Added query-error callback coverage.
+  - Validation run:
+    - `go test ./internal/prewarm -count=1`
+    - `go test ./... -count=1`
 
 ### 2026-02-24 — Pre-warm stop control + timeout setting + diagnostics logs
 - Added explicit stop support for active pre-warm runs:

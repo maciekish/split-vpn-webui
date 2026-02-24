@@ -8,6 +8,15 @@ type Logger interface {
 	Errorf(format string, args ...any)
 }
 
+// QueryError captures one failed resolver lookup attempt.
+type QueryError struct {
+	Stage     string
+	Domain    string
+	Interface string
+	Resolver  string
+	Err       error
+}
+
 func progressErrorCount(progress Progress) int {
 	total := 0
 	for _, item := range progress.PerVPN {
