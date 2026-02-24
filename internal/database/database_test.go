@@ -28,6 +28,7 @@ func TestOpen_InMemory(t *testing.T) {
 		"resolver_cache",
 		"resolver_runs",
 		"prewarm_runs",
+		"prewarm_cache",
 	}
 	for _, table := range tables {
 		var name string

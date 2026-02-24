@@ -168,7 +168,7 @@ func waitResolverIdle(t *testing.T, scheduler *ResolverScheduler) {
 	t.Fatalf("resolver scheduler did not complete in time")
 }
 
-func TestResolverSnapshotReplaceRemovesStaleValues(t *testing.T) {
+func TestResolverSnapshotUpsertKeepsPriorValuesUntilTTLExpiry(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "resolver.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -183,22 +183,22 @@ func TestResolverSnapshotReplaceRemovesStaleValues(t *testing.T) {
 	first := map[ResolverSelector]ResolverValues{
 		{Type: "domain", Key: "example.com"}: {V4: []string{"1.1.1.1/32"}},
 	}
-	if err := store.ReplaceResolverSnapshot(ctx, first); err != nil {
-		t.Fatalf("replace first snapshot: %v", err)
+	if err := store.UpsertResolverSnapshot(ctx, first); err != nil {
+		t.Fatalf("upsert first snapshot: %v", err)
 	}
 	second := map[ResolverSelector]ResolverValues{
 		{Type: "asn", Key: "AS13335"}: {V4: []string{"104.16.0.0/12"}},
 	}
-	if err := store.ReplaceResolverSnapshot(ctx, second); err != nil {
-		t.Fatalf("replace second snapshot: %v", err)
+	if err := store.UpsertResolverSnapshot(ctx, second); err != nil {
+		t.Fatalf("upsert second snapshot: %v", err)
 	}
 
 	loaded, err := store.LoadResolverSnapshot(ctx)
 	if err != nil {
 		t.Fatalf("load snapshot: %v", err)
 	}
-	if _, exists := loaded[ResolverSelector{Type: "domain", Key: "example.com"}]; exists {
-		t.Fatalf("expected stale domain selector to be removed")
+	if _, exists := loaded[ResolverSelector{Type: "domain", Key: "example.com"}]; !exists {
+		t.Fatalf("expected previous domain selector to be retained")
 	}
 	if _, exists := loaded[ResolverSelector{Type: "asn", Key: "AS13335"}]; !exists {
 		t.Fatalf("expected updated selector to be present")

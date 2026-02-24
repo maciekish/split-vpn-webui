@@ -15,7 +15,6 @@ import (
 
 const (
 	defaultParallelism       = 4
-	prewarmIPSetTimeoutSec   = 43200
 	maxSafeWorkerParallelism = 64
 )
 
@@ -69,6 +68,8 @@ type taskResult struct {
 	PerVPNIPs     map[string]int
 	PerVPNErrors  map[string]int
 	PerVPNDomains map[string]int
+	V4            []string
+	V6            []string
 }
 
 // NewWorker builds a pre-warm worker from dependencies.
@@ -155,10 +156,11 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 
 	if len(tasks) == 0 {
 		return RunStats{
-			DomainsTotal: 0,
-			DomainsDone:  0,
-			IPsInserted:  0,
-			Progress:     progress,
+			DomainsTotal:  0,
+			DomainsDone:   0,
+			IPsInserted:   0,
+			Progress:      progress,
+			CacheSnapshot: map[string]CachedSetValues{},
 		}, nil
 	}
 
@@ -167,10 +169,12 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 
 	jobs := make(chan domainTask)
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		runErr  error
-		errOnce sync.Once
+		wg           sync.WaitGroup
+		mu           sync.Mutex
+		runErr       error
+		errOnce      sync.Once
+		cacheV4BySet = make(map[string]map[string]struct{})
+		cacheV6BySet = make(map[string]map[string]struct{})
 	)
 
 	workerCount := w.parallel
@@ -211,6 +215,8 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 					entry.Errors += count
 					progress.PerVPN[iface] = entry
 				}
+				appendSetIPs(cacheV4BySet, task.SetV4, result.V4)
+				appendSetIPs(cacheV6BySet, task.SetV6, result.V6)
 				snapshot := progress.Clone()
 				mu.Unlock()
 				w.emitProgress(snapshot)
@@ -240,11 +246,13 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 		return RunStats{}, err
 	}
 	final := progress.Clone()
+	cacheSnapshot := materializeCacheSnapshot(cacheV4BySet, cacheV6BySet)
 	return RunStats{
-		DomainsTotal: final.TotalDomains,
-		DomainsDone:  final.ProcessedDomains,
-		IPsInserted:  final.TotalIPs,
-		Progress:     final,
+		DomainsTotal:  final.TotalDomains,
+		DomainsDone:   final.ProcessedDomains,
+		IPsInserted:   final.TotalIPs,
+		Progress:      final,
+		CacheSnapshot: cacheSnapshot,
 	}, nil
 }
 
@@ -413,16 +421,6 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 
 	v4List := mapKeysSorted(allV4)
 	v6List := mapKeysSorted(allV6)
-	for _, ip := range v4List {
-		if err := w.ipset.AddIP(task.SetV4, ip, prewarmIPSetTimeoutSec); err != nil {
-			return taskResult{}, err
-		}
-	}
-	for _, ip := range v6List {
-		if err := w.ipset.AddIP(task.SetV6, ip, prewarmIPSetTimeoutSec); err != nil {
-			return taskResult{}, err
-		}
-	}
 	for _, iface := range ifaces {
 		perVPNIPs[iface] = len(perIfaceV4[iface]) + len(perIfaceV6[iface])
 	}
@@ -431,7 +429,42 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 		PerVPNIPs:     perVPNIPs,
 		PerVPNErrors:  perVPNErrors,
 		PerVPNDomains: perVPNDomains,
+		V4:            v4List,
+		V6:            v6List,
 	}, nil
+}
+
+func appendSetIPs(cache map[string]map[string]struct{}, setName string, ips []string) {
+	if len(ips) == 0 || strings.TrimSpace(setName) == "" {
+		return
+	}
+	existing := cache[setName]
+	if existing == nil {
+		existing = make(map[string]struct{}, len(ips))
+		cache[setName] = existing
+	}
+	for _, ip := range ips {
+		trimmed := strings.TrimSpace(ip)
+		if trimmed == "" {
+			continue
+		}
+		existing[trimmed] = struct{}{}
+	}
+}
+
+func materializeCacheSnapshot(v4BySet, v6BySet map[string]map[string]struct{}) map[string]CachedSetValues {
+	snapshot := make(map[string]CachedSetValues, len(v4BySet)+len(v6BySet))
+	for setName, values := range v4BySet {
+		entry := snapshot[setName]
+		entry.V4 = mapKeysSorted(values)
+		snapshot[setName] = entry
+	}
+	for setName, values := range v6BySet {
+		entry := snapshot[setName]
+		entry.V6 = mapKeysSorted(values)
+		snapshot[setName] = entry
+	}
+	return snapshot
 }
 
 func (w *Worker) emitProgress(progress Progress) {

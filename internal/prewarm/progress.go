@@ -18,6 +18,12 @@ type Progress struct {
 	PerVPN           map[string]VPNProgress `json:"perVpn"`
 }
 
+// CachedSetValues stores discovered IPv4/IPv6 destinations for one ipset.
+type CachedSetValues struct {
+	V4 []string
+	V6 []string
+}
+
 // Clone returns a deep copy safe for cross-goroutine publication.
 func (p Progress) Clone() Progress {
 	cloned := Progress{
@@ -35,8 +41,9 @@ func (p Progress) Clone() Progress {
 
 // RunStats summarises one completed run.
 type RunStats struct {
-	DomainsTotal int
-	DomainsDone  int
-	IPsInserted  int
-	Progress     Progress
+	DomainsTotal  int
+	DomainsDone   int
+	IPsInserted   int
+	Progress      Progress
+	CacheSnapshot map[string]CachedSetValues
 }

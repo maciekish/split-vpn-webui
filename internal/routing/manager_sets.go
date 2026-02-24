@@ -14,7 +14,24 @@ type desiredSetDefinition struct {
 }
 
 func (m *Manager) applyResolverSnapshotLocked(ctx context.Context, snapshot map[ResolverSelector]ResolverValues) error {
-	if err := m.store.ReplaceResolverSnapshot(ctx, snapshot); err != nil {
+	if err := m.store.UpsertResolverSnapshot(ctx, snapshot); err != nil {
+		return err
+	}
+	return m.applyCachedDestinationSetsLocked(ctx)
+}
+
+func (m *Manager) applyPrewarmSnapshotLocked(ctx context.Context, snapshot map[string]ResolverValues) error {
+	if err := m.store.UpsertPrewarmSnapshot(ctx, snapshot); err != nil {
+		return err
+	}
+	return m.applyCachedDestinationSetsLocked(ctx)
+}
+
+func (m *Manager) applyCachedDestinationSetsLocked(ctx context.Context) error {
+	if err := m.store.PurgeExpiredResolverCache(ctx); err != nil {
+		return err
+	}
+	if err := m.store.PurgeExpiredPrewarmCache(ctx); err != nil {
 		return err
 	}
 
@@ -26,6 +43,15 @@ func (m *Manager) applyResolverSnapshotLocked(ctx context.Context, snapshot map[
 		return nil
 	}
 
+	resolved, err := m.store.LoadResolverSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	prewarmed, err := m.store.LoadPrewarmSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+
 	desiredSets := make(map[string]desiredSetDefinition)
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
 	for _, group := range groups {
@@ -34,13 +60,28 @@ func (m *Manager) applyResolverSnapshotLocked(ctx context.Context, snapshot map[
 				continue
 			}
 			pair := RuleSetNames(group.Name, ruleIndex)
-			destEntries := dedupeSortedStrings(mergeResolvedDestinations(rule, snapshot))
+			destEntries := mergeResolvedDestinations(rule, resolved)
+			destEntries = append(destEntries, mergePrewarmedDestinations(pair, prewarmed)...)
+			destEntries = dedupeSortedStrings(destEntries)
 			destV4, destV6 := splitCIDRsByFamily(destEntries)
 			queueDesiredSet(desiredSets, nil, pair.DestinationV4, "inet", destV4)
 			queueDesiredSet(desiredSets, nil, pair.DestinationV6, "inet6", destV6)
 		}
 	}
 	return m.applyDesiredSets(desiredSets)
+}
+
+func mergePrewarmedDestinations(pair RuleSetPair, prewarmed map[string]ResolverValues) []string {
+	out := make([]string, 0)
+	if values, ok := prewarmed[pair.DestinationV4]; ok {
+		out = append(out, values.V4...)
+		out = append(out, values.V6...)
+	}
+	if values, ok := prewarmed[pair.DestinationV6]; ok {
+		out = append(out, values.V4...)
+		out = append(out, values.V6...)
+	}
+	return out
 }
 
 func (m *Manager) applyDesiredSets(desiredSets map[string]desiredSetDefinition) error {

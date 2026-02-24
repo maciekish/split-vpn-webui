@@ -237,6 +237,9 @@ func (s *Store) ReplaceAll(
 	if _, err := tx.ExecContext(ctx, `DELETE FROM resolver_cache`); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM prewarm_cache`); err != nil {
+		return err
+	}
 
 	for _, group := range normalizedGroups {
 		result, err := tx.ExecContext(ctx, `
@@ -257,24 +260,8 @@ func (s *Store) ReplaceAll(
 			return err
 		}
 	}
-
-	for selector, values := range snapshot {
-		for _, cidr := range values.V4 {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
-				VALUES (?, ?, 'inet', ?, strftime('%s','now'))
-			`, selector.Type, selector.Key, cidr); err != nil {
-				return err
-			}
-		}
-		for _, cidr := range values.V6 {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
-				VALUES (?, ?, 'inet6', ?, strftime('%s','now'))
-			`, selector.Type, selector.Key, cidr); err != nil {
-				return err
-			}
-		}
+	if err := upsertResolverSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
 	}
 
 	return tx.Commit()

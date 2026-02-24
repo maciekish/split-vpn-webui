@@ -1,5 +1,6 @@
 (() => {
   const runResolverButton = document.getElementById('run-resolver-now');
+  const clearResolverCacheButton = document.getElementById('clear-resolver-cache');
   const resolverLastRunAt = document.getElementById('resolver-last-run-at');
   const resolverLastDuration = document.getElementById('resolver-last-duration');
   const resolverLastSelectors = document.getElementById('resolver-last-selectors');
@@ -25,6 +26,7 @@
 
   if (
     !runResolverButton ||
+    !clearResolverCacheButton ||
     !resolverLastRunAt ||
     !resolverLastDuration ||
     !resolverLastSelectors ||
@@ -62,6 +64,22 @@
       showStatus(err.message, true);
     } finally {
       runResolverButton.disabled = false;
+    }
+  });
+
+  clearResolverCacheButton.addEventListener('click', async () => {
+    if (!window.confirm('Clear resolver cache and immediately run resolver again?')) {
+      return;
+    }
+    clearResolverCacheButton.disabled = true;
+    try {
+      await fetchJSON('/api/resolver/clear-run', { method: 'POST' });
+      showStatus('Resolver cache cleared. Resolver run started.', false);
+      await loadResolverStatus();
+    } catch (err) {
+      showStatus(err.message, true);
+    } finally {
+      clearResolverCacheButton.disabled = false;
     }
   });
 

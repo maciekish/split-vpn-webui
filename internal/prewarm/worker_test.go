@@ -149,8 +149,10 @@ func TestWorkerQueriesAllActiveVPNInterfacesAndAddsIPs(t *testing.T) {
 	}
 
 	v4Set, v6Set := routing.GroupSetNames("Streaming-SG")
-	gotV4 := append([]string(nil), ipset.added[v4Set]...)
-	gotV6 := append([]string(nil), ipset.added[v6Set]...)
+	v4Snapshot := stats.CacheSnapshot[v4Set]
+	v6Snapshot := stats.CacheSnapshot[v6Set]
+	gotV4 := append([]string(nil), v4Snapshot.V4...)
+	gotV6 := append([]string(nil), v6Snapshot.V6...)
 	sort.Strings(gotV4)
 	sort.Strings(gotV6)
 	if strings.Join(gotV4, ",") != "1.1.1.1,1.1.1.2,1.1.1.3" {
@@ -311,8 +313,10 @@ func TestWorkerWildcardDiscoveryPrewarmsDiscoveredSubdomains(t *testing.T) {
 	}
 
 	sets := routing.RuleSetNames("Wildcard", 0)
-	gotV4 := append([]string(nil), ipset.added[sets.DestinationV4]...)
-	gotV6 := append([]string(nil), ipset.added[sets.DestinationV6]...)
+	v4Snapshot := stats.CacheSnapshot[sets.DestinationV4]
+	v6Snapshot := stats.CacheSnapshot[sets.DestinationV6]
+	gotV4 := append([]string(nil), v4Snapshot.V4...)
+	gotV6 := append([]string(nil), v6Snapshot.V6...)
 	sort.Strings(gotV4)
 	sort.Strings(gotV6)
 	if strings.Join(gotV4, ",") != "142.250.74.110,142.250.74.17,142.250.74.99" {

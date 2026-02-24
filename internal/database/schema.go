@@ -137,4 +137,15 @@ CREATE TABLE IF NOT EXISTS prewarm_runs (
     ips_inserted     INTEGER NOT NULL DEFAULT 0,
     error            TEXT
 );
+
+CREATE TABLE IF NOT EXISTS prewarm_cache (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_name   TEXT    NOT NULL,
+    family     TEXT    NOT NULL,
+    cidr       TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(set_name, family, cidr)
+);
+CREATE INDEX IF NOT EXISTS idx_prewarm_cache_set
+    ON prewarm_cache (set_name, family);
 `

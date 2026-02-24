@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** None (all planned sprints complete)
-**Last updated:** 2026-02-22
-**Last session summary:** Unified Throughput Share/WAN/VPN dashboard cards into one packed grid (no wasted space) and preserved user-entered selector/domain order across save+reload by removing sort-on-save/read behavior.
+**Last updated:** 2026-02-24
+**Last session summary:** Converted resolver/pre-warm discovery to additive 24-hour SQLite-backed caches (no full-replace drops), made runtime destination set generation use inclusive resolver+prewarm cache state, and added UI/API clear-cache+rerun actions for both subsystems.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,45 @@
 ---
 
 ## Session Notes
+
+### 2026-02-24 — Additive 24h discovery cache + clear-and-rerun controls
+- Reworked resolver cache behavior from replace-on-run to additive upsert with TTL eviction:
+  - `internal/routing/store_resolver.go` now upserts discovered rows (refreshing `updated_at`) and evicts only rows older than 24h.
+  - Active snapshot loads now filter to rows newer than retention window.
+  - Added explicit resolver cache clear + purge methods.
+- Added durable pre-warm discovery cache:
+  - New SQLite table `prewarm_cache` in `internal/database/schema.go` (+ index), and schema test coverage in `internal/database/database_test.go`.
+  - New routing store support in `internal/routing/store_prewarm.go` with upsert/load/purge/clear methods (24h TTL semantics).
+- Runtime routing now uses inclusive cache state:
+  - `internal/routing/manager.go` and `internal/routing/manager_sets.go` now merge:
+    - static rule selectors,
+    - active resolver cache rows,
+    - active pre-warm cache rows
+    when building destination ipset contents.
+  - Added manager methods to upsert/clear resolver and pre-warm caches and reapply destination sets without chain rebuilds.
+- Resolver run behavior hardened for partial success:
+  - `internal/routing/resolver.go` now continues processing all selectors, upserts successful results, and reports run error if any selector failed (instead of dropping all run outputs).
+- Pre-warm pipeline now persists discoveries for routing cutover:
+  - `internal/prewarm/worker.go` now builds a per-set discovery snapshot (`RunStats.CacheSnapshot`) instead of writing directly to ipset.
+  - `internal/prewarm/scheduler.go` now pushes that snapshot into routing pre-warm cache via manager upsert, preserving discovered IPs for 24h even if later runs miss them.
+- Added clear-cache + rerun controls end-to-end:
+  - API endpoints:
+    - `POST /api/resolver/clear-run`
+    - `POST /api/prewarm/clear-run`
+    via `internal/server/handlers_resolver.go`, `internal/server/handlers_prewarm.go`, `internal/server/server.go`.
+  - UI buttons:
+    - Policy Routing: `Clear Cache + Re-Run` (resolver)
+    - DNS Pre-Warm: `Clear Cache + Re-Run` (pre-warm)
+    in `ui/web/templates/layout.html`, with handlers in:
+    - `ui/web/static/js/routing-resolver.js`
+    - `ui/web/static/js/prewarm-auth.js`
+- Additional cache-focused tests:
+  - `internal/routing/store_cache_test.go` (resolver TTL filtering/purge, prewarm cache upsert+clear).
+  - Updated resolver semantics test in `internal/routing/resolver_test.go`.
+  - Updated pre-warm worker tests in `internal/prewarm/worker_test.go` to validate cached snapshot output.
+- Validation run:
+  - `node --check ui/web/static/js/routing-resolver.js ui/web/static/js/prewarm-auth.js`
+  - `go test ./... -count=1`
 
 ### 2026-02-22 — Dashboard grid packing + selector order preservation
 - Dashboard card layout now uses a single shared grid for throughput + interfaces:

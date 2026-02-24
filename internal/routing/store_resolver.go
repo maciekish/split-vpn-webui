@@ -31,6 +31,7 @@ type ResolverRunRecord struct {
 }
 
 // ReplaceResolverSnapshot replaces all cached resolver rows atomically.
+// This is primarily used for explicit restore flows.
 func (s *Store) ReplaceResolverSnapshot(ctx context.Context, snapshot map[ResolverSelector]ResolverValues) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -41,25 +42,45 @@ func (s *Store) ReplaceResolverSnapshot(ctx context.Context, snapshot map[Resolv
 	if _, err := tx.ExecContext(ctx, `DELETE FROM resolver_cache`); err != nil {
 		return err
 	}
-	for selector, values := range snapshot {
-		for _, cidr := range values.V4 {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
-				VALUES (?, ?, 'inet', ?, strftime('%s','now'))
-			`, selector.Type, selector.Key, cidr); err != nil {
-				return err
-			}
-		}
-		for _, cidr := range values.V6 {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
-				VALUES (?, ?, 'inet6', ?, strftime('%s','now'))
-			`, selector.Type, selector.Key, cidr); err != nil {
-				return err
-			}
-		}
+	if err := upsertResolverSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
+	}
+	if err := purgeExpiredResolverCacheTx(ctx, tx); err != nil {
+		return err
 	}
 	return tx.Commit()
+}
+
+// UpsertResolverSnapshot adds or refreshes cached resolver rows atomically.
+func (s *Store) UpsertResolverSnapshot(ctx context.Context, snapshot map[ResolverSelector]ResolverValues) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := upsertResolverSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
+	}
+	if err := purgeExpiredResolverCacheTx(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ClearResolverCache removes all resolver cache rows.
+func (s *Store) ClearResolverCache(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM resolver_cache`)
+	return err
+}
+
+// PurgeExpiredResolverCache evicts cache rows older than retention.
+func (s *Store) PurgeExpiredResolverCache(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM resolver_cache
+		WHERE updated_at < (strftime('%s','now') - ?)
+	`, discoveryCacheRetentionSeconds)
+	return err
 }
 
 // LoadResolverSnapshot returns all cached resolver rows keyed by selector.
@@ -67,8 +88,9 @@ func (s *Store) LoadResolverSnapshot(ctx context.Context) (map[ResolverSelector]
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT selector_type, selector_key, family, cidr
 		FROM resolver_cache
+		WHERE updated_at >= (strftime('%s','now') - ?)
 		ORDER BY selector_type ASC, selector_key ASC, family ASC, cidr ASC
-	`)
+	`, discoveryCacheRetentionSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +115,44 @@ func (s *Store) LoadResolverSnapshot(ctx context.Context) (map[ResolverSelector]
 		result[selector] = entry
 	}
 	return result, rows.Err()
+}
+
+func upsertResolverSnapshotTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	snapshot map[ResolverSelector]ResolverValues,
+) error {
+	for selector, values := range snapshot {
+		for _, cidr := range values.V4 {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
+				VALUES (?, ?, 'inet', ?, strftime('%s','now'))
+				ON CONFLICT(selector_type, selector_key, family, cidr)
+				DO UPDATE SET updated_at = excluded.updated_at
+			`, selector.Type, selector.Key, cidr); err != nil {
+				return err
+			}
+		}
+		for _, cidr := range values.V6 {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO resolver_cache (selector_type, selector_key, family, cidr, updated_at)
+				VALUES (?, ?, 'inet6', ?, strftime('%s','now'))
+				ON CONFLICT(selector_type, selector_key, family, cidr)
+				DO UPDATE SET updated_at = excluded.updated_at
+			`, selector.Type, selector.Key, cidr); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func purgeExpiredResolverCacheTx(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM resolver_cache
+		WHERE updated_at < (strftime('%s','now') - ?)
+	`, discoveryCacheRetentionSeconds)
+	return err
 }
 
 // SaveResolverRun inserts one resolver run row.

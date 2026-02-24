@@ -39,6 +39,7 @@ type Scheduler struct {
 	groups   GroupSource
 	vpns     VPNSource
 	ipset    routing.IPSetOperator
+	cache    prewarmCacheManager
 
 	now func() time.Time
 
@@ -56,6 +57,11 @@ type Scheduler struct {
 	runWG  sync.WaitGroup
 }
 
+type prewarmCacheManager interface {
+	UpsertPrewarmSnapshot(ctx context.Context, snapshot map[string]routing.ResolverValues) error
+	ClearPrewarmCache(ctx context.Context) error
+}
+
 // NewScheduler creates a scheduler with persisted run tracking.
 func NewScheduler(db *sql.DB, settingsManager *settings.Manager, groups GroupSource, vpns VPNSource, ipset routing.IPSetOperator) (*Scheduler, error) {
 	if settingsManager == nil {
@@ -66,6 +72,10 @@ func NewScheduler(db *sql.DB, settingsManager *settings.Manager, groups GroupSou
 	}
 	if vpns == nil {
 		return nil, fmt.Errorf("vpn source is required")
+	}
+	cacheManager, ok := groups.(prewarmCacheManager)
+	if !ok {
+		return nil, fmt.Errorf("group source does not support prewarm cache management")
 	}
 	store, err := NewStore(db)
 	if err != nil {
@@ -88,6 +98,7 @@ func NewScheduler(db *sql.DB, settingsManager *settings.Manager, groups GroupSou
 		groups:          groups,
 		vpns:            vpns,
 		ipset:           ipset,
+		cache:           cacheManager,
 		now:             time.Now,
 		defaultInterval: interval,
 		lastRun:         lastRun,
@@ -193,6 +204,22 @@ func (s *Scheduler) TriggerNow() error {
 	return nil
 }
 
+// ClearCacheAndRun clears pre-warm cache rows and immediately starts a new run.
+func (s *Scheduler) ClearCacheAndRun() error {
+	s.mu.RLock()
+	running := s.running
+	s.mu.RUnlock()
+	if running {
+		return ErrRunInProgress
+	}
+	if s.cache != nil {
+		if err := s.cache.ClearPrewarmCache(context.Background()); err != nil {
+			return err
+		}
+	}
+	return s.TriggerNow()
+}
+
 func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 	defer s.runWG.Done()
 	started := s.now()
@@ -219,6 +246,16 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 		runErr = err
 	} else {
 		stats, runErr = worker.Run(ctx)
+	}
+	if worker != nil && s.cache != nil {
+		cacheErr := s.cache.UpsertPrewarmSnapshot(context.Background(), toRoutingCacheSnapshot(stats.CacheSnapshot))
+		if cacheErr != nil {
+			if runErr == nil {
+				runErr = cacheErr
+			} else {
+				runErr = errors.Join(runErr, cacheErr)
+			}
+		}
 	}
 
 	finished := s.now()
@@ -258,6 +295,17 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 	if emit != nil {
 		s.emitProgress(*emit)
 	}
+}
+
+func toRoutingCacheSnapshot(snapshot map[string]CachedSetValues) map[string]routing.ResolverValues {
+	out := make(map[string]routing.ResolverValues, len(snapshot))
+	for setName, values := range snapshot {
+		out[setName] = routing.ResolverValues{
+			V4: append([]string(nil), values.V4...),
+			V6: append([]string(nil), values.V6...),
+		}
+	}
+	return out
 }
 
 // Status returns live and historical scheduler state.

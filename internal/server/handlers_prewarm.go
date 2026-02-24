@@ -36,3 +36,20 @@ func (s *Server) handlePrewarmStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, status)
 }
+
+func (s *Server) handlePrewarmClearRun(w http.ResponseWriter, r *http.Request) {
+	if s.prewarm == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "prewarm scheduler unavailable"})
+		return
+	}
+	if err := s.prewarm.ClearCacheAndRun(); err != nil {
+		switch {
+		case errors.Is(err, prewarm.ErrRunInProgress):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
+}

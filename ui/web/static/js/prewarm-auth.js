@@ -1,5 +1,6 @@
 (() => {
   const runNowButton = document.getElementById('run-prewarm-now');
+  const clearPrewarmCacheButton = document.getElementById('clear-prewarm-cache');
   const saveScheduleButton = document.getElementById('save-prewarm-schedule');
   const prewarmStatus = document.getElementById('prewarm-status');
   const prewarmLastRunAt = document.getElementById('prewarm-last-run-at');
@@ -26,6 +27,7 @@
 
   if (
     !runNowButton ||
+    !clearPrewarmCacheButton ||
     !saveScheduleButton ||
     !prewarmStatus ||
     !prewarmLastRunAt ||
@@ -63,6 +65,22 @@
       showPrewarmStatus(err.message, true);
     } finally {
       runNowButton.disabled = false;
+    }
+  });
+
+  clearPrewarmCacheButton.addEventListener('click', async () => {
+    if (!window.confirm('Clear pre-warm cache and immediately run pre-warm again?')) {
+      return;
+    }
+    clearPrewarmCacheButton.disabled = true;
+    try {
+      await fetchJSON('/api/prewarm/clear-run', { method: 'POST' });
+      showPrewarmStatus('Pre-warm cache cleared. Pre-warm run started.', false);
+      prewarmProgressWrap.classList.remove('d-none');
+    } catch (err) {
+      showPrewarmStatus(err.message, true);
+    } finally {
+      clearPrewarmCacheButton.disabled = false;
     }
   });
 

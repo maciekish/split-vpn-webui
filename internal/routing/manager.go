@@ -84,11 +84,47 @@ func (m *Manager) LoadResolverSnapshot(ctx context.Context) (map[ResolverSelecto
 	return m.store.LoadResolverSnapshot(ctx)
 }
 
-// ReplaceResolverSnapshot updates resolver cache and applies destination ipset updates without rebuilding chains.
+func (m *Manager) LoadPrewarmSnapshot(ctx context.Context) (map[string]ResolverValues, error) {
+	return m.store.LoadPrewarmSnapshot(ctx)
+}
+
+// ReplaceResolverSnapshot refreshes resolver cache rows and applies destination set updates.
 func (m *Manager) ReplaceResolverSnapshot(ctx context.Context, snapshot map[ResolverSelector]ResolverValues) error {
+	return m.UpsertResolverSnapshot(ctx, snapshot)
+}
+
+// UpsertResolverSnapshot refreshes resolver cache rows and applies destination set updates.
+func (m *Manager) UpsertResolverSnapshot(ctx context.Context, snapshot map[ResolverSelector]ResolverValues) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.applyResolverSnapshotLocked(ctx, snapshot)
+}
+
+// UpsertPrewarmSnapshot refreshes pre-warm cache rows and applies destination set updates.
+func (m *Manager) UpsertPrewarmSnapshot(ctx context.Context, snapshot map[string]ResolverValues) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.applyPrewarmSnapshotLocked(ctx, snapshot)
+}
+
+// ClearResolverCache removes cached resolver rows and reapplies destination sets.
+func (m *Manager) ClearResolverCache(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store.ClearResolverCache(ctx); err != nil {
+		return err
+	}
+	return m.applyCachedDestinationSetsLocked(ctx)
+}
+
+// ClearPrewarmCache removes cached pre-warm rows and reapplies destination sets.
+func (m *Manager) ClearPrewarmCache(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store.ClearPrewarmCache(ctx); err != nil {
+		return err
+	}
+	return m.applyCachedDestinationSetsLocked(ctx)
 }
 
 func (m *Manager) GetGroup(ctx context.Context, id int64) (*DomainGroup, error) {
@@ -206,7 +242,18 @@ func (m *Manager) applyLocked(ctx context.Context) error {
 		vpnByName[profile.Name] = profile
 	}
 
+	if err := m.store.PurgeExpiredResolverCache(ctx); err != nil {
+		return err
+	}
+	if err := m.store.PurgeExpiredPrewarmCache(ctx); err != nil {
+		return err
+	}
+
 	resolved, err := m.store.LoadResolverSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	prewarmed, err := m.store.LoadPrewarmSnapshot(ctx)
 	if err != nil {
 		return err
 	}
@@ -231,7 +278,7 @@ func (m *Manager) applyLocked(ctx context.Context) error {
 		}
 
 		for ruleIndex, rule := range group.Rules {
-			binding, err := m.buildBinding(group, rule, ruleIndex, profile, resolved, activeSets, desiredSets)
+			binding, err := m.buildBinding(group, rule, ruleIndex, profile, resolved, prewarmed, activeSets, desiredSets)
 			if err != nil {
 				return err
 			}
@@ -264,6 +311,7 @@ func (m *Manager) buildBinding(
 	ruleIndex int,
 	profile *vpn.VPNProfile,
 	resolved map[ResolverSelector]ResolverValues,
+	prewarmed map[string]ResolverValues,
 	activeSets map[string]struct{},
 	desiredSets map[string]desiredSetDefinition,
 ) (RouteBinding, error) {
@@ -282,6 +330,7 @@ func (m *Manager) buildBinding(
 
 	if needsDestination {
 		destEntries := mergeResolvedDestinations(rule, resolved)
+		destEntries = append(destEntries, mergePrewarmedDestinations(pair, prewarmed)...)
 		destEntries = dedupeSortedStrings(destEntries)
 		destV4, destV6 := splitCIDRsByFamily(destEntries)
 		queueDesiredSet(desiredSets, activeSets, pair.DestinationV4, "inet", destV4)

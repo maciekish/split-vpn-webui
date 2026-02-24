@@ -36,3 +36,20 @@ func (s *Server) handleResolverStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, status)
 }
+
+func (s *Server) handleResolverClearRun(w http.ResponseWriter, r *http.Request) {
+	if s.resolver == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resolver scheduler unavailable"})
+		return
+	}
+	if err := s.resolver.ClearCacheAndRun(); err != nil {
+		switch {
+		case errors.Is(err, routing.ErrResolverRunInProgress):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
+}

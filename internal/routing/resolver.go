@@ -194,6 +194,20 @@ func (s *ResolverScheduler) TriggerNow() error {
 	return nil
 }
 
+// ClearCacheAndRun clears resolver cache and immediately starts a new run.
+func (s *ResolverScheduler) ClearCacheAndRun() error {
+	s.mu.RLock()
+	running := s.running
+	s.mu.RUnlock()
+	if running {
+		return ErrResolverRunInProgress
+	}
+	if err := s.manager.ClearResolverCache(context.Background()); err != nil {
+		return err
+	}
+	return s.TriggerNow()
+}
+
 // Status returns live and historical resolver status.
 func (s *ResolverScheduler) Status(ctx context.Context) (ResolverStatus, error) {
 	s.mu.RLock()
@@ -311,9 +325,6 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 			for job := range jobCh {
 				values, err := s.resolveJob(runCtx, job, resolvers)
 				resultCh <- resolverResult{job: job, values: values, err: err}
-				if err != nil {
-					cancel()
-				}
 			}
 		}()
 	}
@@ -352,25 +363,23 @@ func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settin
 		progress.PerProvider[result.job.Selector.Type] = providerProgress
 		s.emitProgress(progress)
 	}
-	if firstErr != nil {
-		return resolverStats{
-			SelectorsTotal:   progress.SelectorsTotal,
-			SelectorsDone:    progress.SelectorsDone,
-			PrefixesResolved: progress.PrefixesResolved,
-			PerProvider:      cloneResolverProviderProgress(progress.PerProvider),
-		}, firstErr
+
+	if len(snapshot) > 0 {
+		if err := s.manager.UpsertResolverSnapshot(ctx, snapshot); err != nil {
+			return resolverStats{}, err
+		}
 	}
 
-	if err := s.manager.ReplaceResolverSnapshot(ctx, snapshot); err != nil {
-		return resolverStats{}, err
-	}
-
-	return resolverStats{
+	stats := resolverStats{
 		SelectorsTotal:   progress.SelectorsTotal,
 		SelectorsDone:    progress.SelectorsDone,
 		PrefixesResolved: progress.PrefixesResolved,
 		PerProvider:      cloneResolverProviderProgress(progress.PerProvider),
-	}, nil
+	}
+	if firstErr != nil {
+		return stats, firstErr
+	}
+	return stats, nil
 }
 
 func (s *ResolverScheduler) resolveJob(ctx context.Context, job resolverJob, resolvers runResolvers) (ResolverValues, error) {

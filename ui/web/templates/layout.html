@@ -92,6 +92,9 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <span class="fw-semibold"><i class="bi bi-diagram-3 me-2"></i>Policy Routing</span>
           <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-danger btn-sm" id="clear-resolver-cache">
+              <i class="bi bi-trash3 me-1"></i>Clear Cache + Re-Run
+            </button>
             <button class="btn btn-outline-success btn-sm" id="run-resolver-now">
               <i class="bi bi-arrow-repeat me-1"></i>Run Resolver
             </button>
@@ -200,9 +203,14 @@
       <div class="card shadow-sm">
         <div class="card-header d-flex justify-content-between align-items-center">
           <span class="fw-semibold"><i class="bi bi-lightning-charge me-2"></i>DNS Pre-Warm</span>
-          <button class="btn btn-outline-success btn-sm" id="run-prewarm-now">
-            <i class="bi bi-play-fill me-1"></i>Run Now
-          </button>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-danger btn-sm" id="clear-prewarm-cache">
+              <i class="bi bi-trash3 me-1"></i>Clear Cache + Re-Run
+            </button>
+            <button class="btn btn-outline-success btn-sm" id="run-prewarm-now">
+              <i class="bi bi-play-fill me-1"></i>Run Now
+            </button>
+          </div>
         </div>
         <div class="card-body">
           <div class="alert d-none py-2 small mb-3" id="prewarm-status" role="status"></div>

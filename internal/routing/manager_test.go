@@ -357,3 +357,47 @@ func TestManagerCreateGroupSupportsSourceInterfaceAndMACSelectors(t *testing.T) 
 		t.Fatalf("expected no ipsets for interface/mac-only selector, got %#v", ipset.Sets)
 	}
 }
+
+func TestManagerUpsertPrewarmSnapshotUpdatesDestinationSetsWithoutRuleReapply(t *testing.T) {
+	ctx := context.Background()
+	manager, ipset, _, rules := newRoutingTestManager(t, &mockVPNLister{profiles: []*vpn.VPNProfile{{
+		Name:          "wg-sgp",
+		RouteTable:    201,
+		FWMark:        0x169,
+		InterfaceName: "wg-sgp",
+	}}})
+
+	if _, err := manager.CreateGroup(ctx, DomainGroup{
+		Name:      "Streaming",
+		EgressVPN: "wg-sgp",
+		Rules: []RoutingRule{{
+			Domains: []string{"example.com"},
+		}},
+	}); err != nil {
+		t.Fatalf("CreateGroup failed: %v", err)
+	}
+	if rules.applyCount != 1 {
+		t.Fatalf("expected one initial rule apply, got %d", rules.applyCount)
+	}
+
+	sets := RuleSetNames("Streaming", 0)
+	if err := manager.UpsertPrewarmSnapshot(ctx, map[string]ResolverValues{
+		sets.DestinationV4: {V4: []string{"203.0.113.10/32"}},
+	}); err != nil {
+		t.Fatalf("UpsertPrewarmSnapshot failed: %v", err)
+	}
+	if rules.applyCount != 1 {
+		t.Fatalf("expected no extra rule apply during prewarm cache update, got %d", rules.applyCount)
+	}
+	if !containsString(ipset.IPs[sets.DestinationV4], "203.0.113.10/32") {
+		t.Fatalf("expected destination set to include prewarm prefix, got %#v", ipset.IPs[sets.DestinationV4])
+	}
+
+	loaded, err := manager.LoadPrewarmSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("LoadPrewarmSnapshot failed: %v", err)
+	}
+	if len(loaded[sets.DestinationV4].V4) != 1 || loaded[sets.DestinationV4].V4[0] != "203.0.113.10/32" {
+		t.Fatalf("unexpected loaded prewarm snapshot: %#v", loaded[sets.DestinationV4].V4)
+	}
+}

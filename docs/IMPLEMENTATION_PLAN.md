@@ -87,7 +87,7 @@ The following is **already fully implemented** and must not regress:
 | File | Purpose |
 |---|---|
 | `internal/database/database.go` | Open/create SQLite DB; run migrations; expose `*sql.DB` |
-| `internal/database/schema.go` | SQL schema constants (tables: `stats_history`, `domain_groups`, `domain_entries`, `prewarm_runs`) |
+| `internal/database/schema.go` | SQL schema constants (tables include `stats_history`, `domain_groups`, `domain_entries`, `resolver_cache`, `prewarm_cache`, `resolver_runs`, `prewarm_runs`) |
 | `internal/auth/auth.go` | `Manager` struct; `CheckPassword(plain string) bool`; `GenerateToken() string`; `ValidateToken(t string) bool`; `SetPassword(plain string) error` |
 | `internal/auth/middleware.go` | chi middleware: checks session cookie OR `Authorization: Bearer <token>` header; redirects unauthenticated browser requests to `/login`; returns 401 for API requests |
 | `internal/auth/login.go` | `handleLogin` (GET serves login page, POST validates and sets cookie) |
@@ -596,7 +596,7 @@ For development/testing on macOS, the DoH client interface binding must be behin
 - Resolver runs must support:
   - schedule-based periodic execution
   - manual "Run now"
-  - stale-entry removal (items no longer present in latest snapshots)
+  - additive cache refresh with 24h retention per discovered item (items are evicted only when not refreshed for >24h, not when missing from one run)
 
 ### Files to modify/create
 
@@ -630,7 +630,7 @@ For development/testing on macOS, the DoH client interface binding must be behin
 - [x] Destination-ASN based routing works by resolving ASN prefixes and keeping them refreshed.
 - [x] Wildcard domain mode (`*.example.com`) discovers subdomains from public database sources and routes discovered subdomains through the assigned VPN.
 - [x] Resolver scheduler refreshes domains/ASNs/wildcards periodically and supports manual run.
-- [x] Resolver removes stale entries no longer present in latest snapshots.
+- [x] Resolver/prewarm discovery cache is additive with 24h retention and runtime routing uses inclusive active cache state.
 - [x] Full IPv4/IPv6 parity in rule generation and ipset management.
 - [x] All tests pass (`go test ./...`), including resolver and routing rule generation tests.
 
