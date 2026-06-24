@@ -56,6 +56,22 @@
     const encodeFiles = window.SplitVPNUI && typeof window.SplitVPNUI.encodeSupportingFiles === 'function'
       ? window.SplitVPNUI.encodeSupportingFiles
       : encodeSupportingFiles;
+    const normalizeVPNType = window.SplitVPNUI && typeof window.SplitVPNUI.normalizeVPNType === 'function'
+      ? window.SplitVPNUI.normalizeVPNType
+      : () => '';
+    const detectVPNType = window.SplitVPNUI && typeof window.SplitVPNUI.detectVPNType === 'function'
+      ? window.SplitVPNUI.detectVPNType
+      : () => '';
+    const awgEditorFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createAmneziaWGEditor === 'function'
+      ? window.SplitVPNUI.createAmneziaWGEditor
+      : null;
+    const awgEditor = awgEditorFactory
+      ? awgEditorFactory({
+        root: document.getElementById('awg-params-panel'),
+        vpnTypeSelect,
+        vpnConfigEditor,
+      })
+      : null;
 
     addVPNButton.addEventListener('click', () => {
       openAddVPNModal();
@@ -87,10 +103,35 @@
         const detected = detectVPNType(file.name, content);
         if (detected) {
           vpnTypeSelect.value = detected;
+          renderSupportingFilesMeta();
         }
+        awgEditor?.loadFromConfig();
         vpnEditorMeta.textContent = `Loaded file: ${file.name}`;
       } catch (err) {
         setStatus('Failed to read uploaded file.', true);
+      }
+    });
+
+    vpnConfigEditor.addEventListener('paste', () => {
+      // Let the paste land in the textarea first, then auto-detect the type.
+      setTimeout(() => {
+        const detected = detectVPNType('', vpnConfigEditor.value || '');
+        if (detected) {
+          vpnTypeSelect.value = detected;
+          renderSupportingFilesMeta();
+        }
+        awgEditor?.loadFromConfig();
+      }, 0);
+    });
+
+    vpnConfigEditor.addEventListener('input', () => {
+      const detected = detectVPNType('', vpnConfigEditor.value || '');
+      if (detected === 'amneziawg' && vpnTypeSelect.value !== 'amneziawg') {
+        vpnTypeSelect.value = detected;
+        renderSupportingFilesMeta();
+      }
+      if (vpnTypeSelect.value === 'amneziawg') {
+        awgEditor?.loadFromConfig();
       }
     });
 
@@ -109,6 +150,7 @@
 
     vpnTypeSelect.addEventListener('change', () => {
       renderSupportingFilesMeta();
+      awgEditor?.loadFromConfig();
     });
 
     confirmDeleteVPNButton.addEventListener('click', async () => {
@@ -346,6 +388,7 @@
       vpnSupportingFilesInput.value = '';
       vpnConfigEditor.value = '';
       vpnEditorMeta.textContent = '';
+      awgEditor?.reset();
       renderSupportingFilesMeta();
       vpnEditorModal.show();
     }
@@ -371,6 +414,7 @@
         vpnSupportingFilesInput.value = '';
         vpnConfigEditor.value = profile.rawConfig || '';
         vpnEditorMeta.textContent = `Config file: ${profile.configFile || 'auto'}`;
+        awgEditor?.loadFromConfig();
         renderSupportingFilesMeta();
         vpnEditorModal.show();
       } catch (err) {
@@ -382,6 +426,7 @@
       const mode = state.vpnEditor?.mode || 'create';
       const name = (vpnNameInput.value || '').trim();
       const type = normalizeVPNType(vpnTypeSelect.value || '');
+      awgEditor?.applyToConfig();
       const config = vpnConfigEditor.value || '';
       if (!name) {
         throw new Error('VPN name is required.');
@@ -428,39 +473,10 @@
       vpnEditorModal.hide();
     }
 
-    function normalizeVPNType(value) {
-      const raw = String(value || '').trim().toLowerCase();
-      if (raw === 'wireguard' || raw === 'wg' || raw === 'external') {
-        return 'wireguard';
-      }
-      if (raw === 'openvpn' || raw === 'ovpn') {
-        return 'openvpn';
-      }
-      return '';
-    }
-
-    function detectVPNType(fileName, content) {
-      const name = String(fileName || '').toLowerCase();
-      if (name.endsWith('.ovpn')) {
-        return 'openvpn';
-      }
-      if (name.endsWith('.wg') || name.endsWith('.conf')) {
-        return 'wireguard';
-      }
-      const text = String(content || '').toLowerCase();
-      if (text.includes('[interface]') && text.includes('[peer]')) {
-        return 'wireguard';
-      }
-      if (text.includes('\nremote ') || text.includes('\nclient') || text.includes('<ca>')) {
-        return 'openvpn';
-      }
-      return '';
-    }
-
     function renderSupportingFilesMeta() {
       const type = normalizeVPNType(vpnTypeSelect.value || '');
       if (type !== 'openvpn') {
-        vpnSupportingFilesMeta.textContent = 'Optional for WireGuard. Used for OpenVPN external file references.';
+        vpnSupportingFilesMeta.textContent = 'Optional for WireGuard and AmneziaWG. Used for OpenVPN external file references.';
         return;
       }
       const uploaded = Array.isArray(state.vpnEditor?.supportingFiles) ? state.vpnEditor.supportingFiles : [];

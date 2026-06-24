@@ -323,7 +323,7 @@ func normalizeSnapshot(raw Snapshot) (Snapshot, error) {
 			return Snapshot{}, fmt.Errorf("%w: duplicate vpn name %q", ErrInvalidSnapshot, item.Name)
 		}
 		seenNames[item.Name] = struct{}{}
-		if item.Type != "wireguard" && item.Type != "openvpn" {
+		if item.Type != "wireguard" && item.Type != "openvpn" && item.Type != "amneziawg" {
 			return Snapshot{}, fmt.Errorf("%w: vpn %q has unsupported type %q", ErrInvalidSnapshot, item.Name, item.Type)
 		}
 		if strings.TrimSpace(item.Config) == "" {

@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** None (all planned sprints complete)
-**Last updated:** 2026-02-24
-**Last session summary:** Fixed pre-warm diagnostics gaps by logging per-query failures and preserving partial run stats on cancellation/failure, so error-heavy runs no longer report `0/0`.
+**Last updated:** 2026-06-24
+**Last session summary:** Completed AmneziaWG client support with userspace/kernel backend selection, UI parameter editing, AWG config detection, AWG pre-warm interface fallback, and release validation.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,28 @@
 ---
 
 ## Session Notes
+
+### 2026-06-24 — AmneziaWG client support + release prep
+- Completed AmneziaWG provider integration:
+  - `internal/awg/` tunnel runner with userspace `amneziawg-go` backend, kernel-module backend, backend selection, UAPI serialization, route/interface setup, endpoint resolution, lifecycle supervision, and hook execution without shell interpolation.
+  - `internal/vpn/amneziawg*.go` provider, parameter parsing/validation, type normalization, manager registration, config discovery, and AWG-key rejection for plain WireGuard profiles.
+  - `cmd/splitvpnwebui tunnel run` subcommand for Type=notify systemd units.
+- Finished Web UI support:
+  - Added AmneziaWG type selection and pasted/uploaded config auto-detection.
+  - Added field-by-field AWG parameter editor for Jc/Jmin/Jmax, S1-S4, H1-H4, I1-I5, J1-J3, and Itime, backed by the raw config textarea.
+  - Split modal markup into `ui/web/templates/modals.html` to keep touched template files under the line-size target.
+- Fixed operational gaps:
+  - Pre-warm active-interface fallback now includes managed AWG interfaces (`awg-sv-*`) as well as WireGuard (`wg-sv-*`).
+  - AWG parameter constraints now distinguish bundled userspace support from kernel-only features: S3/S4 and H1-H4 ranges require the kernel module; J1-J3/Itime require userspace; I1-I5 can be used by either backend where available.
+- Validation run:
+  - `go test ./... -count=1`
+  - `go vet ./...`
+  - `bash -n install.sh uninstall.sh deploy/dev-deploy.sh deploy/dev-uninstall.sh deploy/on_boot_hook.sh`
+  - `node --check` for all UI JavaScript files
+  - `go build ./cmd/splitvpnwebui`
+  - `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/splitvpnwebui`
+  - `CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/splitvpnwebui`
+  - `go test -tags integration ./integration -count=1` (integration package passes; real AWG tunnel still requires root/device environment)
 
 ### 2026-02-24 — Pre-warm error visibility + cancellation stats fix
 - Fixed missing error diagnostics for pre-warm query failures:

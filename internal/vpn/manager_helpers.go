@@ -46,20 +46,32 @@ func normalizeVPNType(raw string) string {
 		return "wireguard"
 	case "openvpn", "ovpn":
 		return "openvpn"
+	case "amneziawg", "awg", "amnezia":
+		return "amneziawg"
 	default:
 		return ""
 	}
 }
 
 func providerConfigValue(vpnType string) string {
-	if vpnType == "wireguard" {
+	switch vpnType {
+	case "wireguard":
 		return "external"
+	case "amneziawg":
+		return "amneziawg"
+	default:
+		return "openvpn"
 	}
-	return "openvpn"
+}
+
+// isWireGuardLike reports whether the type uses the wg-quick config format
+// and an interface name derived from the profile name.
+func isWireGuardLike(vpnType string) bool {
+	return vpnType == "wireguard" || vpnType == "amneziawg"
 }
 
 func resolveConfigFileName(raw string, existing *VPNProfile, name, vpnType, interfaceName string) (string, error) {
-	if vpnType == "wireguard" {
+	if isWireGuardLike(vpnType) {
 		iface := strings.TrimSpace(interfaceName)
 		if err := validateInterfaceName(iface); err != nil {
 			return "", fmt.Errorf("%w: %v", ErrVPNValidation, err)
@@ -90,13 +102,14 @@ func resolveConfigFileName(raw string, existing *VPNProfile, name, vpnType, inte
 }
 
 func resolveInterfaceName(raw string, existing *VPNProfile, parsed *VPNProfile, name string) (string, error) {
-	if parsed != nil && parsed.Type == "wireguard" {
+	if parsed != nil && isWireGuardLike(parsed.Type) {
 		iface := inferInterfaceFromType(parsed.Type, name)
 		requested := strings.TrimSpace(raw)
 		if requested != "" && !strings.EqualFold(requested, iface) {
 			return "", fmt.Errorf(
-				"%w: wireguard interface %q does not match managed interface %q derived from vpn name",
+				"%w: %s interface %q does not match managed interface %q derived from vpn name",
 				ErrVPNValidation,
+				parsed.Type,
 				requested,
 				iface,
 			)
@@ -139,7 +152,10 @@ func inferInterfaceFromType(vpnType, name string) string {
 		}
 		return "tun" + string(sanitized)
 	}
-	const prefix = "wg-sv-"
+	prefix := "wg-sv-"
+	if vpnType == "amneziawg" {
+		prefix = "awg-sv-"
+	}
 	const maxLength = 15
 	maxSuffix := maxLength - len(prefix)
 	suffix := string(sanitized)

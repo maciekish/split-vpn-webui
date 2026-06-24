@@ -35,6 +35,11 @@ import (
 const defaultDataDir = "/data/split-vpn-webui"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "tunnel" {
+		runTunnelCommand(os.Args[2:])
+		return
+	}
+
 	addr := flag.String("addr", "127.0.0.1:8091", "listen address (host:port)")
 	dataDir := flag.String("data-dir", defaultDataDir, "persistent data directory")
 	dbPath := flag.String("db", "", "SQLite database path (defaults to <data-dir>/stats.db)")

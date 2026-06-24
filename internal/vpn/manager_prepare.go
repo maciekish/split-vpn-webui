@@ -63,13 +63,27 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	sanitizedConfig := rawConfig
 	warnings := []string{}
 	requiredSupportingFiles := []string{}
-	if vpnType == "wireguard" {
+	if isWireGuardLike(vpnType) {
+		if vpnType == "wireguard" && parsed.WireGuard != nil && HasAmneziaWGKeys(&parsed.WireGuard.Interface) {
+			if reservedTable > 0 || reservedMark > 0 {
+				m.allocator.Release(reservedTable, reservedMark)
+			}
+			return nil, fmt.Errorf("%w: config contains AmneziaWG obfuscation keys (Jc/S1/H1/...); use the AmneziaWG vpn type instead", ErrVPNValidation)
+		}
 		sanitizedConfig, warnings, err = sanitizeWireGuardConfig(rawConfig, routeTable, hasResolvconfBinary())
 		if err != nil {
 			if reservedTable > 0 || reservedMark > 0 {
 				m.allocator.Release(reservedTable, reservedMark)
 			}
 			return nil, fmt.Errorf("%w: %v", ErrVPNValidation, err)
+		}
+		if vpnType == "amneziawg" {
+			if parsed.AmneziaWG.IsEmpty() {
+				warnings = append(warnings, "No AmneziaWG obfuscation parameters set; the tunnel will behave like vanilla WireGuard")
+			}
+			if parsed.AmneziaWG.UsesExtendedPadding() || parsed.AmneziaWG.UsesHeaderRanges() {
+				warnings = append(warnings, "S3/S4 padding or H1-H4 ranges require the amneziawg kernel module; the tunnel will fail to start until one is installed")
+			}
 		}
 	} else if vpnType == "openvpn" {
 		requiredSupportingFiles, err = requiredOpenVPNFiles(parsed.OpenVPN)

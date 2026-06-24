@@ -22,4 +22,41 @@
     }
     return encoded;
   };
+
+  window.SplitVPNUI.normalizeVPNType = function normalizeVPNType(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === 'wireguard' || raw === 'wg' || raw === 'external') {
+      return 'wireguard';
+    }
+    if (raw === 'openvpn' || raw === 'ovpn') {
+      return 'openvpn';
+    }
+    if (raw === 'amneziawg' || raw === 'awg' || raw === 'amnezia') {
+      return 'amneziawg';
+    }
+    return '';
+  };
+
+  window.SplitVPNUI.hasAmneziaWGKeys = function hasAmneziaWGKeys(content) {
+    return /^\s*(?:jc|jmin|jmax|s[1-4]|h[1-4]|i[1-5]|j[1-3]|itime)\s*=/im.test(String(content || ''));
+  };
+
+  window.SplitVPNUI.detectVPNType = function detectVPNType(fileName, content) {
+    const name = String(fileName || '').toLowerCase();
+    if (name.endsWith('.ovpn')) {
+      return 'openvpn';
+    }
+    const text = String(content || '').toLowerCase();
+    const wgLike = text.includes('[interface]') && text.includes('[peer]');
+    if (wgLike && window.SplitVPNUI.hasAmneziaWGKeys(content)) {
+      return 'amneziawg';
+    }
+    if (name.endsWith('.wg') || name.endsWith('.conf') || wgLike) {
+      return 'wireguard';
+    }
+    if (text.includes('\nremote ') || text.includes('\nclient') || text.includes('<ca>')) {
+      return 'openvpn';
+    }
+    return '';
+  };
 })();

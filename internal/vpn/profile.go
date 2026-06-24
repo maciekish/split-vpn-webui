@@ -19,6 +19,7 @@ type VPNProfile struct {
 	Warnings       []string         `json:"warnings,omitempty"`
 	WireGuard      *WireGuardConfig `json:"wireguard,omitempty"`
 	OpenVPN        *OpenVPNConfig   `json:"openvpn,omitempty"`
+	AmneziaWG      *AmneziaWGParams `json:"amneziawg,omitempty"`
 }
 
 // WireGuardConfig captures parsed fields from a WireGuard config.

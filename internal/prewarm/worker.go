@@ -295,7 +295,7 @@ func (w *Worker) activeInterfaces() ([]string, error) {
 		active = append(active, iface)
 	}
 	if len(active) == 0 {
-		fallback, err := w.activeManagedWireGuardInterfaces()
+		fallback, err := w.activeManagedVPNInterfaces()
 		if err == nil && len(fallback) > 0 {
 			active = append(active, fallback...)
 		}
@@ -307,7 +307,7 @@ func (w *Worker) activeInterfaces() ([]string, error) {
 	return active, nil
 }
 
-func (w *Worker) activeManagedWireGuardInterfaces() ([]string, error) {
+func (w *Worker) activeManagedVPNInterfaces() ([]string, error) {
 	if w.ifaceList == nil {
 		return nil, nil
 	}
@@ -322,7 +322,7 @@ func (w *Worker) activeManagedWireGuardInterfaces() ([]string, error) {
 		if iface == "" {
 			continue
 		}
-		if !strings.HasPrefix(strings.ToLower(iface), "wg-sv-") {
+		if !isManagedVPNInterface(iface) {
 			continue
 		}
 		if _, exists := seen[iface]; exists {
@@ -337,6 +337,11 @@ func (w *Worker) activeManagedWireGuardInterfaces() ([]string, error) {
 	}
 	sort.Strings(active)
 	return active, nil
+}
+
+func isManagedVPNInterface(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return strings.HasPrefix(lower, "wg-sv-") || strings.HasPrefix(lower, "awg-sv-")
 }
 
 func listInterfaceNames() ([]string, error) {

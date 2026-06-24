@@ -171,6 +171,8 @@ func (m *Manager) parseConfig(path string) (*VPNConfig, error) {
 		vpnType = "wireguard"
 	case "openvpn":
 		vpnType = "openvpn"
+	case "amneziawg", "awg":
+		vpnType = "amneziawg"
 	}
 	gateway := strings.TrimSpace(values["VPN_ENDPOINT_IPV4"])
 	if gateway == "" {

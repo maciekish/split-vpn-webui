@@ -74,3 +74,30 @@ func TestDiscoverKeepsConfiguredWireGuardInterface(t *testing.T) {
 		t.Fatalf("expected configured DEV value wg-legacy, got %q", configs[0].InterfaceName)
 	}
 }
+
+func TestDiscoverRecognizesAmneziaWGProvider(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "vpns")
+	vpnDir := filepath.Join(base, "awg-sgp")
+	if err := os.MkdirAll(vpnDir, 0o700); err != nil {
+		t.Fatalf("mkdir vpn dir: %v", err)
+	}
+	vpnConf := "VPN_PROVIDER=amneziawg\nDEV=awg-sv-awgsgp\nCONFIG_FILE=awg-sv-awgsgp.conf\n"
+	if err := os.WriteFile(filepath.Join(vpnDir, "vpn.conf"), []byte(vpnConf), 0o644); err != nil {
+		t.Fatalf("write vpn.conf: %v", err)
+	}
+
+	m := NewManager(base)
+	configs, err := m.Discover()
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+	if len(configs) != 1 {
+		t.Fatalf("expected one config, got %d", len(configs))
+	}
+	if configs[0].VPNType != "amneziawg" {
+		t.Fatalf("expected amneziawg type, got %q", configs[0].VPNType)
+	}
+	if configs[0].InterfaceName != "awg-sv-awgsgp" {
+		t.Fatalf("expected awg interface, got %q", configs[0].InterfaceName)
+	}
+}

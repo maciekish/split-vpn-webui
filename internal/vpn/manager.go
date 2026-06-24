@@ -85,6 +85,7 @@ func NewManager(vpnsDir string, allocator *Allocator, unitManager UnitManager) (
 		providers: map[string]Provider{
 			"wireguard": NewWireGuardProvider(),
 			"openvpn":   NewOpenVPNProvider(),
+			"amneziawg": NewAmneziaWGProvider(),
 		},
 		listInterfaces: net.Interfaces,
 	}, nil
