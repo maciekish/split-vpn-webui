@@ -1,7 +1,7 @@
 # split-vpn-webui — Implementation Plan
 
-> Before starting any sprint, read `docs/PROGRESS.md` to confirm which sprint is active and check for notes left by previous sessions.
-> After completing a sprint, update `docs/PROGRESS.md` before ending the session.
+> Before starting any sprint, read `AGENTS/progress.md` to confirm which sprint is active and check for notes left by previous sessions.
+> After completing a sprint, update `AGENTS/progress.md` before ending the session.
 > Default working branch is `main` unless explicitly instructed otherwise.
 
 ---
@@ -647,7 +647,7 @@ For development/testing on macOS, the DoH client interface binding must be behin
 | `uninstall.sh` | New interactive script with prompt flow: ask "remove EVERYTHING?" first; if no, ask per-category prompts (binaries, VPNs+units, config files, statistics data); execute selected cleanup actions and print summary |
 | `install.sh` | Ensure installer deploys/updates `uninstall.sh` into `/data/split-vpn-webui/uninstall.sh` with executable permissions |
 | `README.md` | Add uninstall usage section and category behavior documentation |
-| `docs/PROGRESS.md` | Track completion notes and validation evidence |
+| `AGENTS/progress.md` | Track completion notes and validation evidence |
 
 ### Required prompt flow
 
@@ -758,7 +758,7 @@ For development/testing on macOS, the DoH client interface binding must be behin
 | `cmd/splitvpnwebui/main.go` | Initialize backup manager and pass into HTTP server |
 | `ui/web/templates/layout.html` | Add Backup/Restore controls in Settings modal |
 | `ui/web/static/js/prewarm-auth.js` | Implement backup download and restore upload UX |
-| `docs/PROGRESS.md` | Record implementation and validation notes |
+| `AGENTS/progress.md` | Record implementation and validation notes |
 
 ### Backup payload rules
 

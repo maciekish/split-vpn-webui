@@ -1,7 +1,7 @@
 # split-vpn-webui — Project Progress
 
 > **For agents:** Read this file at the start of every session. Update it before ending every session.
-> The implementation plan is in `docs/IMPLEMENTATION_PLAN.md`.
+> The implementation plan is in `AGENTS/implementation-plan.md`.
 > Project requirements are in `AGENTS.md`.
 
 ---
