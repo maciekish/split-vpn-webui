@@ -75,7 +75,9 @@
   - `bash -n install.sh uninstall.sh deploy/dev-deploy.sh deploy/dev-uninstall.sh deploy/on_boot_hook.sh`
   - `find ui/web/static/js -name '*.js' -print0 | xargs -0 -n 1 node --check`
 - Release:
-  - Preparing tag `v1.2.3`.
+  - Tagged and published `v1.2.3`.
+  - GitHub Actions Build run `28300584684` completed successfully.
+  - Release assets verified: `split-vpn-webui-linux-amd64`, `split-vpn-webui-linux-arm64`, `SHA256SUMS`.
 
 ### 2026-06-27 — Header load average + per-VPN CPU display
 - Added system load and VPN CPU metrics to the existing stats collector/SSE payload:
