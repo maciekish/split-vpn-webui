@@ -68,7 +68,7 @@ H3 = 1086373347
 H4 = 1086373348`
 
 func TestBuildSpec(t *testing.T) {
-	spec, err := BuildSpec(testProfile(t, awgParamLines+"\nMTU = 1380\nListenPort = 51821"))
+	spec, err := BuildSpec(testProfile(t, awgParamLines+"\nMTU = 1380\nListenPort = 51821\nPreUp = ip route add 203.0.113.0/24 dev %i"))
 	if err != nil {
 		t.Fatalf("BuildSpec failed: %v", err)
 	}
@@ -86,6 +86,9 @@ func TestBuildSpec(t *testing.T) {
 	}
 	if len(spec.Peers) != 1 || spec.Peers[0].PersistentKeepalive != 25 {
 		t.Fatalf("unexpected peers: %+v", spec.Peers)
+	}
+	if len(spec.PreUp) != 1 || spec.PreUp[0] != "ip route add 203.0.113.0/24 dev %i" {
+		t.Fatalf("unexpected PreUp hooks: %#v", spec.PreUp)
 	}
 }
 
@@ -267,6 +270,26 @@ func TestSplitHookCommand(t *testing.T) {
 			t.Fatalf("expected invalid command %q to fail", command)
 		}
 	}
+}
+
+func TestRunHooksExecutesPreUpCommand(t *testing.T) {
+	var logs []string
+	supervisor := &Supervisor{
+		Spec: &TunnelSpec{InterfaceName: "awg-sv-sgp"},
+		Deps: &BackendDeps{Logf: func(format string, args ...any) {
+			logs = append(logs, fmt.Sprintf(format, args...))
+		}},
+	}
+
+	if err := supervisor.runHooks(context.Background(), "PreUp", []string{"printf %i"}); err != nil {
+		t.Fatalf("runHooks failed: %v", err)
+	}
+	for _, log := range logs {
+		if strings.Contains(log, "PreUp output: awg-sv-sgp") {
+			return
+		}
+	}
+	t.Fatalf("expected PreUp output log, got %#v", logs)
 }
 
 func TestSelectBackend(t *testing.T) {

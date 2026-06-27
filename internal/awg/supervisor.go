@@ -28,6 +28,10 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	}
 	s.Deps.logf("bringing up %s via %s engine", s.Spec.InterfaceName, backend.Name())
 
+	if err := s.runHooks(ctx, "PreUp", s.Spec.PreUp); err != nil {
+		return err
+	}
+
 	if err := backend.Up(ctx, s.Spec); err != nil {
 		// A kernel module that loads but misbehaves must not strand the
 		// tunnel; retry through the userspace engine when the parameter set

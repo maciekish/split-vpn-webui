@@ -54,7 +54,7 @@ func sanitizeWireGuardConfig(raw string, routeTable int, dnsSupported bool) (str
 					}
 					continue
 				}
-				if (lowerKey == "postup" || lowerKey == "predown" || lowerKey == "postdown") && containsLegacyUpDownScript(value) {
+				if (lowerKey == "preup" || lowerKey == "postup" || lowerKey == "predown" || lowerKey == "postdown") && containsLegacyUpDownScript(value) {
 					if _, exists := warningSeen[lowerKey]; !exists {
 						warnings = append(warnings, fmt.Sprintf("Removed legacy peacey/split-vpn %s hook from WireGuard config", key))
 						warningSeen[lowerKey] = struct{}{}

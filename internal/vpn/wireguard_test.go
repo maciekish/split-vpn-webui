@@ -12,6 +12,7 @@ func TestParseWGConfig_ValidConfig(t *testing.T) {
 PrivateKey = QLowSWJxH9WJ4Az7MwZXN49wdMUt8KAe9yU8xgoJGGs=
 Address = 10.49.1.2 ,2001:db8:a161::2
 DNS = 1.1.1.1, 2606:4700:4700::1111
+PreUp = ip route add 203.0.113.0/24 dev %i
 PostUp = sh /etc/split-vpn/vpn/updown.sh %i up
 PreDown = sh /etc/split-vpn/vpn/updown.sh %i down
 Table = 101
@@ -47,6 +48,9 @@ Endpoint = another.example.com:51820
 	}
 	if got := profile.WireGuard.Interface.Addresses; len(got) != 2 || got[0] != "10.49.1.2" || got[1] != "2001:db8:a161::2" {
 		t.Fatalf("unexpected addresses: %#v", got)
+	}
+	if got := profile.WireGuard.Interface.PreUp; len(got) != 1 {
+		t.Fatalf("expected one PreUp command, got %#v", got)
 	}
 	if got := profile.WireGuard.Interface.PostUp; len(got) != 1 {
 		t.Fatalf("expected one PostUp command, got %#v", got)

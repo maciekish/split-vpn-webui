@@ -9,6 +9,7 @@ func TestSanitizeWireGuardConfigStripsLegacyHooks(t *testing.T) {
 	raw := `[Interface]
 PrivateKey = abc
 Address = 10.0.0.2/32
+PreUp = sh /etc/split-vpn/vpn/updown.sh %i pre-up
 PostUp = sh /etc/split-vpn/vpn/updown.sh %i up
 PreDown = sh /etc/split-vpn/vpn/updown.sh %i down
 

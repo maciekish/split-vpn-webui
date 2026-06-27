@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** None (all planned sprints complete)
-**Last updated:** 2026-06-24
-**Last session summary:** Completed AmneziaWG client support with userspace/kernel backend selection, UI parameter editing, AWG config detection, AWG pre-warm interface fallback, and release validation.
+**Last updated:** 2026-06-27
+**Last session summary:** Fixed AmneziaWG reviewer follow-ups for H1-H4 range entry in the UI and PreUp hook execution parity in the AWG supervisor.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,23 @@
 ---
 
 ## Session Notes
+
+### 2026-06-27 — AmneziaWG reviewer follow-ups
+- Fixed AWG UI H1-H4 inputs so header range syntax such as `100-199` can be entered in the parameter editor.
+- Added `PreUp` hook parity for AmneziaWG profiles:
+  - WireGuard parser now preserves `PreUp` alongside `PostUp`, `PreDown`, and `PostDown`.
+  - WireGuard sanitizer strips legacy peacey/split-vpn `PreUp` hooks the same way it strips other legacy hook directives.
+  - AWG `TunnelSpec` carries `PreUp` hooks and the supervisor executes them before backend bring-up, using the existing explicit-argv hook runner.
+- Re-review result:
+  - No remaining issues found for the two reviewer follow-ups.
+- Validation run:
+  - `go test ./internal/vpn ./internal/awg -count=1`
+  - `node --check ui/web/static/js/app-vpn-awg-editor.js`
+  - `go test ./... -count=1`
+  - `find ui/web/static/js -name '*.js' -print0 | xargs -0 -n 1 node --check`
+  - `go vet ./...`
+  - `git diff --check`
+  - `go build ./cmd/splitvpnwebui`
 
 ### 2026-06-24 — AmneziaWG client support + release prep
 - Completed AmneziaWG provider integration:

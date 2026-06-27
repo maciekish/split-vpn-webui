@@ -191,6 +191,8 @@ func applyWireGuardInterfaceField(target *WireGuardInterface, key, value string)
 		target.DNS = append(target.DNS, parseCSVList(value)...)
 	case "table":
 		target.Table = value
+	case "preup":
+		target.PreUp = append(target.PreUp, value)
 	case "postup":
 		target.PostUp = append(target.PostUp, value)
 	case "predown":

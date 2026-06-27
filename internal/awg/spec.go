@@ -36,6 +36,7 @@ type TunnelSpec struct {
 	RouteTable    int
 	Params        *vpn.AmneziaWGParams
 	Peers         []PeerSpec
+	PreUp         []string
 	PostUp        []string
 	PreDown       []string
 	PostDown      []string
@@ -68,6 +69,7 @@ func BuildSpec(profile *vpn.VPNProfile) (*TunnelSpec, error) {
 		PrivateKey:    cfg.Interface.PrivateKey,
 		RouteTable:    profile.RouteTable,
 		Params:        profile.AmneziaWG,
+		PreUp:         append([]string(nil), cfg.Interface.PreUp...),
 		PostUp:        append([]string(nil), cfg.Interface.PostUp...),
 		PreDown:       append([]string(nil), cfg.Interface.PreDown...),
 		PostDown:      append([]string(nil), cfg.Interface.PostDown...),
