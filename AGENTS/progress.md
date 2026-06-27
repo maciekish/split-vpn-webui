@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-06-27
-**Last session summary:** Preparing v1.2.4 to hide the VPN CPU stat for kernel-backed tunnels while preserving userspace CPU display.
+**Last session summary:** Released v1.2.4 to hide the VPN CPU stat for kernel-backed tunnels while preserving userspace CPU display.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -81,7 +81,9 @@
   - `git diff --check`
   - Playwright fixture render via installed system Chrome confirmed userspace CPU remains visible and kernel CPU is hidden.
 - Release:
-  - Preparing tag `v1.2.4`.
+  - Tagged and published `v1.2.4`.
+  - GitHub Actions Build run `28300912279` completed successfully.
+  - Release assets verified: `split-vpn-webui-linux-amd64`, `split-vpn-webui-linux-arm64`, `SHA256SUMS`.
 
 ### 2026-06-27 — v1.2.3 compact load display release
 - Changed the header load average display from `Load X.XX Y.YY Z.ZZ` to compact fixed-width `X.XX Y.YY Z.ZZ`.
