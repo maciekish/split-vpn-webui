@@ -5,9 +5,6 @@
     if (!usage) {
       return '–';
     }
-    if (usage.source === 'kernel') {
-      return 'kernel';
-    }
     if (!usage.available) {
       return '–';
     }

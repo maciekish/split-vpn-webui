@@ -326,7 +326,8 @@
       statsRow.querySelector('[data-field="tx"]').textContent = formatBytes(iface.txBytes);
       statsRow.querySelector('[data-field="total"]').textContent = formatBytes(iface.totalBytes);
       const cpuEl = statsRow.querySelector('[data-field="cpu"]');
-      cpuEl.parentElement.classList.toggle('d-none', iface.type !== 'vpn');
+      const showCPU = iface.type === 'vpn' && iface.cpuUsage?.source === 'process';
+      cpuEl.parentElement.classList.toggle('d-none', !showCPU);
       cpuEl.textContent = formatCPUUsage(iface.cpuUsage);
       if (iface.cpuUsage?.message) {
         cpuEl.title = iface.cpuUsage.message;

@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-06-27
-**Last session summary:** Released v1.2.3 with compact fixed-width load average display after v1.2.2 load/cpu stats feature.
+**Last session summary:** Preparing v1.2.4 to hide the VPN CPU stat for kernel-backed tunnels while preserving userspace CPU display.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -66,6 +66,22 @@
 ---
 
 ## Session Notes
+
+### 2026-06-27 — v1.2.4 hide kernel VPN CPU stat
+- Changed VPN cards so CPU is shown only when userspace/process cgroup accounting is available.
+- Kernel-backed VPNs no longer show a `CPU` block or `kernel` placeholder.
+- Self-review:
+  - No issues found in the scoped frontend diff.
+- Release validation run:
+  - `go test ./... -count=1`
+  - `go vet ./...`
+  - `bash -n install.sh uninstall.sh deploy/dev-deploy.sh deploy/dev-uninstall.sh deploy/on_boot_hook.sh`
+  - `find ui/web/static/js -name '*.js' -print0 | xargs -0 -n 1 node --check`
+  - `go build ./cmd/splitvpnwebui`
+  - `git diff --check`
+  - Playwright fixture render via installed system Chrome confirmed userspace CPU remains visible and kernel CPU is hidden.
+- Release:
+  - Preparing tag `v1.2.4`.
 
 ### 2026-06-27 — v1.2.3 compact load display release
 - Changed the header load average display from `Load X.XX Y.YY Z.ZZ` to compact fixed-width `X.XX Y.YY Z.ZZ`.
