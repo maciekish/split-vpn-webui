@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-06-27
-**Last session summary:** Added header load average plus per-VPN CPU accounting display with lightweight cgroup/procfs sampling and a small `app.js` split.
+**Last session summary:** Released v1.2.3 with compact fixed-width load average display after v1.2.2 load/cpu stats feature.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -67,13 +67,23 @@
 
 ## Session Notes
 
+### 2026-06-27 — v1.2.3 compact load display release
+- Changed the header load average display from `Load X.XX Y.YY Z.ZZ` to compact fixed-width `X.XX Y.YY Z.ZZ`.
+- Release validation run:
+  - `go test ./... -count=1`
+  - `go vet ./...`
+  - `bash -n install.sh uninstall.sh deploy/dev-deploy.sh deploy/dev-uninstall.sh deploy/on_boot_hook.sh`
+  - `find ui/web/static/js -name '*.js' -print0 | xargs -0 -n 1 node --check`
+- Release:
+  - Preparing tag `v1.2.3`.
+
 ### 2026-06-27 — Header load average + per-VPN CPU display
 - Added system load and VPN CPU metrics to the existing stats collector/SSE payload:
   - `/proc/loadavg` is sampled on the existing poll interval.
   - Userspace VPN service CPU is calculated from cgroup CPU usage deltas.
   - Kernel-backed tunnels report explicit `kernel` accounting instead of a misleading process CPU percentage.
 - UI updates:
-  - Header shows `Load 1m 5m 15m` next to WAN bandwidth.
+  - Header shows compact `1m 5m 15m` load values next to WAN bandwidth.
   - VPN cards show CPU to the right of Total; WAN cards hide the VPN-only CPU field.
   - Split header/stat rendering into `ui/web/static/js/app-stats-ui.js`; `app.js` is now below 500 lines.
 - Validation run:

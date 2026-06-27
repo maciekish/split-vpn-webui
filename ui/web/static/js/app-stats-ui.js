@@ -18,6 +18,10 @@
     return `${percent.toFixed(percent >= 10 ? 1 : 2)}%`;
   }
 
+  function formatLoadValue(value) {
+    return value.toFixed(2);
+  }
+
   function createStatsUI(ctx) {
     const wanLabel = ctx?.wanLabel || null;
     const loadLabel = ctx?.loadLabel || null;
@@ -52,7 +56,7 @@
         loadLabel.removeAttribute('title');
         return;
       }
-      loadLabel.textContent = `Load ${values.map((value) => value.toFixed(2)).join(' ')}`;
+      loadLabel.textContent = values.map(formatLoadValue).join(' ');
       loadLabel.title = 'System load average: 1m 5m 15m';
     }
 
