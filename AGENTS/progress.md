@@ -10,7 +10,7 @@
 
 **Active sprint:** None (all planned sprints complete)
 **Last updated:** 2026-06-27
-**Last session summary:** Fixed AmneziaWG reviewer follow-ups for H1-H4 range entry in the UI and PreUp hook execution parity in the AWG supervisor.
+**Last session summary:** Released v1.2.1 with AmneziaWG reviewer follow-ups for H1-H4 range entry and PreUp hook execution parity.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---
@@ -68,6 +68,10 @@
 ## Session Notes
 
 ### 2026-06-27 — AmneziaWG reviewer follow-ups
+- Release:
+  - Tagged and published `v1.2.1`.
+  - GitHub Actions Build run `28291238742` completed successfully.
+  - Release assets verified: `split-vpn-webui-linux-amd64`, `split-vpn-webui-linux-arm64`, `SHA256SUMS`.
 - Fixed AWG UI H1-H4 inputs so header range syntax such as `100-199` can be entered in the parameter editor.
 - Added `PreUp` hook parity for AmneziaWG profiles:
   - WireGuard parser now preserves `PreUp` alongside `PostUp`, `PreDown`, and `PostDown`.
