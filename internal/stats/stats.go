@@ -33,47 +33,59 @@ type InterfaceStats struct {
 	Name                string        `json:"name"`
 	Interface           string        `json:"interface"`
 	Type                InterfaceType `json:"type"`
+	VPNType             string        `json:"vpnType,omitempty"`
 	RxBytes             uint64        `json:"rxBytes"`
 	TxBytes             uint64        `json:"txBytes"`
 	TotalBytes          uint64        `json:"totalBytes"`
 	CurrentThroughput   float64       `json:"currentThroughput"`
 	CurrentRxThroughput float64       `json:"currentRxThroughput"`
 	CurrentTxThroughput float64       `json:"currentTxThroughput"`
+	CPUUsage            *CPUUsage     `json:"cpuUsage,omitempty"`
 	History             []datapoint   `json:"history"`
 	Available           bool          `json:"available"`
 	LastUpdated         time.Time     `json:"lastUpdated"`
 	OperState           string        `json:"operState,omitempty"`
 
-	baseRx uint64
-	baseTx uint64
+	baseRx          uint64
+	baseTx          uint64
+	lastCPUTimeNS   uint64
+	lastCPUSampleAt time.Time
 }
 
 // Snapshot contains the latest statistics for all monitored interfaces.
 type Snapshot struct {
 	Interfaces             []*InterfaceStats `json:"interfaces"`
 	GeneratedAt            time.Time         `json:"generatedAt"`
+	LoadAverage            *LoadAverage      `json:"loadAverage,omitempty"`
 	WanCorrectedThroughput float64           `json:"wanCorrectedThroughput"`
 	WanCorrectedBytes      uint64            `json:"wanCorrectedBytes"`
 }
 
 // Collector monitors interface statistics.
 type Collector struct {
-	mu             sync.RWMutex
-	interfaces     map[string]*InterfaceStats
-	pendingHistory map[string][]historyRow
-	historyLength  int
-	pollInterval   time.Duration
-	wanInterface   string
+	mu              sync.RWMutex
+	interfaces      map[string]*InterfaceStats
+	pendingHistory  map[string][]historyRow
+	historyLength   int
+	pollInterval    time.Duration
+	wanInterface    string
+	loadAverage     *LoadAverage
+	loadAvgPath     string
+	cgroupRoot      string
+	sysClassNetRoot string
 }
 
 // NewCollector instantiates a collector.
 func NewCollector(wanInterface string, pollInterval time.Duration, historyLength int) *Collector {
 	return &Collector{
-		interfaces:     make(map[string]*InterfaceStats),
-		pendingHistory: make(map[string][]historyRow),
-		historyLength:  historyLength,
-		pollInterval:   pollInterval,
-		wanInterface:   wanInterface,
+		interfaces:      make(map[string]*InterfaceStats),
+		pendingHistory:  make(map[string][]historyRow),
+		historyLength:   historyLength,
+		pollInterval:    pollInterval,
+		wanInterface:    wanInterface,
+		loadAvgPath:     defaultLoadAvgPath,
+		cgroupRoot:      defaultCgroupRoot,
+		sysClassNetRoot: defaultSysClassNetRoot,
 	}
 }
 
@@ -85,9 +97,13 @@ func (c *Collector) SetWANInterface(name string) {
 }
 
 // ConfigureInterfaces ensures the collector is tracking the provided interface names.
-func (c *Collector) ConfigureInterfaces(wan string, vpnInterfaces map[string]string) {
+func (c *Collector) ConfigureInterfaces(wan string, vpnInterfaces map[string]string, vpnTypes ...map[string]string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	vpnTypeMap := map[string]string{}
+	if len(vpnTypes) > 0 && vpnTypes[0] != nil {
+		vpnTypeMap = vpnTypes[0]
+	}
 	if wan != "" {
 		c.wanInterface = wan
 		c.ensureInterface("WAN", wan, InterfaceWAN)
@@ -102,6 +118,7 @@ func (c *Collector) ConfigureInterfaces(wan string, vpnInterfaces map[string]str
 	}
 	for name, ifName := range vpnInterfaces {
 		c.ensureInterface(name, ifName, InterfaceVPN)
+		c.interfaces[name].VPNType = vpnTypeMap[name]
 	}
 }
 
@@ -158,12 +175,14 @@ func (c *Collector) Start(stop <-chan struct{}) {
 func (c *Collector) update(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.updateLoadAverageLocked()
 	for _, stats := range c.interfaces {
 		if _, state, err := util.InterfaceOperState(stats.Interface); err == nil {
 			stats.OperState = state
 		} else {
 			stats.OperState = ""
 		}
+		c.updateCPUUsageLocked(now, stats)
 
 		rx, tx, err := readInterfaceBytes(stats.Interface)
 		if err != nil {
@@ -268,6 +287,7 @@ func (c *Collector) Snapshot() Snapshot {
 	snap := Snapshot{
 		Interfaces:  copies,
 		GeneratedAt: time.Now(),
+		LoadAverage: cloneLoadAverage(c.loadAverage),
 	}
 
 	if wanStats != nil {

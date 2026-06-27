@@ -24,6 +24,7 @@ func (s *Server) refreshState() error {
 		return err
 	}
 	vpnInterfaces := make(map[string]string)
+	vpnTypes := make(map[string]string)
 	latencyTargets := make(map[string]latency.Target)
 	resolvedGateways := make(map[string]string)
 	wanCandidates := make(map[string]int)
@@ -31,6 +32,7 @@ func (s *Server) refreshState() error {
 	for _, cfg := range configs {
 		if cfg.InterfaceName != "" {
 			vpnInterfaces[cfg.Name] = cfg.InterfaceName
+			vpnTypes[cfg.Name] = cfg.VPNType
 		}
 		resolved := s.resolveGateway(cfg)
 		resolvedGateways[cfg.Name] = resolved
@@ -69,7 +71,7 @@ func (s *Server) refreshState() error {
 		}
 	}
 
-	s.stats.ConfigureInterfaces(wan, vpnInterfaces)
+	s.stats.ConfigureInterfaces(wan, vpnInterfaces, vpnTypes)
 	if storedSettings.WANInterface == "" {
 		s.stats.SetWANInterface(wan)
 	}

@@ -8,6 +8,7 @@
     const downloadFill = ctx?.downloadFill || 'rgba(96, 165, 250, 0.15)';
     const uploadColor = ctx?.uploadColor || '#f87171';
     const uploadFill = ctx?.uploadFill || 'rgba(248, 113, 113, 0.15)';
+    const formatCPUUsage = ctx?.formatCPUUsage || (() => '–');
     function createGauge(canvasId, legendId, formatter) {
       const canvas = document.getElementById(canvasId);
       if (!canvas) {
@@ -214,6 +215,10 @@
         <div>
           <div class="text-body-secondary small">Total</div>
           <div class="fw-semibold" data-field="total">–</div>
+        </div>
+        <div>
+          <div class="text-body-secondary small">CPU</div>
+          <div class="fw-semibold" data-field="cpu">–</div>
         </div>`;
       body.appendChild(statsRow);
       const statusLine = document.createElement('div');
@@ -320,6 +325,14 @@
       statsRow.querySelector('[data-field="rx"]').textContent = formatBytes(iface.rxBytes);
       statsRow.querySelector('[data-field="tx"]').textContent = formatBytes(iface.txBytes);
       statsRow.querySelector('[data-field="total"]').textContent = formatBytes(iface.totalBytes);
+      const cpuEl = statsRow.querySelector('[data-field="cpu"]');
+      cpuEl.parentElement.classList.toggle('d-none', iface.type !== 'vpn');
+      cpuEl.textContent = formatCPUUsage(iface.cpuUsage);
+      if (iface.cpuUsage?.message) {
+        cpuEl.title = iface.cpuUsage.message;
+      } else {
+        cpuEl.removeAttribute('title');
+      }
       if (record.statusLine) {
         const status = deriveInterfaceStatus(iface, cfg, latencyInfo);
         record.statusLine.textContent = status.text;

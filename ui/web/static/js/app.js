@@ -2,6 +2,7 @@
   const interfaceGrid = document.getElementById('interface-grid');
   const vpnTableBody = document.querySelector('#vpn-table tbody');
   const wanLabel = document.getElementById('wan-label');
+  const loadLabel = document.getElementById('load-label');
   const updatedAt = document.getElementById('updated-at');
   const errorIndicator = document.getElementById('error-indicator');
   const refreshButton = document.getElementById('refresh-configs');
@@ -95,6 +96,7 @@
       downloadFill,
       uploadColor,
       uploadFill,
+      formatCPUUsage: window.SplitVPNUI?.formatCPUUsage,
       onInspectFlows: (vpnName) => {
         if (flowInspectorController?.open) {
           flowInspectorController.open(vpnName);
@@ -114,6 +116,14 @@
     }
     return raw.charAt(0).toUpperCase() + raw.slice(1);
   });
+  const statsUI = window.SplitVPNUI?.createStatsUI?.({
+      wanLabel,
+      loadLabel,
+      updatedAt,
+      formatThroughput,
+      formatBytes,
+    }) || null;
+  const sortInterfaces = statsUI?.sortInterfaces || ((interfaces = []) => [...interfaces]);
 
   function connectStream() {
     if (document.hidden) {
@@ -372,8 +382,11 @@
   }
 
   function updateUI(payload) {
-    updateTimestamp(payload.stats?.generatedAt);
-    updateWanLabel(payload.stats);
+    if (statsUI) {
+      statsUI.updateTimestamp(payload.stats?.generatedAt);
+      statsUI.updateWanLabel(payload.stats);
+      statsUI.updateLoadLabel(payload.stats?.loadAverage);
+    }
     updateErrors(payload.errors);
     const interfaces = sortInterfaces(payload.stats?.interfaces || []);
     updateGauges(interfaces);
@@ -383,44 +396,6 @@
     if (vpnController?.render) {
       vpnController.render(payload.configs || [], payload.latency || [], interfaces);
     }
-  }
-
-  function updateTimestamp(timestamp) {
-    if (!timestamp) {
-      updatedAt.textContent = '–';
-      return;
-    }
-    const time = new Date(timestamp);
-    updatedAt.textContent = 'Updated ' + time.toLocaleTimeString();
-  }
-
-  function updateWanLabel(stats) {
-    if (!stats) {
-      wanLabel.textContent = '';
-      return;
-    }
-    const wan = (stats.interfaces || []).find((iface) => iface.type === 'wan');
-    if (!wan) {
-      wanLabel.textContent = 'WAN interface not detected';
-      return;
-    }
-    const downloadValue = Number.isFinite(wan.currentRxThroughput)
-      ? wan.currentRxThroughput
-      : 0;
-    const uploadValue = Number.isFinite(wan.currentTxThroughput)
-      ? wan.currentTxThroughput
-      : 0;
-    const combined = Number.isFinite(wan.currentThroughput)
-      ? wan.currentThroughput
-      : stats.wanCorrectedThroughput || 0;
-    let throughputLabel;
-    if (downloadValue > 0 || uploadValue > 0) {
-      throughputLabel = `↓ ${formatThroughput(downloadValue)} • ↑ ${formatThroughput(uploadValue)}`;
-    } else {
-      throughputLabel = formatThroughput(combined);
-    }
-    const total = formatBytes(wan.totalBytes || stats.wanCorrectedBytes || 0);
-    wanLabel.textContent = `${wan.name || 'WAN'} (${wan.interface || 'n/a'}) • ${throughputLabel} • ${total}`;
   }
 
   function updateErrors(errors = {}) {
@@ -437,24 +412,6 @@
     const text = entries.map(([key, value]) => `${key}: ${value}`).join(' | ');
     errorIndicator.textContent = text;
     errorIndicator.classList.remove('d-none');
-  }
-
-  function sortInterfaces(interfaces = []) {
-    return [...interfaces].sort((a, b) => {
-      const typeA = a?.type || '';
-      const typeB = b?.type || '';
-      if (typeA !== typeB) {
-        if (typeA === 'wan') {
-          return -1;
-        }
-        if (typeB === 'wan') {
-          return 1;
-        }
-      }
-      const nameA = (a?.name || '').toLowerCase();
-      const nameB = (b?.name || '').toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
   }
 
   function updateGauges(interfaces) {
