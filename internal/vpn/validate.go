@@ -3,6 +3,7 @@ package vpn
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -42,6 +43,32 @@ func ValidateName(name string) error {
 		return fmt.Errorf("vpn name must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 	}
 	return nil
+}
+
+const (
+	minMSSClamp = 400
+	maxMSSClamp = 1440
+)
+
+// ValidateMSSClamp checks a per-family MSS clamp setting. Accepted values are
+// "" (disabled), "pmtu" (clamp to path MTU), or a fixed MSS in [400, 1440].
+// It returns the normalized value.
+func ValidateMSSClamp(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.EqualFold(trimmed, "pmtu") {
+		return "pmtu", nil
+	}
+	mss, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("MSS clamp must be empty, \"pmtu\", or a number: %q", value)
+	}
+	if mss < minMSSClamp || mss > maxMSSClamp {
+		return "", fmt.Errorf("MSS clamp %d out of range [%d, %d]", mss, minMSSClamp, maxMSSClamp)
+	}
+	return strconv.Itoa(mss), nil
 }
 
 // ValidateDomain checks user-supplied domain entries, including wildcard form (*.example.com).

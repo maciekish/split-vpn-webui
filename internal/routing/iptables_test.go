@@ -206,6 +206,95 @@ func TestApplyRulesAppliesExclusionsAndMulticastByRule(t *testing.T) {
 	}
 }
 
+func TestApplyRulesEmitsMSSClampRules(t *testing.T) {
+	mock := &MockExec{}
+	manager := NewRuleManager(mock)
+
+	bindings := []RouteBinding{
+		{
+			GroupName:        "Meta-FRA",
+			RuleIndex:        0,
+			DestinationSetV4: "svpn_meta_r1d4",
+			DestinationSetV6: "svpn_meta_r1d6",
+			HasDestination:   true,
+			Mark:             0xca,
+			RouteTable:       204,
+			Interface:        "wg-sv-fra",
+			MSSClampV4:       "pmtu",
+			MSSClampV6:       "1320",
+		},
+		{
+			// Second rule on the same interface must not duplicate the clamp.
+			GroupName:        "Meta-FRA",
+			RuleIndex:        1,
+			DestinationSetV4: "svpn_meta2_r1d4",
+			DestinationSetV6: "svpn_meta2_r1d6",
+			HasDestination:   true,
+			Mark:             0xca,
+			RouteTable:       204,
+			Interface:        "wg-sv-fra",
+			MSSClampV4:       "pmtu",
+			MSSClampV6:       "1320",
+		},
+	}
+	if err := manager.ApplyRules(bindings); err != nil {
+		t.Fatalf("ApplyRules failed: %v", err)
+	}
+
+	// The mock Executor never errors, so idempotent -C checks "succeed" and the
+	// -A/-I fallbacks are skipped; assert on the calls that always fire.
+	calls := joinCalls(mock.RunCalls)
+	for _, expected := range []string{
+		"iptables -t mangle -N SVPN_MSS",
+		"iptables -t mangle -C FORWARD -j SVPN_MSS",
+		"ip6tables -t mangle -C FORWARD -j SVPN_MSS",
+		"iptables -t mangle -A SVPN_MSS_A -o wg-sv-fra -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",
+		"ip6tables -t mangle -A SVPN_MSS_A -o wg-sv-fra -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1320",
+		"iptables -t mangle -C SVPN_MSS -j SVPN_MSS_A",
+	} {
+		if !containsCall(calls, expected) {
+			t.Fatalf("expected mss call %q in %#v", expected, calls)
+		}
+	}
+
+	clampCalls := 0
+	for _, call := range calls {
+		if strings.Contains(call, "-o wg-sv-fra -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu") {
+			clampCalls++
+		}
+	}
+	if clampCalls != 1 {
+		t.Fatalf("expected exactly one v4 clamp rule for the shared interface, got %d in %#v", clampCalls, calls)
+	}
+}
+
+func TestApplyRulesOmitsMSSClampWhenDisabled(t *testing.T) {
+	mock := &MockExec{}
+	manager := NewRuleManager(mock)
+
+	bindings := []RouteBinding{
+		{
+			GroupName:        "Plain",
+			RuleIndex:        0,
+			DestinationSetV4: "svpn_plain_r1d4",
+			DestinationSetV6: "svpn_plain_r1d6",
+			HasDestination:   true,
+			Mark:             0xca,
+			RouteTable:       204,
+			Interface:        "wg-sv-fra",
+		},
+	}
+	if err := manager.ApplyRules(bindings); err != nil {
+		t.Fatalf("ApplyRules failed: %v", err)
+	}
+	// The SVPN_MSS chain is always prepared/switched, but with no clamp rules.
+	for _, call := range joinCalls(mock.RunCalls) {
+		if strings.Contains(call, "-j TCPMSS") {
+			t.Fatalf("unexpected TCPMSS rule when clamping disabled: %q", call)
+		}
+	}
+}
+
 func TestFlushRulesRemovesChainsAndManagedRules(t *testing.T) {
 	mock := &MockExec{
 		Outputs: map[string][]byte{
@@ -222,6 +311,12 @@ func TestFlushRulesRemovesChainsAndManagedRules(t *testing.T) {
 	for _, expected := range []string{
 		"iptables -t mangle -F SVPN_MARK",
 		"ip6tables -t mangle -F SVPN_MARK",
+		"iptables -t mangle -F SVPN_MSS",
+		"ip6tables -t mangle -F SVPN_MSS",
+		"iptables -t mangle -F SVPN_MSS_A",
+		"iptables -t mangle -F SVPN_MSS_B",
+		"ip6tables -t mangle -F SVPN_MSS_A",
+		"ip6tables -t mangle -F SVPN_MSS_B",
 		"iptables -t nat -F SVPN_NAT",
 		"ip6tables -t nat -F SVPN_NAT",
 		"ip rule del fwmark 0xc9 table 201 priority 100",

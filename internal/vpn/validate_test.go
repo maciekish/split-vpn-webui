@@ -39,6 +39,34 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestValidateMSSClamp(t *testing.T) {
+	valid := map[string]string{
+		"":       "",
+		"  ":     "",
+		"pmtu":   "pmtu",
+		"PMTU":   "pmtu",
+		" 1340 ": "1340",
+		"400":    "400",
+		"1440":   "1440",
+	}
+	for input, want := range valid {
+		got, err := ValidateMSSClamp(input)
+		if err != nil {
+			t.Fatalf("ValidateMSSClamp(%q) unexpected error: %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("ValidateMSSClamp(%q) = %q, want %q", input, got, want)
+		}
+	}
+
+	invalid := []string{"399", "1441", "0", "-1", "abc", "12.5", "auto"}
+	for _, input := range invalid {
+		if _, err := ValidateMSSClamp(input); err == nil {
+			t.Fatalf("expected ValidateMSSClamp(%q) to fail", input)
+		}
+	}
+}
+
 func TestValidateDomain(t *testing.T) {
 	valid := []string{
 		"example.com",

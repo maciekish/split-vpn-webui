@@ -108,6 +108,8 @@ type RouteBinding struct {
 	RouteTable               int
 	Interface                string
 	EgressVPN                string
+	MSSClampV4               string
+	MSSClampV6               string
 }
 
 // NormalizeAndValidate validates a group and returns a canonical version.

@@ -64,6 +64,69 @@ func newTestManager(t *testing.T) (*Manager, string, *testUnitManager) {
 	return manager, vpnsDir, unitManager
 }
 
+func TestManagerMSSClampRoundTrip(t *testing.T) {
+	manager, vpnsDir, _ := newTestManager(t)
+
+	config := `[Interface]
+PrivateKey = test-private-key
+Address = 10.49.1.2/32
+
+[Peer]
+PublicKey = test-peer-key
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = fra.contoso.com:51820
+`
+
+	created, err := manager.Create(UpsertRequest{
+		Name:       "wg-fra",
+		Type:       "wireguard",
+		Config:     config,
+		MSSClampV4: "pmtu",
+		MSSClampV6: "1320",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if created.MSSClampV4 != "pmtu" || created.MSSClampV6 != "1320" {
+		t.Fatalf("unexpected clamp on created profile: v4=%q v6=%q", created.MSSClampV4, created.MSSClampV6)
+	}
+
+	vpnConf, err := os.ReadFile(filepath.Join(vpnsDir, "wg-fra", "vpn.conf"))
+	if err != nil {
+		t.Fatalf("read vpn.conf: %v", err)
+	}
+	if !strings.Contains(string(vpnConf), `MSS_CLAMPING_IPV4="pmtu"`) ||
+		!strings.Contains(string(vpnConf), `MSS_CLAMPING_IPV6="1320"`) {
+		t.Fatalf("vpn.conf missing MSS clamp keys:\n%s", vpnConf)
+	}
+
+	fetched, err := manager.Get("wg-fra")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if fetched.MSSClampV4 != "pmtu" || fetched.MSSClampV6 != "1320" {
+		t.Fatalf("clamp not persisted on read: v4=%q v6=%q", fetched.MSSClampV4, fetched.MSSClampV6)
+	}
+
+	// Empty request values disable clamping (authoritative, not inherited).
+	disabled, err := manager.Update("wg-fra", UpsertRequest{Config: config})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if disabled.MSSClampV4 != "" || disabled.MSSClampV6 != "" {
+		t.Fatalf("expected clamp cleared, got v4=%q v6=%q", disabled.MSSClampV4, disabled.MSSClampV6)
+	}
+
+	if _, err := manager.Create(UpsertRequest{
+		Name:       "wg-bad",
+		Type:       "wireguard",
+		Config:     config,
+		MSSClampV4: "99999",
+	}); !errors.Is(err, ErrVPNValidation) {
+		t.Fatalf("expected validation error for out-of-range MSS, got %v", err)
+	}
+}
+
 func TestManagerCreateGetUpdateDeleteWireGuard(t *testing.T) {
 	manager, vpnsDir, unitManager := newTestManager(t)
 

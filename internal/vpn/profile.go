@@ -15,6 +15,8 @@ type VPNProfile struct {
 	InterfaceName   string           `json:"interfaceName"`
 	Gateway         string           `json:"gateway"`
 	BoundInterface  string           `json:"boundInterface"`
+	MSSClampV4      string           `json:"mssClampV4"`
+	MSSClampV6      string           `json:"mssClampV6"`
 	Meta            VPNMeta          `json:"meta"`
 	Warnings        []string         `json:"warnings,omitempty"`
 	WireGuard       *WireGuardConfig `json:"wireguard,omitempty"`

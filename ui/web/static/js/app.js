@@ -18,6 +18,11 @@
   const vpnSupportingFilesMeta = document.getElementById('vpn-supporting-files-meta');
   const vpnConfigEditor = document.getElementById('vpn-config-editor');
   const vpnEditorMeta = document.getElementById('vpn-editor-meta');
+  const vpnMSSMode = document.getElementById('vpn-mss-mode');
+  const vpnMSSV4Wrap = document.getElementById('vpn-mss-v4-wrap');
+  const vpnMSSV6Wrap = document.getElementById('vpn-mss-v6-wrap');
+  const vpnMSSV4Input = document.getElementById('vpn-mss-v4');
+  const vpnMSSV6Input = document.getElementById('vpn-mss-v6');
   const saveVPNButton = document.getElementById('save-vpn');
   const saveVPNLabel = document.getElementById('save-vpn-label');
   const deleteVPNModalElement = document.getElementById('deleteVpnModal');
@@ -271,6 +276,11 @@
       vpnSupportingFilesMeta,
       vpnConfigEditor,
       vpnEditorMeta,
+      vpnMSSMode,
+      vpnMSSV4Wrap,
+      vpnMSSV6Wrap,
+      vpnMSSV4Input,
+      vpnMSSV6Input,
       saveVPNButton,
       saveVPNLabel,
       deleteVPNModal,

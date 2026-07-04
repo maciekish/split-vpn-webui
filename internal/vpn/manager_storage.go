@@ -67,6 +67,8 @@ func (m *Manager) readProfileLocked(name string) (*VPNProfile, error) {
 		parsed.FWMark = mark
 	}
 	parsed.BoundInterface = strings.TrimSpace(values["VPN_BOUND_IFACE"])
+	parsed.MSSClampV4 = strings.TrimSpace(values["MSS_CLAMPING_IPV4"])
+	parsed.MSSClampV6 = strings.TrimSpace(values["MSS_CLAMPING_IPV6"])
 	if endpointV4 := strings.TrimSpace(values["VPN_ENDPOINT_IPV4"]); endpointV4 != "" {
 		parsed.Gateway = endpointV4
 	} else if endpointV6 := strings.TrimSpace(values["VPN_ENDPOINT_IPV6"]); endpointV6 != "" {
@@ -134,6 +136,8 @@ func renderVPNConf(meta VPNMeta) string {
 		"VPN_ENDPOINT_IPV4",
 		"VPN_ENDPOINT_IPV6",
 		"VPN_BOUND_IFACE",
+		"MSS_CLAMPING_IPV4",
+		"MSS_CLAMPING_IPV6",
 		"CONFIG_FILE",
 	}
 	lines := make([]string, 0, len(order)+2)

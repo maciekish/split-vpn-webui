@@ -15,6 +15,11 @@
       vpnSupportingFilesMeta,
       vpnConfigEditor,
       vpnEditorMeta,
+      vpnMSSMode,
+      vpnMSSV4Wrap,
+      vpnMSSV6Wrap,
+      vpnMSSV4Input,
+      vpnMSSV6Input,
       saveVPNButton,
       saveVPNLabel,
       deleteVPNModal,
@@ -72,6 +77,58 @@
         vpnConfigEditor,
       })
       : null;
+
+    const mssControlsPresent = Boolean(vpnMSSMode && vpnMSSV4Wrap && vpnMSSV6Wrap && vpnMSSV4Input && vpnMSSV6Input);
+
+    function syncMSSCustomVisibility() {
+      if (!mssControlsPresent) {
+        return;
+      }
+      const custom = vpnMSSMode.value === 'custom';
+      vpnMSSV4Wrap.classList.toggle('d-none', !custom);
+      vpnMSSV6Wrap.classList.toggle('d-none', !custom);
+    }
+
+    // The editor models MSS as a tri-mode (off/auto/custom). A hand-edited or
+    // API-created config with mixed families (e.g. v4=pmtu, v6=1320) is shown as
+    // the closest mode and re-normalized on save; pure-UI configs round-trip losslessly.
+    function setMSSFields(v4, v6) {
+      if (!mssControlsPresent) {
+        return;
+      }
+      const clean4 = (v4 || '').trim();
+      const clean6 = (v6 || '').trim();
+      let mode = 'off';
+      if (clean4.toLowerCase() === 'pmtu' || clean6.toLowerCase() === 'pmtu') {
+        mode = 'auto';
+      } else if (clean4 !== '' || clean6 !== '') {
+        mode = 'custom';
+      }
+      vpnMSSMode.value = mode;
+      vpnMSSV4Input.value = /^\d+$/.test(clean4) ? clean4 : '';
+      vpnMSSV6Input.value = /^\d+$/.test(clean6) ? clean6 : '';
+      syncMSSCustomVisibility();
+    }
+
+    function readMSSFields() {
+      if (!mssControlsPresent) {
+        return { mssClampV4: '', mssClampV6: '' };
+      }
+      if (vpnMSSMode.value === 'auto') {
+        return { mssClampV4: 'pmtu', mssClampV6: 'pmtu' };
+      }
+      if (vpnMSSMode.value === 'custom') {
+        return {
+          mssClampV4: (vpnMSSV4Input.value || '').trim(),
+          mssClampV6: (vpnMSSV6Input.value || '').trim(),
+        };
+      }
+      return { mssClampV4: '', mssClampV6: '' };
+    }
+
+    if (mssControlsPresent) {
+      vpnMSSMode.addEventListener('change', syncMSSCustomVisibility);
+    }
 
     addVPNButton.addEventListener('click', () => {
       openAddVPNModal();
@@ -388,6 +445,7 @@
       vpnSupportingFilesInput.value = '';
       vpnConfigEditor.value = '';
       vpnEditorMeta.textContent = '';
+      setMSSFields('', '');
       awgEditor?.reset();
       renderSupportingFilesMeta();
       vpnEditorModal.show();
@@ -414,6 +472,7 @@
         vpnSupportingFilesInput.value = '';
         vpnConfigEditor.value = profile.rawConfig || '';
         vpnEditorMeta.textContent = `Config file: ${profile.configFile || 'auto'}`;
+        setMSSFields(profile.mssClampV4, profile.mssClampV6);
         awgEditor?.loadFromConfig();
         renderSupportingFilesMeta();
         vpnEditorModal.show();
@@ -437,7 +496,7 @@
       if (!config.trim()) {
         throw new Error('VPN configuration content is required.');
       }
-      const payload = { name, type, config };
+      const payload = { name, type, config, ...readMSSFields() };
       const explicitFile = (state.vpnEditor?.configFileName || '').trim();
       if (explicitFile) {
         payload.configFile = explicitFile;

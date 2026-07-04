@@ -382,6 +382,8 @@ func (m *Manager) buildBinding(
 		RouteTable:               profile.RouteTable,
 		Interface:                profile.InterfaceName,
 		EgressVPN:                group.EgressVPN,
+		MSSClampV4:               profile.MSSClampV4,
+		MSSClampV6:               profile.MSSClampV6,
 	}, nil
 }
 

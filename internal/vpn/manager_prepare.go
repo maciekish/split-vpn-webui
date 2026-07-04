@@ -20,6 +20,15 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 		return nil, fmt.Errorf("%w: vpn config must not be empty", ErrVPNValidation)
 	}
 
+	mssV4, err := ValidateMSSClamp(req.MSSClampV4)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrVPNValidation, err)
+	}
+	mssV6, err := ValidateMSSClamp(req.MSSClampV6)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrVPNValidation, err)
+	}
+
 	parsed, err := provider.ParseConfig(rawConfig)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrVPNValidation, err)
@@ -116,6 +125,14 @@ func (m *Manager) prepareProfileLocked(name string, req UpsertRequest, existing 
 	}
 	if bound != "" {
 		meta["VPN_BOUND_IFACE"] = bound
+	}
+	// MSS clamp is authoritative from the request (the editor always submits the
+	// current value); an empty value disables clamping for that family.
+	if mssV4 != "" {
+		meta["MSS_CLAMPING_IPV4"] = mssV4
+	}
+	if mssV6 != "" {
+		meta["MSS_CLAMPING_IPV6"] = mssV6
 	}
 
 	unitProfile := &VPNProfile{

@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** None (all planned sprints complete)
-**Last updated:** 2026-06-27
-**Last session summary:** Released v1.2.4 to hide the VPN CPU stat for kernel-backed tunnels while preserving userspace CPU display.
+**Last updated:** 2026-07-04
+**Last session summary:** Added per-VPN TCP MSS clamping (Off / Auto=clamp-to-pmtu / Custom fixed IPv4+IPv6), persisted in vpn.conf as MSS_CLAMPING_IPV4/6, applied via a new SVPN_MSS generation chain on `mangle FORWARD -o <tunnel>` (mirrors the SVPN_MARK/SVPN_NAT A/B cutover), surfaced in the VPN editor modal. Released as v1.3.0.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---

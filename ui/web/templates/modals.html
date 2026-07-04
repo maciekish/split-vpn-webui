@@ -121,6 +121,25 @@
             <div class="form-text" id="vpn-supporting-files-meta">Upload files referenced by `.ovpn` directives (for example `ca`, `cert`, `key`, `auth-user-pass`).</div>
           </div>
         </div>
+        <div class="row g-3 mb-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label" for="vpn-mss-mode">MSS Clamping</label>
+            <select class="form-select" id="vpn-mss-mode">
+              <option value="off">Off</option>
+              <option value="auto">Auto (clamp to path MTU)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <div class="form-text">Prevents TCP stalls when the tunnel MTU is below the client MTU. Auto is recommended.</div>
+          </div>
+          <div class="col-6 col-md-4 d-none" id="vpn-mss-v4-wrap">
+            <label class="form-label" for="vpn-mss-v4">IPv4 MSS</label>
+            <input class="form-control" id="vpn-mss-v4" type="number" min="400" max="1440" placeholder="e.g. 1340" autocomplete="off">
+          </div>
+          <div class="col-6 col-md-4 d-none" id="vpn-mss-v6-wrap">
+            <label class="form-label" for="vpn-mss-v6">IPv6 MSS</label>
+            <input class="form-control" id="vpn-mss-v6" type="number" min="400" max="1440" placeholder="e.g. 1320" autocomplete="off">
+          </div>
+        </div>
         <div class="small text-body-secondary mb-2" id="vpn-editor-meta"></div>
         <div class="alert alert-secondary py-2 small mb-3" role="status">
           Uploading a file fills the editor; you can continue editing before saving.

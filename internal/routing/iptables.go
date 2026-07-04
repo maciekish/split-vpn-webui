@@ -9,11 +9,14 @@ import (
 const (
 	markChainName = "SVPN_MARK"
 	natChainName  = "SVPN_NAT"
+	mssChainName  = "SVPN_MSS"
 
 	markChainA = "SVPN_MARK_A"
 	markChainB = "SVPN_MARK_B"
 	natChainA  = "SVPN_NAT_A"
 	natChainB  = "SVPN_NAT_B"
+	mssChainA  = "SVPN_MSS_A"
+	mssChainB  = "SVPN_MSS_B"
 
 	rulePriority    = "100"
 	deleteLoopLimit = 64
@@ -42,7 +45,7 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 	})
 
 	activeVariant := m.detectActiveVariant()
-	workingMark, workingNAT, staleMark, staleNAT := selectWorkingVariant(activeVariant)
+	workingMark, workingNAT, workingMSS, staleMark, staleNAT, staleMSS := selectWorkingVariant(activeVariant)
 	for _, prep := range []struct {
 		tool       string
 		table      string
@@ -51,8 +54,10 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		generation string
 	}{
 		{tool: "iptables", table: "mangle", root: markChainName, parent: "PREROUTING", generation: workingMark},
+		{tool: "iptables", table: "mangle", root: mssChainName, parent: "FORWARD", generation: workingMSS},
 		{tool: "iptables", table: "nat", root: natChainName, parent: "POSTROUTING", generation: workingNAT},
 		{tool: "ip6tables", table: "mangle", root: markChainName, parent: "PREROUTING", generation: workingMark},
+		{tool: "ip6tables", table: "mangle", root: mssChainName, parent: "FORWARD", generation: workingMSS},
 		{tool: "ip6tables", table: "nat", root: natChainName, parent: "POSTROUTING", generation: workingNAT},
 	} {
 		if err := m.prepareGenerationChain(prep.tool, prep.table, prep.root, prep.parent, prep.generation); err != nil {
@@ -68,8 +73,10 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 			chain string
 		}{
 			{tool: "iptables", table: "mangle", chain: markChainName},
+			{tool: "iptables", table: "mangle", chain: mssChainName},
 			{tool: "iptables", table: "nat", chain: natChainName},
 			{tool: "ip6tables", table: "mangle", chain: markChainName},
+			{tool: "ip6tables", table: "mangle", chain: mssChainName},
 			{tool: "ip6tables", table: "nat", chain: natChainName},
 		} {
 			if err := m.exec.Run(root.tool, "-t", root.table, "-F", root.chain); err != nil {
@@ -80,6 +87,7 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 
 	desiredRules := make(map[uint32]int)
 	seenNATRules := make(map[string]struct{})
+	mssByInterface := make(map[string]mssClamp)
 	for bindingIndex, binding := range sorted {
 		if binding.Mark < 200 {
 			return fmt.Errorf("invalid fwmark %d for group %s", binding.Mark, binding.GroupName)
@@ -106,6 +114,12 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 			return err
 		}
 
+		if clamp := (mssClamp{v4: binding.MSSClampV4, v6: binding.MSSClampV6}); clamp.enabled() {
+			// Interface maps 1:1 to a VPN, so every binding sharing an interface
+			// carries identical clamp settings; last write is a harmless no-op.
+			mssByInterface[binding.Interface] = clamp
+		}
+
 		natKey := markHex + ":" + binding.Interface
 		if _, seen := seenNATRules[natKey]; seen {
 			continue
@@ -119,6 +133,12 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		}
 	}
 
+	for _, iface := range sortedInterfaces(mssByInterface) {
+		if err := m.addMSSRules(workingMSS, iface, mssByInterface[iface]); err != nil {
+			return err
+		}
+	}
+
 	for _, sw := range []struct {
 		tool  string
 		table string
@@ -127,8 +147,10 @@ func (m *RuleManager) ApplyRules(bindings []RouteBinding) error {
 		stale string
 	}{
 		{tool: "iptables", table: "mangle", root: markChainName, next: workingMark, stale: staleMark},
+		{tool: "iptables", table: "mangle", root: mssChainName, next: workingMSS, stale: staleMSS},
 		{tool: "iptables", table: "nat", root: natChainName, next: workingNAT, stale: staleNAT},
 		{tool: "ip6tables", table: "mangle", root: markChainName, next: workingMark, stale: staleMark},
+		{tool: "ip6tables", table: "mangle", root: mssChainName, next: workingMSS, stale: staleMSS},
 		{tool: "ip6tables", table: "nat", root: natChainName, next: workingNAT, stale: staleNAT},
 	} {
 		if err := m.switchRootJump(sw.tool, sw.table, sw.root, sw.next, sw.stale); err != nil {
@@ -153,14 +175,80 @@ func (m *RuleManager) detectActiveVariant() string {
 	return active
 }
 
-func selectWorkingVariant(active string) (workingMark, workingNAT, staleMark, staleNAT string) {
+func selectWorkingVariant(active string) (workingMark, workingNAT, workingMSS, staleMark, staleNAT, staleMSS string) {
 	if active == markChainA {
-		return markChainB, natChainB, markChainA, natChainA
+		return markChainB, natChainB, mssChainB, markChainA, natChainA, mssChainA
 	}
-	if active == markChainB {
-		return markChainA, natChainA, markChainB, natChainB
+	return markChainA, natChainA, mssChainA, markChainB, natChainB, mssChainB
+}
+
+// mssClamp holds the per-family MSS clamp settings for a tunnel interface.
+// A value of "" disables clamping for that family, "pmtu" clamps to the path
+// MTU, and any other value is a fixed MSS passed to --set-mss.
+type mssClamp struct {
+	v4 string
+	v6 string
+}
+
+func (c mssClamp) enabled() bool {
+	return strings.TrimSpace(c.v4) != "" || strings.TrimSpace(c.v6) != ""
+}
+
+func sortedInterfaces(byInterface map[string]mssClamp) []string {
+	names := make([]string, 0, len(byInterface))
+	for name := range byInterface {
+		names = append(names, name)
 	}
-	return markChainA, natChainA, markChainB, natChainB
+	sort.Strings(names)
+	return names
+}
+
+// addMSSRules clamps the TCP MSS on SYN packets leaving the tunnel interface so
+// segments fit the tunnel MTU without relying on PMTUD.
+//
+// The rule matches egress (-o tunnel) only, matching peacey/split-vpn and
+// OpenWrt's mtu_fix. This deliberately targets the direction where PMTUD is
+// unreliable: a client's SYN egressing the tunnel is clamped so the remote peer
+// pre-sizes the download data (the peer would otherwise depend on an ICMP
+// PTB surviving the public internet, which is frequently black-holed). The
+// reverse (upload) direction stays safe via ordinary PMTUD, because the gateway
+// drops oversized packets at its own tunnel interface and returns the ICMP over
+// the LAN — a local, reliable path. Auto mode uses --clamp-mss-to-pmtu, which is
+// output-route based and would be a no-op on an ingress rule anyway.
+func (m *RuleManager) addMSSRules(chain, iface string, clamp mssClamp) error {
+	if v4 := strings.TrimSpace(clamp.v4); v4 != "" {
+		if err := m.addMSSRuleForFamily("iptables", chain, iface, v4); err != nil {
+			return err
+		}
+	}
+	if v6 := strings.TrimSpace(clamp.v6); v6 != "" {
+		if err := m.addMSSRuleForFamily("ip6tables", chain, iface, v6); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *RuleManager) addMSSRuleForFamily(tool, chain, iface, value string) error {
+	args := []string{
+		"-t", "mangle", "-A", chain,
+		"-o", iface,
+		"-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN",
+		"-j", "TCPMSS",
+	}
+	if strings.EqualFold(value, "pmtu") {
+		args = append(args, "--clamp-mss-to-pmtu")
+	} else {
+		args = append(args, "--set-mss", value)
+	}
+	if err := m.exec.Run(tool, args...); err != nil {
+		family := "ipv4"
+		if tool == "ip6tables" {
+			family = "ipv6"
+		}
+		return fmt.Errorf("add %s mss clamp rule for %s: %w", family, iface, err)
+	}
+	return nil
 }
 
 func (m *RuleManager) detectActiveGeneration(tool, table, root string) string {
@@ -260,15 +348,21 @@ func (m *RuleManager) FlushRules() error {
 		parent string
 	}{
 		{tool: "iptables", table: "mangle", chain: markChainName, parent: "PREROUTING"},
+		{tool: "iptables", table: "mangle", chain: mssChainName, parent: "FORWARD"},
 		{tool: "iptables", table: "nat", chain: natChainName, parent: "POSTROUTING"},
 		{tool: "ip6tables", table: "mangle", chain: markChainName, parent: "PREROUTING"},
+		{tool: "ip6tables", table: "mangle", chain: mssChainName, parent: "FORWARD"},
 		{tool: "ip6tables", table: "nat", chain: natChainName, parent: "POSTROUTING"},
 		{tool: "iptables", table: "mangle", chain: markChainA},
 		{tool: "iptables", table: "mangle", chain: markChainB},
+		{tool: "iptables", table: "mangle", chain: mssChainA},
+		{tool: "iptables", table: "mangle", chain: mssChainB},
 		{tool: "iptables", table: "nat", chain: natChainA},
 		{tool: "iptables", table: "nat", chain: natChainB},
 		{tool: "ip6tables", table: "mangle", chain: markChainA},
 		{tool: "ip6tables", table: "mangle", chain: markChainB},
+		{tool: "ip6tables", table: "mangle", chain: mssChainA},
+		{tool: "ip6tables", table: "mangle", chain: mssChainB},
 		{tool: "ip6tables", table: "nat", chain: natChainA},
 		{tool: "ip6tables", table: "nat", chain: natChainB},
 	} {

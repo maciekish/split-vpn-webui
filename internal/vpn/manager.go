@@ -29,6 +29,8 @@ type UpsertRequest struct {
 	SupportingFiles []SupportingFileUpload `json:"supportingFiles,omitempty"`
 	InterfaceName  string `json:"interfaceName,omitempty"`
 	BoundInterface string `json:"boundInterface,omitempty"`
+	MSSClampV4     string `json:"mssClampV4,omitempty"`
+	MSSClampV6     string `json:"mssClampV6,omitempty"`
 }
 
 // SupportingFileUpload represents one uploaded OpenVPN support file.
