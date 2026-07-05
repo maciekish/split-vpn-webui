@@ -46,6 +46,38 @@ func (w *Worker) resolveWildcard(ctx context.Context, wildcard string) ([]string
 	})
 }
 
+// resolverEnabled reports whether a resolver is still worth querying this run.
+func (w *Worker) resolverEnabled(idx int) bool {
+	return !w.gates[idx].disabled.Load()
+}
+
+// resolverAttempts returns the retry budget for a resolver. A resolver that has
+// already failed drops to a single attempt so a dead resolver stops burning the
+// full retry budget on every query; a healthy one keeps the full budget for
+// genuine transient errors.
+func (w *Worker) resolverAttempts(idx int) int {
+	if w.gates[idx].failures.Load() > 0 {
+		return 1
+	}
+	return w.attempts
+}
+
+// noteResolverResult records a query outcome and disables a resolver once it has
+// failed disableThreshold times in a row.
+func (w *Worker) noteResolverResult(idx int, ok bool) {
+	gate := w.gates[idx]
+	if ok {
+		gate.failures.Store(0)
+		return
+	}
+	failures := gate.failures.Add(1)
+	if int(failures) >= w.disableThreshold && gate.disabled.CompareAndSwap(false, true) {
+		if w.onResolverOff != nil {
+			w.onResolverOff(gate.label, int(failures))
+		}
+	}
+}
+
 // acquireQuerySlot blocks until a query slot is free or the context is done.
 func acquireQuerySlot(ctx context.Context, sem chan struct{}) error {
 	select {
@@ -105,24 +137,28 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 	// Phase 2: CNAME expansion, one concurrent query per interface × resolver.
 	var cnameWG sync.WaitGroup
 	for _, iface := range ifaces {
-		for _, resolver := range w.resolvers {
+		for idx, resolver := range w.resolvers {
+			if !w.resolverEnabled(idx) {
+				continue
+			}
 			if err := acquireQuerySlot(ctx, querySem); err != nil {
 				cnameWG.Wait()
 				return taskResult{}, err
 			}
 			cnameWG.Add(1)
-			go func(iface string, resolver DoHClient) {
+			go func(iface string, idx int, resolver DoHClient) {
 				defer cnameWG.Done()
 				defer releaseQuerySlot(querySem)
-				cnames, err := w.resilientQuery(ctx, func(attemptCtx context.Context) ([]string, error) {
+				cnames, err := w.retryQuery(ctx, w.resolverAttempts(idx), func(attemptCtx context.Context) ([]string, error) {
 					return resolver.QueryCNAME(attemptCtx, task.Domain, iface)
 				})
+				w.noteResolverResult(idx, err == nil)
 				if err != nil {
 					w.emitQueryError(QueryError{
 						Stage:     "cname",
 						Domain:    task.Domain,
 						Interface: iface,
-						Resolver:  resolverLabel(resolver),
+						Resolver:  w.gates[idx].label,
 						Err:       err,
 					})
 					mu.Lock()
@@ -137,7 +173,7 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 					}
 				}
 				mu.Unlock()
-			}(iface, resolver)
+			}(iface, idx, resolver)
 		}
 	}
 	cnameWG.Wait()
@@ -153,20 +189,24 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 	var addrWG sync.WaitGroup
 	for _, target := range targetList {
 		for _, iface := range ifaces {
-			for _, resolver := range w.resolvers {
+			for idx, resolver := range w.resolvers {
+				if !w.resolverEnabled(idx) {
+					continue
+				}
 				if err := acquireQuerySlot(ctx, querySem); err != nil {
 					addrWG.Wait()
 					return taskResult{}, err
 				}
 				addrWG.Add(1)
-				go func(target, iface string, resolver DoHClient) {
+				go func(target, iface string, idx int, resolver DoHClient) {
 					defer addrWG.Done()
 					defer releaseQuerySlot(querySem)
-					resolverName := resolverLabel(resolver)
+					resolverName := w.gates[idx].label
 
-					v4, err := w.resilientQuery(ctx, func(attemptCtx context.Context) ([]string, error) {
+					v4, err := w.retryQuery(ctx, w.resolverAttempts(idx), func(attemptCtx context.Context) ([]string, error) {
 						return resolver.QueryA(attemptCtx, target, iface)
 					})
+					w.noteResolverResult(idx, err == nil)
 					if err != nil {
 						w.emitQueryError(QueryError{Stage: "a", Domain: target, Interface: iface, Resolver: resolverName, Err: err})
 						mu.Lock()
@@ -181,9 +221,13 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 						mu.Unlock()
 					}
 
-					v6, err := w.resilientQuery(ctx, func(attemptCtx context.Context) ([]string, error) {
+					if !w.resolverEnabled(idx) {
+						return
+					}
+					v6, err := w.retryQuery(ctx, w.resolverAttempts(idx), func(attemptCtx context.Context) ([]string, error) {
 						return resolver.QueryAAAA(attemptCtx, target, iface)
 					})
+					w.noteResolverResult(idx, err == nil)
 					if err != nil {
 						w.emitQueryError(QueryError{Stage: "aaaa", Domain: target, Interface: iface, Resolver: resolverName, Err: err})
 						mu.Lock()
@@ -197,7 +241,7 @@ func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []stri
 						}
 						mu.Unlock()
 					}
-				}(target, iface, resolver)
+				}(target, iface, idx, resolver)
 			}
 		}
 	}

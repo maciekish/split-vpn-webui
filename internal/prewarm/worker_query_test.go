@@ -120,6 +120,80 @@ func (f *flakyDoH) query(qType, domain, iface string) ([]string, error) {
 	return append([]string(nil), f.data[key]...), nil
 }
 
+type deadDoH struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (d *deadDoH) bump() {
+	d.mu.Lock()
+	d.calls++
+	d.mu.Unlock()
+}
+
+func (d *deadDoH) QueryA(ctx context.Context, domain, iface string) ([]string, error) {
+	d.bump()
+	return nil, fmt.Errorf("unreachable")
+}
+
+func (d *deadDoH) QueryAAAA(ctx context.Context, domain, iface string) ([]string, error) {
+	d.bump()
+	return nil, fmt.Errorf("unreachable")
+}
+
+func (d *deadDoH) QueryCNAME(ctx context.Context, domain, iface string) ([]string, error) {
+	d.bump()
+	return nil, fmt.Errorf("unreachable")
+}
+
+func TestWorkerDisablesPersistentlyFailingResolver(t *testing.T) {
+	groups := &mockGroupSource{
+		groups: []routing.DomainGroup{
+			{Name: "Dead", EgressVPN: "wg-a", Domains: []string{"a.example", "b.example", "c.example", "d.example", "e.example"}},
+		},
+	}
+	vpns := &mockVPNSource{profiles: []*vpn.VPNProfile{{Name: "wg-a", InterfaceName: "wg-a"}}}
+	primary := &mockDoH{data: map[string][]string{}}
+	dead := &deadDoH{}
+
+	var (
+		disabledMu    sync.Mutex
+		disabledLabel string
+		disabledCount int
+	)
+	worker, err := NewWorker(groups, vpns, primary, &mockIPSet{}, WorkerOptions{
+		Parallelism:              1,
+		Attempts:                 1,
+		ResolverFailureThreshold: 3,
+		AdditionalResolvers:      []DoHClient{dead},
+		InterfaceActive:          func(name string) (bool, error) { return true, nil },
+		ResolverDisabledCallback: func(label string, failures int) {
+			disabledMu.Lock()
+			disabledLabel = label
+			disabledCount++
+			disabledMu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
+
+	if _, err := worker.Run(context.Background()); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	disabledMu.Lock()
+	defer disabledMu.Unlock()
+	if disabledCount != 1 || disabledLabel == "" {
+		t.Fatalf("expected dead resolver to be disabled exactly once, got count=%d label=%q", disabledCount, disabledLabel)
+	}
+	// Tripped during the first domain (threshold 3), then skipped for the rest:
+	// 5 domains would otherwise produce many more calls.
+	if dead.calls > 4 {
+		t.Fatalf("expected dead resolver to stop being queried after tripping, got %d calls", dead.calls)
+	}
+}
+
 func TestWorkerRecoversFromTransientResolverFailures(t *testing.T) {
 	groups := &mockGroupSource{
 		groups: []routing.DomainGroup{

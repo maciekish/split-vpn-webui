@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"split-vpn-webui/internal/routing"
@@ -14,12 +15,23 @@ import (
 )
 
 const (
-	defaultParallelism        = 4
-	maxSafeWorkerParallelism  = 64
-	defaultWorkerAttempts     = 3
-	maxSafeWorkerAttempts     = 10
-	defaultWorkerQueryTimeout = 10 * time.Second
+	defaultParallelism              = 4
+	maxSafeWorkerParallelism        = 64
+	defaultWorkerAttempts           = 3
+	maxSafeWorkerAttempts           = 10
+	defaultWorkerQueryTimeout       = 10 * time.Second
+	defaultResolverFailureThreshold = 10
 )
+
+// resolverGate tracks the health of one resolver during a run. After enough
+// consecutive failures it is disabled so the pre-warmer stops wasting time on a
+// resolver that is unreachable over the active VPN interfaces (e.g. an ISP
+// nameserver that only answers its own customers).
+type resolverGate struct {
+	label    string
+	failures atomic.Int32
+	disabled atomic.Bool
+}
 
 // GroupSource lists configured domain routing groups.
 type GroupSource interface {
@@ -38,34 +50,39 @@ type WildcardResolver interface {
 
 // WorkerOptions controls worker runtime behavior.
 type WorkerOptions struct {
-	Parallelism         int
-	Timeout             time.Duration
-	Attempts            int
-	ExtraNameservers    []string
-	ECSProfiles         []string
-	AdditionalResolvers []DoHClient
-	ProgressCallback    func(Progress)
-	ErrorCallback       func(QueryError)
-	InterfaceActive     func(name string) (bool, error)
-	InterfaceList       func() ([]string, error)
-	WildcardResolver    WildcardResolver
+	Parallelism              int
+	Timeout                  time.Duration
+	Attempts                 int
+	ResolverFailureThreshold int
+	ExtraNameservers         []string
+	ECSProfiles              []string
+	AdditionalResolvers      []DoHClient
+	ProgressCallback         func(Progress)
+	ErrorCallback            func(QueryError)
+	ResolverDisabledCallback func(label string, failures int)
+	InterfaceActive          func(name string) (bool, error)
+	InterfaceList            func() ([]string, error)
+	WildcardResolver         WildcardResolver
 }
 
 // Worker executes one DNS pre-warm pass.
 type Worker struct {
-	groups    GroupSource
-	vpns      VPNSource
-	doh       DoHClient
-	ipset     routing.IPSetOperator
-	resolvers []DoHClient
-	parallel  int
-	attempts  int
-	timeout   time.Duration
-	progress  func(Progress)
-	onError   func(QueryError)
-	ifaceUp   func(name string) (bool, error)
-	ifaceList func() ([]string, error)
-	wildcard  WildcardResolver
+	groups           GroupSource
+	vpns             VPNSource
+	doh              DoHClient
+	ipset            routing.IPSetOperator
+	resolvers        []DoHClient
+	gates            []*resolverGate
+	disableThreshold int
+	parallel         int
+	attempts         int
+	timeout          time.Duration
+	progress         func(Progress)
+	onError          func(QueryError)
+	onResolverOff    func(label string, failures int)
+	ifaceUp          func(name string) (bool, error)
+	ifaceList        func() ([]string, error)
+	wildcard         WildcardResolver
 }
 
 type domainTask struct {
@@ -121,6 +138,14 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 	if queryTimeout <= 0 {
 		queryTimeout = defaultWorkerQueryTimeout
 	}
+	threshold := opts.ResolverFailureThreshold
+	if threshold <= 0 {
+		threshold = defaultResolverFailureThreshold
+	}
+	gates := make([]*resolverGate, len(resolvers))
+	for i, resolver := range resolvers {
+		gates[i] = &resolverGate{label: resolverLabel(resolver)}
+	}
 	ifaceActive := opts.InterfaceActive
 	if ifaceActive == nil {
 		ifaceActive = func(name string) (bool, error) {
@@ -137,19 +162,22 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 		wildcard = newCRTSHWildcardResolver(defaultDoHTimeout)
 	}
 	return &Worker{
-		groups:    groups,
-		vpns:      vpns,
-		doh:       doh,
-		ipset:     ipset,
-		resolvers: resolvers,
-		parallel:  parallelism,
-		attempts:  attempts,
-		timeout:   queryTimeout,
-		progress:  opts.ProgressCallback,
-		onError:   opts.ErrorCallback,
-		ifaceUp:   ifaceActive,
-		ifaceList: ifaceList,
-		wildcard:  wildcard,
+		groups:           groups,
+		vpns:             vpns,
+		doh:              doh,
+		ipset:            ipset,
+		resolvers:        resolvers,
+		gates:            gates,
+		disableThreshold: threshold,
+		parallel:         parallelism,
+		attempts:         attempts,
+		timeout:          queryTimeout,
+		progress:         opts.ProgressCallback,
+		onError:          opts.ErrorCallback,
+		onResolverOff:    opts.ResolverDisabledCallback,
+		ifaceUp:          ifaceActive,
+		ifaceList:        ifaceList,
+		wildcard:         wildcard,
 	}, nil
 }
 

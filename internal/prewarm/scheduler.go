@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -216,6 +217,14 @@ func (s *Scheduler) TriggerNow() error {
 	s.mu.Unlock()
 
 	s.emitProgress(initial)
+	log.Printf(
+		"prewarm run started: timeout=%ds attempts=%d parallelism=%d extra_nameservers=%d ecs_profiles=%d",
+		int(timeoutFromSettings(current)/time.Second),
+		attemptsFromSettings(current),
+		parallelismFromSettings(current),
+		lenOrZero(current.PrewarmExtraNameservers),
+		lenOrZero(current.PrewarmECSProfiles),
+	)
 	s.logInfof(
 		"prewarm run started interval=%ds timeout=%ds attempts=%d parallelism=%d extra_nameservers=%d ecs_profiles=%d",
 		current.PrewarmIntervalSeconds,
@@ -293,6 +302,10 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 				event.Err,
 			)
 		},
+		ResolverDisabledCallback: func(label string, failures int) {
+			log.Printf("prewarm: disabling resolver %s for this run after %d consecutive failures (unreachable over the active VPN interfaces?)", label, failures)
+			s.logWarnf("prewarm resolver disabled label=%s failures=%d", label, failures)
+		},
 		ProgressCallback: func(progress Progress) {
 			s.mu.Lock()
 			cloned := progress.Clone()
@@ -364,6 +377,23 @@ func (s *Scheduler) finishRun(started time.Time, stats RunStats, runErr error) {
 	if emit != nil {
 		s.emitProgress(*emit)
 	}
+	outcome := "finished"
+	if runErr != nil {
+		if errors.Is(runErr, context.Canceled) {
+			outcome = "canceled"
+		} else {
+			outcome = "failed"
+		}
+	}
+	log.Printf(
+		"prewarm run %s: duration_ms=%d domains=%d/%d ips=%d errors=%d",
+		outcome,
+		record.DurationMS,
+		record.DomainsDone,
+		record.DomainsTotal,
+		record.IPsInserted,
+		progressErrorCount(stats.Progress),
+	)
 	if runErr != nil {
 		if errors.Is(runErr, context.Canceled) {
 			s.logWarnf(
