@@ -188,6 +188,7 @@
       wanInterface: wanSelect.value || '',
       prewarmParallelism: Number(state.settings?.prewarmParallelism || 0),
       prewarmDoHTimeoutSeconds: Number(state.settings?.prewarmDoHTimeoutSeconds || 0),
+      prewarmQueryAttempts: Number(state.settings?.prewarmQueryAttempts || 0),
       prewarmIntervalSeconds: Number(state.settings?.prewarmIntervalSeconds || 0),
       prewarmExtraNameservers: String(state.settings?.prewarmExtraNameservers || ''),
       prewarmEcsProfiles: String(state.settings?.prewarmEcsProfiles || ''),

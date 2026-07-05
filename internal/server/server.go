@@ -204,6 +204,7 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Post("/configs/{name}/stop", s.handleStopVPN)
 			api.Post("/configs/{name}/autostart", s.handleAutostart)
 			api.Post("/reload", s.handleReload)
+			api.Post("/system/restart", s.handleSystemRestart)
 			api.Get("/stats", s.handleStats)
 			api.Get("/stream", s.handleStream)
 			api.Get("/settings", s.handleGetSettings)

@@ -9,8 +9,8 @@
 ## Current Status
 
 **Active sprint:** None (all planned sprints complete)
-**Last updated:** 2026-07-04
-**Last session summary:** Added per-VPN TCP MSS clamping (Off / Auto=clamp-to-pmtu / Custom fixed IPv4+IPv6), persisted in vpn.conf as MSS_CLAMPING_IPV4/6, applied via a new SVPN_MSS generation chain on `mangle FORWARD -o <tunnel>` (mirrors the SVPN_MARK/SVPN_NAT A/B cutover), surfaced in the VPN editor modal. Released as v1.3.0.
+**Last updated:** 2026-07-05
+**Last session summary:** Overhauled the DNS pre-warmer for resilience: every DNS query is now bounded by a per-request timeout and retried up to `PrewarmQueryAttempts` times (default 3) before logging and moving on; a run-wide semaphore now caps concurrent in-flight queries and fans out each task's CNAME/A/AAAA queries so no single wildcard domain can stall the run for tens of minutes. crt.sh wildcard discovery stays single-shot (time-bounded, no retry) to avoid amplifying its rate limits. Added persistent `prewarmQueryAttempts` setting and surfaced Parallelism + Attempts in the DNS Pre-Warm card. Added a Settings → Service "Restart split-vpn-webui" button (`POST /api/system/restart`, systemd-guarded) to force-restart a stuck process. Released as v1.4.0.
 **Default working branch:** `main` (unless explicitly instructed otherwise)
 
 ---

@@ -10,6 +10,8 @@
   const prewarmLastIPs = document.getElementById('prewarm-last-ips');
   const prewarmIntervalMinutes = document.getElementById('prewarm-interval-minutes');
   const prewarmTimeoutSeconds = document.getElementById('prewarm-timeout-seconds');
+  const prewarmParallelism = document.getElementById('prewarm-parallelism');
+  const prewarmQueryAttempts = document.getElementById('prewarm-query-attempts');
   const prewarmExtraNameservers = document.getElementById('prewarm-extra-nameservers');
   const prewarmEcsProfiles = document.getElementById('prewarm-ecs-profiles');
   const prewarmProgressWrap = document.getElementById('prewarm-progress-wrap');
@@ -27,13 +29,14 @@
   const downloadBackupButton = document.getElementById('download-backup');
   const restoreBackupFileInput = document.getElementById('restore-backup-file');
   const restoreBackupButton = document.getElementById('restore-backup');
+  const restartServiceButton = document.getElementById('restart-service');
   const requiredElements = [
     runNowButton, stopPrewarmButton, clearPrewarmCacheButton, saveScheduleButton, prewarmStatus, prewarmLastRunAt,
     prewarmLastDuration, prewarmLastDomains, prewarmLastIPs, prewarmIntervalMinutes, prewarmTimeoutSeconds,
-    prewarmExtraNameservers, prewarmEcsProfiles, prewarmProgressWrap, prewarmProgressBar, prewarmProgressLabel,
-    prewarmProgressMeta, prewarmPerVPNProgress, settingsModalElement, currentPasswordInput, newPasswordInput,
-    changePasswordButton, tokenInput, copyTokenButton, regenerateTokenButton, downloadBackupButton,
-    restoreBackupFileInput, restoreBackupButton,
+    prewarmParallelism, prewarmQueryAttempts, prewarmExtraNameservers, prewarmEcsProfiles, prewarmProgressWrap,
+    prewarmProgressBar, prewarmProgressLabel, prewarmProgressMeta, prewarmPerVPNProgress, settingsModalElement,
+    currentPasswordInput, newPasswordInput, changePasswordButton, tokenInput, copyTokenButton, regenerateTokenButton,
+    downloadBackupButton, restoreBackupFileInput, restoreBackupButton, restartServiceButton,
   ];
   if (requiredElements.some((element) => !element)) {
     return;
@@ -155,6 +158,20 @@
       showPrewarmStatus(err.message, true);
     } finally {
       restoreBackupButton.disabled = false;
+    }
+  });
+  restartServiceButton.addEventListener('click', async () => {
+    if (!window.confirm('Force-restart the split-vpn-webui service now? Any in-progress pre-warm or resolver run will be interrupted.')) {
+      return;
+    }
+    restartServiceButton.disabled = true;
+    try {
+      await fetchJSON('/api/system/restart', { method: 'POST' });
+      showPrewarmStatus('Restarting service… reconnecting shortly.', false);
+      setTimeout(() => window.location.reload(), 4000);
+    } catch (err) {
+      showPrewarmStatus(err.message, true);
+      restartServiceButton.disabled = false;
     }
   });
   document.addEventListener('visibilitychange', () => {
@@ -290,19 +307,31 @@
     const intervalSeconds = Number(settings.prewarmIntervalSeconds || 0);
     const intervalMinutes = intervalSeconds > 0 ? Math.max(1, Math.round(intervalSeconds / 60)) : 120;
     const timeoutSeconds = Number(settings.prewarmDoHTimeoutSeconds || 0);
+    const parallelism = Number(settings.prewarmParallelism || 0);
+    const queryAttempts = Number(settings.prewarmQueryAttempts || 0);
     prewarmIntervalMinutes.value = intervalMinutes;
     prewarmTimeoutSeconds.value = timeoutSeconds > 0 ? timeoutSeconds : 10;
+    prewarmParallelism.value = parallelism > 0 ? parallelism : 4;
+    prewarmQueryAttempts.value = queryAttempts > 0 ? queryAttempts : 3;
     prewarmExtraNameservers.value = String(settings.prewarmExtraNameservers || '');
     prewarmEcsProfiles.value = String(settings.prewarmEcsProfiles || '');
   }
   async function saveSchedule() {
     const rawMinutes = Number(prewarmIntervalMinutes.value || 0);
     const rawTimeoutSeconds = Number(prewarmTimeoutSeconds.value || 0);
+    const rawParallelism = Number(prewarmParallelism.value || 0);
+    const rawQueryAttempts = Number(prewarmQueryAttempts.value || 0);
     if (!Number.isFinite(rawMinutes) || rawMinutes <= 0) {
       throw new Error('Schedule must be a positive number of minutes.');
     }
     if (!Number.isFinite(rawTimeoutSeconds) || rawTimeoutSeconds <= 0) {
       throw new Error('Timeout must be a positive number of seconds.');
+    }
+    if (!Number.isFinite(rawParallelism) || rawParallelism <= 0) {
+      throw new Error('Parallelism must be a positive number.');
+    }
+    if (!Number.isFinite(rawQueryAttempts) || rawQueryAttempts <= 0) {
+      throw new Error('Attempts must be a positive number.');
     }
     const data = await fetchJSON('/api/settings');
     const current = data?.settings || {};
@@ -311,8 +340,9 @@
     const payload = {
       listenInterface: current.listenInterface || '',
       wanInterface: current.wanInterface || '',
-      prewarmParallelism: Number(current.prewarmParallelism || 0),
+      prewarmParallelism: Math.round(rawParallelism),
       prewarmDoHTimeoutSeconds: Math.round(rawTimeoutSeconds),
+      prewarmQueryAttempts: Math.round(rawQueryAttempts),
       prewarmIntervalSeconds: Math.round(rawMinutes * 60),
       prewarmExtraNameservers: nameservers,
       prewarmEcsProfiles: ecsProfiles,

@@ -27,6 +27,7 @@ func TestManagerSaveAndGetRoundTrip(t *testing.T) {
 		WANInterface:                   "eth8",
 		PrewarmParallelism:             8,
 		PrewarmDoHTimeoutSeconds:       12,
+		PrewarmQueryAttempts:           5,
 		PrewarmIntervalSeconds:         600,
 		PrewarmExtraNameservers:        "1.1.1.1\n9.9.9.9",
 		PrewarmECSProfiles:             "eu=31.13.64.0/18\n13.228.0.0/15",
@@ -53,6 +54,9 @@ func TestManagerSaveAndGetRoundTrip(t *testing.T) {
 	}
 	if output.ListenInterface != "br0" || output.WANInterface != "eth8" {
 		t.Fatalf("unexpected network fields: %+v", output)
+	}
+	if output.PrewarmQueryAttempts != 5 {
+		t.Fatalf("unexpected prewarm query attempts: %d", output.PrewarmQueryAttempts)
 	}
 	if output.PrewarmExtraNameservers != "1.1.1.1\n9.9.9.9" {
 		t.Fatalf("unexpected prewarm nameservers: %q", output.PrewarmExtraNameservers)

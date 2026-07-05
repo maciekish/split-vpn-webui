@@ -14,8 +14,11 @@ import (
 )
 
 const (
-	defaultParallelism       = 4
-	maxSafeWorkerParallelism = 64
+	defaultParallelism        = 4
+	maxSafeWorkerParallelism  = 64
+	defaultWorkerAttempts     = 3
+	maxSafeWorkerAttempts     = 10
+	defaultWorkerQueryTimeout = 10 * time.Second
 )
 
 // GroupSource lists configured domain routing groups.
@@ -37,6 +40,7 @@ type WildcardResolver interface {
 type WorkerOptions struct {
 	Parallelism         int
 	Timeout             time.Duration
+	Attempts            int
 	ExtraNameservers    []string
 	ECSProfiles         []string
 	AdditionalResolvers []DoHClient
@@ -55,6 +59,8 @@ type Worker struct {
 	ipset     routing.IPSetOperator
 	resolvers []DoHClient
 	parallel  int
+	attempts  int
+	timeout   time.Duration
 	progress  func(Progress)
 	onError   func(QueryError)
 	ifaceUp   func(name string) (bool, error)
@@ -104,6 +110,17 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 	if parallelism > maxSafeWorkerParallelism {
 		parallelism = maxSafeWorkerParallelism
 	}
+	attempts := opts.Attempts
+	if attempts <= 0 {
+		attempts = defaultWorkerAttempts
+	}
+	if attempts > maxSafeWorkerAttempts {
+		attempts = maxSafeWorkerAttempts
+	}
+	queryTimeout := opts.Timeout
+	if queryTimeout <= 0 {
+		queryTimeout = defaultWorkerQueryTimeout
+	}
 	ifaceActive := opts.InterfaceActive
 	if ifaceActive == nil {
 		ifaceActive = func(name string) (bool, error) {
@@ -126,6 +143,8 @@ func NewWorker(groups GroupSource, vpns VPNSource, doh DoHClient, ipset routing.
 		ipset:     ipset,
 		resolvers: resolvers,
 		parallel:  parallelism,
+		attempts:  attempts,
+		timeout:   queryTimeout,
 		progress:  opts.ProgressCallback,
 		onError:   opts.ErrorCallback,
 		ifaceUp:   ifaceActive,
@@ -180,6 +199,11 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// querySem bounds the number of concurrent in-flight DNS queries across the
+	// whole run, so a single heavy task (e.g. a wildcard that discovers many
+	// subdomains) cannot monopolize a worker and stall overall progress.
+	querySem := make(chan struct{}, w.parallel)
+
 	jobs := make(chan domainTask)
 	var (
 		wg           sync.WaitGroup
@@ -202,7 +226,7 @@ func (w *Worker) Run(ctx context.Context) (RunStats, error) {
 				if err := runCtx.Err(); err != nil {
 					return
 				}
-				result, err := w.processTask(runCtx, task, ifaces)
+				result, err := w.processTask(runCtx, task, ifaces, querySem)
 				if err != nil {
 					errOnce.Do(func() {
 						runErr = err
@@ -358,130 +382,4 @@ func listInterfaceNames() ([]string, error) {
 		names = append(names, name)
 	}
 	return names, nil
-}
-
-func (w *Worker) processTask(ctx context.Context, task domainTask, ifaces []string) (taskResult, error) {
-	targets := map[string]struct{}{task.Domain: {}}
-	perVPNDomains := make(map[string]int, len(ifaces))
-	perVPNErrors := make(map[string]int, len(ifaces))
-	perVPNIPs := make(map[string]int, len(ifaces))
-	perIfaceV4 := make(map[string]map[string]struct{}, len(ifaces))
-	perIfaceV6 := make(map[string]map[string]struct{}, len(ifaces))
-
-	if task.Wildcard && w.wildcard != nil {
-		discovered, err := w.wildcard.Resolve(ctx, "*."+task.Domain)
-		if err != nil {
-			w.emitQueryError(QueryError{
-				Stage:     "wildcard-discovery",
-				Domain:    task.Domain,
-				Interface: "*",
-				Resolver:  "crt.sh",
-				Err:       err,
-			})
-			for _, iface := range ifaces {
-				perVPNErrors[iface]++
-			}
-		} else {
-			for _, subdomain := range discovered {
-				target := normalizeDomain(subdomain)
-				if target == "" {
-					continue
-				}
-				targets[target] = struct{}{}
-			}
-		}
-	}
-
-	for _, iface := range ifaces {
-		perVPNDomains[iface] = 1
-		perIfaceV4[iface] = make(map[string]struct{})
-		perIfaceV6[iface] = make(map[string]struct{})
-		for _, resolver := range w.resolvers {
-			resolverName := resolverLabel(resolver)
-			cnames, err := resolver.QueryCNAME(ctx, task.Domain, iface)
-			if err != nil {
-				w.emitQueryError(QueryError{
-					Stage:     "cname",
-					Domain:    task.Domain,
-					Interface: iface,
-					Resolver:  resolverName,
-					Err:       err,
-				})
-				perVPNErrors[iface]++
-				continue
-			}
-			for _, cname := range cnames {
-				target := normalizeDomain(cname)
-				if target != "" {
-					targets[target] = struct{}{}
-				}
-			}
-		}
-	}
-
-	allV4 := make(map[string]struct{})
-	allV6 := make(map[string]struct{})
-	targetList := make([]string, 0, len(targets))
-	for target := range targets {
-		targetList = append(targetList, target)
-	}
-	sort.Strings(targetList)
-
-	for _, target := range targetList {
-		if err := ctx.Err(); err != nil {
-			return taskResult{}, err
-		}
-		for _, iface := range ifaces {
-			for _, resolver := range w.resolvers {
-				resolverName := resolverLabel(resolver)
-				v4, err := resolver.QueryA(ctx, target, iface)
-				if err != nil {
-					w.emitQueryError(QueryError{
-						Stage:     "a",
-						Domain:    target,
-						Interface: iface,
-						Resolver:  resolverName,
-						Err:       err,
-					})
-					perVPNErrors[iface]++
-				} else {
-					for _, ip := range v4 {
-						allV4[ip] = struct{}{}
-						perIfaceV4[iface][ip] = struct{}{}
-					}
-				}
-
-				v6, err := resolver.QueryAAAA(ctx, target, iface)
-				if err != nil {
-					w.emitQueryError(QueryError{
-						Stage:     "aaaa",
-						Domain:    target,
-						Interface: iface,
-						Resolver:  resolverName,
-						Err:       err,
-					})
-					perVPNErrors[iface]++
-				} else {
-					for _, ip := range v6 {
-						allV6[ip] = struct{}{}
-						perIfaceV6[iface][ip] = struct{}{}
-					}
-				}
-			}
-		}
-	}
-
-	v4List := mapKeysSorted(allV4)
-	v6List := mapKeysSorted(allV6)
-	for _, iface := range ifaces {
-		perVPNIPs[iface] = len(perIfaceV4[iface]) + len(perIfaceV6[iface])
-	}
-	return taskResult{
-		Inserted:      len(v4List) + len(v6List),
-		PerVPNIPs:     perVPNIPs,
-		PerVPNErrors:  perVPNErrors,
-		PerVPNDomains: perVPNDomains,
-		V4:            v4List,
-		V6:            v6List,
-	}, nil
 }

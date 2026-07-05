@@ -18,6 +18,8 @@ const (
 	defaultTimeoutSeconds  = 10
 	maxTimeoutSeconds      = 60
 	maxParallelism         = 64
+	defaultQueryAttempts   = 3
+	maxQueryAttempts       = 10
 )
 
 var (
@@ -215,9 +217,10 @@ func (s *Scheduler) TriggerNow() error {
 
 	s.emitProgress(initial)
 	s.logInfof(
-		"prewarm run started interval=%ds timeout=%ds parallelism=%d extra_nameservers=%d ecs_profiles=%d",
+		"prewarm run started interval=%ds timeout=%ds attempts=%d parallelism=%d extra_nameservers=%d ecs_profiles=%d",
 		current.PrewarmIntervalSeconds,
 		timeoutFromSettings(current)/time.Second,
+		attemptsFromSettings(current),
 		parallelismFromSettings(current),
 		lenOrZero(current.PrewarmExtraNameservers),
 		lenOrZero(current.PrewarmECSProfiles),
@@ -276,6 +279,7 @@ func (s *Scheduler) executeRun(ctx context.Context, current settings.Settings) {
 	worker, err := NewWorker(s.groups, s.vpns, doh, s.ipset, WorkerOptions{
 		Parallelism:      parallelismFromSettings(current),
 		Timeout:          timeout,
+		Attempts:         attemptsFromSettings(current),
 		ExtraNameservers: extraNameservers,
 		ECSProfiles:      ecsProfiles,
 		WildcardResolver: newCRTSHWildcardResolver(timeout),
@@ -444,6 +448,10 @@ func cloneRunRecord(run *RunRecord) *RunRecord {
 
 func parallelismFromSettings(current settings.Settings) int {
 	return configuredParallelism(current)
+}
+
+func attemptsFromSettings(current settings.Settings) int {
+	return configuredAttempts(current)
 }
 
 func timeoutFromSettings(current settings.Settings) time.Duration {

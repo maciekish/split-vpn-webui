@@ -29,6 +29,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		WANInterface:                   current.WANInterface,
 		PrewarmParallelism:             current.PrewarmParallelism,
 		PrewarmDoHTimeoutSeconds:       current.PrewarmDoHTimeoutSeconds,
+		PrewarmQueryAttempts:           current.PrewarmQueryAttempts,
 		PrewarmIntervalSeconds:         current.PrewarmIntervalSeconds,
 		PrewarmExtraNameservers:        current.PrewarmExtraNameservers,
 		PrewarmECSProfiles:             current.PrewarmECSProfiles,
@@ -57,6 +58,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		WANInterface                   string `json:"wanInterface"`
 		PrewarmParallelism             int    `json:"prewarmParallelism"`
 		PrewarmDoHTimeoutSeconds       int    `json:"prewarmDoHTimeoutSeconds"`
+		PrewarmQueryAttempts           int    `json:"prewarmQueryAttempts"`
 		PrewarmIntervalSeconds         int    `json:"prewarmIntervalSeconds"`
 		PrewarmExtraNameservers        string `json:"prewarmExtraNameservers"`
 		PrewarmECSProfiles             string `json:"prewarmEcsProfiles"`
@@ -99,6 +101,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	updated.WANInterface = payload.WANInterface
 	updated.PrewarmParallelism = payload.PrewarmParallelism
 	updated.PrewarmDoHTimeoutSeconds = payload.PrewarmDoHTimeoutSeconds
+	updated.PrewarmQueryAttempts = payload.PrewarmQueryAttempts
 	updated.PrewarmIntervalSeconds = payload.PrewarmIntervalSeconds
 	updated.PrewarmExtraNameservers = normalizedNameservers
 	updated.PrewarmECSProfiles = normalizedECSProfiles
@@ -145,6 +148,15 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleSystemRestart(w http.ResponseWriter, r *http.Request) {
+	if !s.systemdManaged {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "restart is only available when running under systemd"})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "restarting"})
+	s.scheduleRestart()
+}
+
 func (s *Server) scheduleRestart() {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -153,6 +165,6 @@ func (s *Server) scheduleRestart() {
 			log.Printf("systemd restart failed: %v", err)
 			return
 		}
-		log.Printf("requested systemd restart after settings update")
+		log.Printf("requested systemd restart of split-vpn-webui.service")
 	}()
 }

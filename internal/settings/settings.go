@@ -16,6 +16,7 @@ type Settings struct {
 	// DNS pre-warm
 	PrewarmParallelism       int    `json:"prewarmParallelism,omitempty"`
 	PrewarmDoHTimeoutSeconds int    `json:"prewarmDoHTimeoutSeconds,omitempty"`
+	PrewarmQueryAttempts     int    `json:"prewarmQueryAttempts,omitempty"`
 	PrewarmIntervalSeconds   int    `json:"prewarmIntervalSeconds,omitempty"`
 	PrewarmExtraNameservers  string `json:"prewarmExtraNameservers,omitempty"`
 	PrewarmECSProfiles       string `json:"prewarmEcsProfiles,omitempty"`

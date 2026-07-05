@@ -111,6 +111,16 @@ func configuredParallelism(current settings.Settings) int {
 	return current.PrewarmParallelism
 }
 
+func configuredAttempts(current settings.Settings) int {
+	if current.PrewarmQueryAttempts <= 0 {
+		return defaultQueryAttempts
+	}
+	if current.PrewarmQueryAttempts > maxQueryAttempts {
+		return maxQueryAttempts
+	}
+	return current.PrewarmQueryAttempts
+}
+
 func configuredTimeout(current settings.Settings) time.Duration {
 	seconds := current.PrewarmDoHTimeoutSeconds
 	if seconds <= 0 {

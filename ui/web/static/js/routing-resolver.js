@@ -295,6 +295,7 @@
       wanInterface: current.wanInterface || '',
       prewarmParallelism: Number(current.prewarmParallelism || 0),
       prewarmDoHTimeoutSeconds: Number(current.prewarmDoHTimeoutSeconds || 0),
+      prewarmQueryAttempts: Number(current.prewarmQueryAttempts || 0),
       prewarmIntervalSeconds: Number(current.prewarmIntervalSeconds || 0),
       prewarmExtraNameservers: String(current.prewarmExtraNameservers || ''),
       prewarmEcsProfiles: String(current.prewarmEcsProfiles || ''),

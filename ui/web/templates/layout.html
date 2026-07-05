@@ -246,6 +246,17 @@
               <label class="form-label small text-body-secondary mb-1" for="prewarm-timeout-seconds">Timeout (seconds)</label>
               <input class="form-control form-control-sm" id="prewarm-timeout-seconds" type="number" min="1" max="60" step="1" placeholder="10">
             </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label small text-body-secondary mb-1" for="prewarm-parallelism">Parallelism</label>
+              <input class="form-control form-control-sm" id="prewarm-parallelism" type="number" min="1" max="64" step="1" placeholder="4">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label small text-body-secondary mb-1" for="prewarm-query-attempts">Attempts</label>
+              <input class="form-control form-control-sm" id="prewarm-query-attempts" type="number" min="1" max="10" step="1" placeholder="3">
+            </div>
+            <div class="col-12">
+              <div class="form-text small">Each DNS query is retried up to <em>Attempts</em> times, each bounded by <em>Timeout</em>; after that the pre-warmer logs the failure and moves on. <em>Parallelism</em> caps concurrent in-flight queries. Save with the Schedule button.</div>
+            </div>
           </div>
           <div class="row g-3 mt-1">
             <div class="col-12 col-lg-6">
