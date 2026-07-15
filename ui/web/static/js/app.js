@@ -54,6 +54,8 @@
   const flowInspectorSummaryTotal = document.getElementById('flow-inspector-summary-total');
   const flowInspectorUpdatedAt = document.getElementById('flow-inspector-updated-at');
   const flowInspectorTableBody = document.getElementById('flow-inspector-table-body');
+  const speedtestModalElement = document.getElementById('speedtestModal');
+  const speedtestModal = speedtestModalElement ? new bootstrap.Modal(speedtestModalElement) : null;
   const settingsModalElement = document.getElementById('settingsModal');
   const settingsModal = new bootstrap.Modal(settingsModalElement);
   const listenSelect = document.getElementById('listen-interface');
@@ -92,6 +94,7 @@
     ? window.SplitVPNUI.createChartHelpers
     : null;
   let flowInspectorController = null;
+  let speedtestController = null;
   const chartHelpers = chartHelpersFactory
     ? chartHelpersFactory({
       interfaceGrid,
@@ -108,6 +111,13 @@
           return;
         }
         setStatus('Flow inspector is unavailable in this UI build.', true);
+      },
+      onRunSpeedtest: (iface, label) => {
+        if (speedtestController?.open) {
+          speedtestController.open(iface, label);
+          return;
+        }
+        setStatus('Speed test is unavailable in this UI build.', true);
       },
     })
     : null;
@@ -258,6 +268,25 @@
       setStatus,
       formatThroughput,
       formatBytes,
+    })
+    : null;
+  const speedtestFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createSpeedtestController === 'function'
+    ? window.SplitVPNUI.createSpeedtestController
+    : null;
+  speedtestController = speedtestFactory
+    ? speedtestFactory({
+      speedtestModalElement,
+      speedtestModal,
+      speedtestTitle: document.getElementById('speedtest-title'),
+      speedtestStatus: document.getElementById('speedtest-status'),
+      speedtestServer: document.getElementById('speedtest-server'),
+      speedtestPhase: document.getElementById('speedtest-phase'),
+      speedtestPing: document.getElementById('speedtest-ping'),
+      speedtestJitter: document.getElementById('speedtest-jitter'),
+      speedtestDownloadValue: document.getElementById('speedtest-download-value'),
+      speedtestUploadValue: document.getElementById('speedtest-upload-value'),
+      speedtestProgress: document.getElementById('speedtest-progress'),
+      speedtestChartCanvas: document.getElementById('speedtest-chart'),
     })
     : null;
   const vpnControllerFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createVPNController === 'function'

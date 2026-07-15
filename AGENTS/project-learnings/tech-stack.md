@@ -34,6 +34,8 @@ No runtime dependencies beyond the binary. No other databases, container runtime
 | Backup/restore | `internal/backup/` — versioned JSON export/import with rollback |
 | Update manager | `internal/update/` — GitHub release check, checksum verify, self-update runner |
 | Flow inspector | `internal/server/flow_inspector*.go` — conntrack-based per-VPN flow visibility |
+| Speed test | `internal/speedtest/` — pure-Go Ookla client, interface-bound, live SSE streaming (`/api/speedtest/stream`) |
+| Interface binding | `internal/netbind/` — shared `SO_BINDTODEVICE` dialer control (used by prewarm + speedtest) |
 | Network utilities | `internal/util/network.go` — WAN/LAN detection, gateway resolution, interface state |
 | Database | `internal/database/` — SQLite open/migrate/cleanup |
 | HTTP server + SSE | `internal/server/` — chi router, SSE broadcaster, all REST handlers |

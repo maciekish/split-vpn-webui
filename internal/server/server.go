@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -71,6 +72,10 @@ type Server struct {
 
 	watchersMu sync.Mutex
 	watchers   map[chan streamMessage]struct{}
+
+	// speedtestActive guards against concurrent speed tests, which would
+	// contend for bandwidth and corrupt each other's measurements.
+	speedtestActive atomic.Bool
 
 	broadcastInterval time.Duration
 	gatewayMu         sync.RWMutex
@@ -207,6 +212,7 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Post("/system/restart", s.handleSystemRestart)
 			api.Get("/stats", s.handleStats)
 			api.Get("/stream", s.handleStream)
+			api.Get("/speedtest/stream", s.handleSpeedtestStream)
 			api.Get("/settings", s.handleGetSettings)
 			api.Put("/settings", s.handleSaveSettings)
 			api.Get("/update/status", s.handleUpdateStatus)

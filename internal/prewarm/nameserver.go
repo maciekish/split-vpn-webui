@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"split-vpn-webui/internal/netbind"
 )
 
 const dnsPort = "53"
@@ -99,7 +101,7 @@ func (c *NameserverClient) lookupIPs(ctx context.Context, domain, iface, family 
 
 func (c *NameserverClient) resolver(iface string) *net.Resolver {
 	dialer := &net.Dialer{Timeout: c.timeout}
-	if control := interfaceBindControl(iface); control != nil {
+	if control := netbind.Control(iface); control != nil {
 		dialer.Control = control
 	}
 	return &net.Resolver{

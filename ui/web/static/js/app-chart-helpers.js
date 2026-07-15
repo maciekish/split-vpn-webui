@@ -175,6 +175,19 @@
         </div>`;
       const actions = document.createElement('div');
       actions.className = 'd-flex align-items-center gap-2';
+      const speedtestButton = document.createElement('button');
+      speedtestButton.type = 'button';
+      speedtestButton.className = 'btn btn-outline-light btn-sm';
+      speedtestButton.title = 'Run speed test';
+      speedtestButton.innerHTML = '<i class="bi bi-speedometer2"></i>';
+      speedtestButton.addEventListener('click', () => {
+        if (!speedtestButton.dataset.iface) {
+          return;
+        }
+        if (typeof ctx?.onRunSpeedtest === 'function') {
+          ctx.onRunSpeedtest(speedtestButton.dataset.iface, speedtestButton.dataset.label);
+        }
+      });
       const inspectButton = document.createElement('button');
       inspectButton.type = 'button';
       inspectButton.className = 'btn btn-outline-light btn-sm d-none';
@@ -191,6 +204,7 @@
       const badge = document.createElement('span');
       badge.className = 'badge rounded-pill text-bg-primary badge-operstate';
       badge.textContent = iface.type === 'wan' ? 'WAN' : 'VPN';
+      actions.appendChild(speedtestButton);
       actions.appendChild(inspectButton);
       actions.appendChild(badge);
       header.appendChild(actions);
@@ -289,6 +303,7 @@
         chart,
         body,
         badge,
+        speedtestButton,
         inspectButton,
         statusLine,
         nameEl: header.querySelector('[data-field="name"]'),
@@ -317,6 +332,12 @@
         const enabled = iface.type === 'vpn' && vpnName !== '';
         record.inspectButton.classList.toggle('d-none', !enabled);
         record.inspectButton.dataset.vpnName = enabled ? vpnName : '';
+      }
+      if (record.speedtestButton) {
+        const device = String(iface.interface || '').trim();
+        record.speedtestButton.classList.toggle('d-none', device === '');
+        record.speedtestButton.dataset.iface = device;
+        record.speedtestButton.dataset.label = iface.name || device;
       }
       const statsRow = record.body.querySelector('.stats-row');
       const downloadLabel = formatThroughput(iface.currentRxThroughput || 0);

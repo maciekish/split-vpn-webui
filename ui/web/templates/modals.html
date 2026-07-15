@@ -422,4 +422,45 @@
   </div>
 </div>
 
+<div class="modal fade" id="speedtestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="speedtest-title"><i class="bi bi-speedometer2 me-2"></i>Speed Test</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert d-none py-2 small mb-3" id="speedtest-status" role="status"></div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <span class="text-body-secondary small" id="speedtest-server">Selecting nearest server…</span>
+          <span class="badge text-bg-secondary ms-auto" id="speedtest-ping">Ping –</span>
+          <span class="badge text-bg-secondary" id="speedtest-jitter">Jitter –</span>
+        </div>
+        <div class="row text-center g-3 mb-3">
+          <div class="col-6">
+            <div class="text-primary small text-uppercase fw-semibold"><i class="bi bi-download me-1"></i>Download</div>
+            <div class="speedtest-metric text-primary"><span id="speedtest-download-value">0.0</span> <span class="speedtest-unit">Mbps</span></div>
+          </div>
+          <div class="col-6">
+            <div class="text-danger small text-uppercase fw-semibold"><i class="bi bi-upload me-1"></i>Upload</div>
+            <div class="speedtest-metric text-danger"><span id="speedtest-upload-value">0.0</span> <span class="speedtest-unit">Mbps</span></div>
+          </div>
+        </div>
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <span class="small text-body-secondary" id="speedtest-phase"></span>
+        </div>
+        <div class="progress mb-3" style="height: 6px;">
+          <div class="progress-bar" id="speedtest-progress" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <div class="speedtest-chart-wrapper">
+          <canvas id="speedtest-chart"></canvas>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {{end}}

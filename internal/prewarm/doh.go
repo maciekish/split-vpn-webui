@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"split-vpn-webui/internal/netbind"
 )
 
 const (
@@ -182,7 +184,7 @@ func (c *CloudflareDoHClient) query(ctx context.Context, domain, qtype, iface st
 
 func (c *CloudflareDoHClient) httpClient(iface string) *http.Client {
 	dialer := &net.Dialer{Timeout: c.timeout}
-	if control := interfaceBindControl(iface); control != nil {
+	if control := netbind.Control(iface); control != nil {
 		dialer.Control = control
 	}
 	transport := &http.Transport{
