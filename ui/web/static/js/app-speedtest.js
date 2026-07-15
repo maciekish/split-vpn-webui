@@ -15,6 +15,7 @@
       speedtestUploadValue,
       speedtestProgress,
       speedtestChartCanvas,
+      speedtestProviders,
     } = ctx || {};
 
     if (
@@ -38,6 +39,9 @@
       chart: null,
       finished: false,
       sampleIndex: 0,
+      iface: '',
+      label: '',
+      provider: 'ookla',
     };
 
     speedtestModalElement.addEventListener('hidden.bs.modal', () => {
@@ -47,6 +51,21 @@
         state.chart = null;
       }
     });
+
+    if (speedtestProviders) {
+      speedtestProviders.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-provider]');
+        if (!button) {
+          return;
+        }
+        const provider = button.getAttribute('data-provider');
+        if (!provider || provider === state.provider || !state.iface) {
+          return;
+        }
+        state.provider = provider;
+        run();
+      });
+    }
 
     function formatMbps(value) {
       const numeric = Number(value || 0);
@@ -71,12 +90,21 @@
       if (!device) {
         return;
       }
-      stop();
-      resetUI(label || device);
+      state.iface = device;
+      state.label = label || device;
+      state.provider = 'ookla';
       speedtestModal.show();
+      run();
+    }
+
+    function run() {
+      stop();
+      resetUI(state.label);
+      syncProviderButtons();
       buildChart();
       setPhase('Selecting server…', 0);
-      const url = `/api/speedtest/stream?iface=${encodeURIComponent(device)}&label=${encodeURIComponent(label || device)}`;
+      const url = `/api/speedtest/stream?iface=${encodeURIComponent(state.iface)}`
+        + `&label=${encodeURIComponent(state.label)}&provider=${encodeURIComponent(state.provider)}`;
       const source = new EventSource(url);
       state.source = source;
       state.finished = false;
@@ -96,6 +124,15 @@
         setStatus('Connection to the speed test stream was lost.', true);
         stop();
       };
+    }
+
+    function syncProviderButtons() {
+      if (!speedtestProviders) {
+        return;
+      }
+      speedtestProviders.querySelectorAll('[data-provider]').forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-provider') === state.provider);
+      });
     }
 
     function stop() {

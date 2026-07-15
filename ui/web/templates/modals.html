@@ -430,6 +430,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
+        <div class="btn-group btn-group-sm w-100 mb-3" role="group" id="speedtest-providers" aria-label="Speed test provider">
+          <button type="button" class="btn btn-outline-primary active" data-provider="ookla">Ookla / speedtest.net</button>
+          <button type="button" class="btn btn-outline-primary" data-provider="fast">Netflix fast.com</button>
+        </div>
         <div class="alert d-none py-2 small mb-3" id="speedtest-status" role="status"></div>
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
           <span class="text-body-secondary small" id="speedtest-server">Selecting nearest server…</span>

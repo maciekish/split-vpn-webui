@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,9 +20,17 @@ import (
 
 const (
 	serverListURL    = "https://www.speedtest.net/api/js/servers?engine=js&limit=10"
-	serverCandidates = 4
+	serverCandidates = 5
 	latencySamples   = 5
 	latencyTimeout   = 4 * time.Second
+
+	// After latency filtering, the fastest-by-throughput of the top
+	// selectionProbeCount servers is chosen, each probed for
+	// selectionProbeDuration. This guards against landing on a low-latency but
+	// download-throttled server.
+	selectionProbeCount    = 3
+	selectionProbeDuration = 1200 * time.Millisecond
+	selectionProbeParallel = 2
 )
 
 // Server is a single speedtest.net endpoint with its resolved canonical base
@@ -116,19 +125,29 @@ func fetchServers(ctx context.Context, client *http.Client) ([]*Server, error) {
 	return servers, nil
 }
 
-// selectServer picks the lowest-latency server among the nearest candidates,
-// resolving each candidate's canonical base URL as a side effect of probing it.
-func selectServer(ctx context.Context, client *http.Client) (*Server, error) {
+func (s *Server) info() targetInfo {
+	return targetInfo{Name: s.Name, Sponsor: s.Sponsor, Country: s.Country, DistanceKm: s.Distance}
+}
+
+// selectServer resolves and latency-probes the nearest candidates, then runs a
+// short download probe on the lowest-latency few and returns the fastest. This
+// avoids picking a nearby but throttled server, which otherwise produces
+// misleadingly low results.
+func selectServer(ctx context.Context, client *http.Client) (target, error) {
 	servers, err := fetchServers(ctx, client)
 	if err != nil {
 		return nil, err
 	}
-	var best *Server
-	bestLatency := time.Duration(1<<63 - 1)
 	limit := serverCandidates
 	if limit > len(servers) {
 		limit = len(servers)
 	}
+
+	type candidate struct {
+		server  *Server
+		latency time.Duration
+	}
+	var reachable []candidate
 	var lastErr error
 	for i := 0; i < limit; i++ {
 		s := servers[i]
@@ -141,18 +160,40 @@ func selectServer(ctx context.Context, client *http.Client) (*Server, error) {
 			lastErr = err
 			continue
 		}
-		if latency < bestLatency {
-			bestLatency = latency
-			best = s
-		}
+		reachable = append(reachable, candidate{server: s, latency: latency})
 	}
-	if best == nil {
+	if len(reachable) == 0 {
 		if lastErr != nil {
 			return nil, fmt.Errorf("no speedtest server responded: %w", lastErr)
 		}
 		return nil, errNoServers
 	}
+
+	sort.Slice(reachable, func(i, j int) bool { return reachable[i].latency < reachable[j].latency })
+	probeLimit := selectionProbeCount
+	if probeLimit > len(reachable) {
+		probeLimit = len(reachable)
+	}
+
+	best := reachable[0].server // lowest-latency fallback
+	var bestRate float64
+	for i := 0; i < probeLimit; i++ {
+		if ctx.Err() != nil {
+			break
+		}
+		rate := probeDownloadThroughput(ctx, client, reachable[i].server)
+		if rate > bestRate {
+			bestRate = rate
+			best = reachable[i].server
+		}
+	}
 	return best, nil
+}
+
+// probeDownloadThroughput runs a brief download against the server and returns
+// the observed Mbps, used only to compare candidate servers during selection.
+func probeDownloadThroughput(ctx context.Context, client *http.Client, s *Server) float64 {
+	return runTransfer(ctx, selectionProbeDuration, selectionProbeParallel, func(Event) {}, PhaseDownload, s.download, client)
 }
 
 // resolveCanonical follows the sponsor host's redirect to the real HTTPS host
@@ -206,28 +247,11 @@ func (s *Server) uploadURL() string {
 
 // probeLatency issues a single latency request and returns the round-trip time.
 func (s *Server) probeLatency(ctx context.Context, client *http.Client) (time.Duration, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, latencyTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, s.canonicalBase+"/latency.txt", nil)
-	if err != nil {
-		return 0, err
-	}
-	start := time.Now()
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("latency probe returned HTTP %d", resp.StatusCode)
-	}
-	return time.Since(start), nil
+	return httpRTT(ctx, client, s.canonicalBase+"/latency.txt")
 }
 
 // measureLatency samples the round-trip time `samples` times and returns the
-// minimum RTT (ping) and jitter (mean absolute difference between consecutive
-// samples), both in milliseconds.
+// minimum RTT (ping) and jitter, both in milliseconds.
 func (s *Server) measureLatency(ctx context.Context, client *http.Client, samples int) (ping float64, jitter float64, err error) {
 	if samples < 1 {
 		samples = 1
@@ -250,22 +274,5 @@ func (s *Server) measureLatency(ctx context.Context, client *http.Client, sample
 		}
 		return 0, 0, err
 	}
-	minRTT := values[0]
-	var jitterSum float64
-	for i, v := range values {
-		if v < minRTT {
-			minRTT = v
-		}
-		if i > 0 {
-			diff := v - values[i-1]
-			if diff < 0 {
-				diff = -diff
-			}
-			jitterSum += diff
-		}
-	}
-	if len(values) > 1 {
-		jitter = jitterSum / float64(len(values)-1)
-	}
-	return minRTT, jitter, nil
+	return minAndJitter(values)
 }

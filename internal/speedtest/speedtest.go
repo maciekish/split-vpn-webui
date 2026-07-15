@@ -1,5 +1,5 @@
-// Package speedtest implements a minimal Ookla/speedtest.net protocol client
-// used to measure per-interface throughput. Each test can be bound to a
+// Package speedtest measures per-interface throughput using either the Ookla
+// (speedtest.net) or Netflix fast.com protocol. Each test can be bound to a
 // specific network interface (SO_BINDTODEVICE) so it measures a particular WAN
 // or VPN tunnel, and it reports live progress through a callback so results can
 // be streamed to the browser as the test runs.
@@ -8,9 +8,30 @@ package speedtest
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync/atomic"
 	"time"
 )
+
+// Provider selects which speed-test backend to use.
+type Provider string
+
+const (
+	ProviderOokla Provider = "ookla"
+	ProviderFast  Provider = "fast"
+)
+
+// ParseProvider normalizes a provider string, defaulting to Ookla.
+func ParseProvider(value string) (Provider, bool) {
+	switch value {
+	case "", string(ProviderOokla):
+		return ProviderOokla, true
+	case string(ProviderFast):
+		return ProviderFast, true
+	default:
+		return ProviderOokla, false
+	}
+}
 
 // Phase identifies which stage of the test a progress event belongs to.
 type Phase string
@@ -56,6 +77,8 @@ type Options struct {
 	Interface string
 	// Label is a human-readable name for the target, echoed for logging only.
 	Label string
+	// Provider selects the backend; empty defaults to Ookla.
+	Provider Provider
 
 	DownloadDuration time.Duration
 	UploadDuration   time.Duration
@@ -64,6 +87,9 @@ type Options struct {
 }
 
 func (o *Options) withDefaults() {
+	if o.Provider == "" {
+		o.Provider = ProviderOokla
+	}
 	if o.DownloadDuration <= 0 {
 		o.DownloadDuration = 10 * time.Second
 	}
@@ -79,9 +105,27 @@ func (o *Options) withDefaults() {
 // download and upload phases.
 const sampleInterval = 300 * time.Millisecond
 
-// Run executes a full test (server selection, ping, download, upload) bound to
+// targetInfo describes the selected server/endpoint for display.
+type targetInfo struct {
+	Name       string
+	Sponsor    string
+	Country    string
+	DistanceKm float64
+}
+
+// target is a resolved endpoint that can be latency-probed and driven for
+// download/upload. Both the Ookla server and the fast.com endpoint implement it,
+// so the measurement pipeline is provider-agnostic.
+type target interface {
+	info() targetInfo
+	measureLatency(ctx context.Context, client *http.Client, samples int) (ping float64, jitter float64, err error)
+	download(ctx context.Context, client *http.Client, counter *atomic.Int64)
+	upload(ctx context.Context, client *http.Client, counter *atomic.Int64)
+}
+
+// Run executes a full test (target selection, ping, download, upload) bound to
 // the configured interface, invoking emit for every progress update. It returns
-// an error if a fatal step fails (server discovery/selection); transient
+// an error if a fatal step fails (target discovery/selection); transient
 // transfer errors are tolerated as long as some data moved. emit is always
 // called from Run's own goroutine, so callers need no synchronization.
 func Run(ctx context.Context, opts Options, emit func(Event)) error {
@@ -89,40 +133,34 @@ func Run(ctx context.Context, opts Options, emit func(Event)) error {
 
 	client := newClient(opts.Interface)
 
-	server, err := selectServer(ctx, client)
+	tgt, err := selectTarget(ctx, client, opts.Provider)
 	if err != nil {
 		return err
 	}
+	nfo := tgt.info()
 	emit(Event{
 		Phase:          PhaseServer,
-		ServerName:     server.Name,
-		ServerSponsor:  server.Sponsor,
-		ServerCountry:  server.Country,
-		ServerDistance: server.Distance,
+		ServerName:     nfo.Name,
+		ServerSponsor:  nfo.Sponsor,
+		ServerCountry:  nfo.Country,
+		ServerDistance: nfo.DistanceKm,
 	})
 
-	ping, jitter, err := server.measureLatency(ctx, client, latencySamples)
+	ping, jitter, err := tgt.measureLatency(ctx, client, latencySamples)
 	if err != nil {
 		return err
 	}
 	emit(Event{Phase: PhasePing, PingMS: ping, JitterMS: jitter, Progress: 1})
 
-	downloadMbps := runTransfer(ctx, opts.DownloadDuration, opts.Parallel, emit, PhaseDownload,
-		func(runCtx context.Context, counter *atomic.Int64) {
-			server.download(runCtx, client, counter)
-		})
-
-	uploadMbps := runTransfer(ctx, opts.UploadDuration, opts.Parallel, emit, PhaseUpload,
-		func(runCtx context.Context, counter *atomic.Int64) {
-			server.upload(runCtx, client, counter)
-		})
+	downloadMbps := runTransfer(ctx, opts.DownloadDuration, opts.Parallel, emit, PhaseDownload, tgt.download, client)
+	uploadMbps := runTransfer(ctx, opts.UploadDuration, opts.Parallel, emit, PhaseUpload, tgt.upload, client)
 
 	emit(Event{
 		Phase:          PhaseDone,
-		ServerName:     server.Name,
-		ServerSponsor:  server.Sponsor,
-		ServerCountry:  server.Country,
-		ServerDistance: server.Distance,
+		ServerName:     nfo.Name,
+		ServerSponsor:  nfo.Sponsor,
+		ServerCountry:  nfo.Country,
+		ServerDistance: nfo.DistanceKm,
 		PingMS:         ping,
 		JitterMS:       jitter,
 		DownloadMbps:   downloadMbps,
@@ -131,10 +169,20 @@ func Run(ctx context.Context, opts Options, emit func(Event)) error {
 	return nil
 }
 
+// selectTarget dispatches target selection to the requested provider.
+func selectTarget(ctx context.Context, client *http.Client, provider Provider) (target, error) {
+	switch provider {
+	case ProviderFast:
+		return selectFastTarget(ctx, client)
+	default:
+		return selectServer(ctx, client)
+	}
+}
+
 // runTransfer fans out `parallel` workers that push bytes through a shared
 // counter for `duration`, sampling the counter on a ticker to emit live rates.
 // It returns the average throughput in Mbps over the whole window.
-func runTransfer(ctx context.Context, duration time.Duration, parallel int, emit func(Event), phase Phase, worker func(context.Context, *atomic.Int64)) float64 {
+func runTransfer(ctx context.Context, duration time.Duration, parallel int, emit func(Event), phase Phase, worker func(context.Context, *http.Client, *atomic.Int64), client *http.Client) float64 {
 	runCtx, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 
@@ -145,7 +193,7 @@ func runTransfer(ctx context.Context, duration time.Duration, parallel int, emit
 		workerDone := make(chan struct{}, parallel)
 		for i := 0; i < parallel; i++ {
 			go func() {
-				worker(runCtx, &counter)
+				worker(runCtx, client, &counter)
 				workerDone <- struct{}{}
 			}()
 		}
@@ -201,5 +249,5 @@ func clamp01(v float64) float64 {
 	return v
 }
 
-// errNoServers is returned when the speedtest.net server list is empty.
-var errNoServers = fmt.Errorf("no speedtest servers reachable through the selected interface")
+// errNoServers is returned when a provider's endpoint list is empty.
+var errNoServers = fmt.Errorf("no speed-test servers reachable through the selected interface")

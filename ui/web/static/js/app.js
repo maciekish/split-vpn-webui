@@ -287,6 +287,7 @@
       speedtestUploadValue: document.getElementById('speedtest-upload-value'),
       speedtestProgress: document.getElementById('speedtest-progress'),
       speedtestChartCanvas: document.getElementById('speedtest-chart'),
+      speedtestProviders: document.getElementById('speedtest-providers'),
     })
     : null;
   const vpnControllerFactory = window.SplitVPNUI && typeof window.SplitVPNUI.createVPNController === 'function'

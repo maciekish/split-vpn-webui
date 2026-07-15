@@ -73,7 +73,12 @@ func newTestServer(t *testing.T) *httptest.Server {
 		io.WriteString(w, "size="+strconv.FormatInt(n, 10))
 	})
 	mux.HandleFunc("/speedtest/", func(w http.ResponseWriter, r *http.Request) {
-		// Any random*.jpg request: stream a fixed payload.
+		// Serves both Ookla random*.jpg GETs and fast.com range GETs/POSTs.
+		if r.Method == http.MethodPost {
+			io.Copy(io.Discard, r.Body)
+			io.WriteString(w, "ok")
+			return
+		}
 		w.Header().Set("Content-Type", "image/jpeg")
 		payload := make([]byte, 256*1024)
 		w.Write(payload)
@@ -138,14 +143,98 @@ func TestRunTransferAverages(t *testing.T) {
 	// Worker adds a fixed number of bytes immediately, then idles.
 	emitted := 0
 	avg := runTransfer(context.Background(), 500*time.Millisecond, 2, func(Event) { emitted++ }, PhaseDownload,
-		func(ctx context.Context, counter *atomic.Int64) {
+		func(ctx context.Context, _ *http.Client, counter *atomic.Int64) {
 			counter.Add(1_000_000)
 			<-ctx.Done()
-		})
+		}, nil)
 	if avg <= 0 {
 		t.Fatalf("avg = %v, want > 0", avg)
 	}
 	if emitted == 0 {
 		t.Fatalf("expected at least one progress sample")
+	}
+}
+
+func TestParseProvider(t *testing.T) {
+	cases := map[string]struct {
+		want Provider
+		ok   bool
+	}{
+		"":         {ProviderOokla, true},
+		"ookla":    {ProviderOokla, true},
+		"fast":     {ProviderFast, true},
+		"bogus":    {ProviderOokla, false},
+		"Fast.com": {ProviderOokla, false},
+	}
+	for in, exp := range cases {
+		got, ok := ParseProvider(in)
+		if got != exp.want || ok != exp.ok {
+			t.Fatalf("ParseProvider(%q) = (%v,%v), want (%v,%v)", in, got, ok, exp.want, exp.ok)
+		}
+	}
+}
+
+func TestSplitFastURL(t *testing.T) {
+	u := splitFastURL("https://host/speedtest?c=sg&t=abc")
+	if u.base != "https://host/speedtest" || u.query != "c=sg&t=abc" {
+		t.Fatalf("splitFastURL = %+v", u)
+	}
+	if got := u.rangeURL(1000); got != "https://host/speedtest/range/0-1000?c=sg&t=abc" {
+		t.Fatalf("rangeURL = %q", got)
+	}
+	noQuery := splitFastURL("https://host/speedtest")
+	if noQuery.base != "https://host/speedtest" || noQuery.query != "" {
+		t.Fatalf("splitFastURL(no query) = %+v", noQuery)
+	}
+}
+
+func TestMinAndJitter(t *testing.T) {
+	ping, jitter, err := minAndJitter([]float64{10, 14, 12})
+	if err != nil {
+		t.Fatalf("minAndJitter: %v", err)
+	}
+	if ping != 10 {
+		t.Fatalf("ping = %v, want 10", ping)
+	}
+	// |14-10| + |12-14| = 4 + 2 = 6, over 2 intervals = 3.
+	if jitter != 3 {
+		t.Fatalf("jitter = %v, want 3", jitter)
+	}
+	if _, _, err := minAndJitter(nil); err == nil {
+		t.Fatalf("expected error for empty samples")
+	}
+}
+
+func TestFastTargetDownloadUpload(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	tgt := &fastTarget{
+		urls: []fastURL{
+			{base: ts.URL + "/speedtest", query: "c=sg"},
+			{base: ts.URL + "/speedtest", query: "c=sg2"},
+		},
+		name:    "Singapore",
+		country: "SG",
+	}
+	client := ts.Client()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	var dl atomic.Int64
+	tgt.download(ctx, client, &dl)
+	if dl.Load() == 0 {
+		t.Fatalf("fast download counter = 0, want > 0")
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel2()
+	var ul atomic.Int64
+	tgt.upload(ctx2, client, &ul)
+	if ul.Load() == 0 {
+		t.Fatalf("fast upload counter = 0, want > 0")
+	}
+	if info := tgt.info(); info.Name != "Singapore" || info.Sponsor == "" {
+		t.Fatalf("info = %+v", info)
 	}
 }
