@@ -30,6 +30,7 @@ No runtime dependencies beyond the binary. No other databases, container runtime
 | systemd manager | `internal/systemd/` — unit write/symlink/daemon-reload, boot hook generation, self-healing |
 | Routing engine | `internal/routing/` — ipset/iptables/dnsmasq/ip-rule CRUD, rule-based groups, atomic apply |
 | Resolver | `internal/routing/resolver*.go` — domain/ASN/wildcard resolution, scheduling, 24h additive cache |
+| Remote lists | `internal/remotelist/` — scheduled conditional fetch of published CIDR/ASN/domain lists, content fingerprinting, change notification |
 | DNS pre-warm | `internal/prewarm/` — DoH goroutine pool, per-interface binding, wildcard discovery, ECS profiles |
 | Backup/restore | `internal/backup/` — versioned JSON export/import with rollback |
 | Update manager | `internal/update/` — GitHub release check, checksum verify, self-update runner |
@@ -51,3 +52,4 @@ No runtime dependencies beyond the binary. No other databases, container runtime
 - WireGuard interface names are `wg-sv-<sanitized-name>` (15-char kernel limit, hash-suffix collision reduction).
 - Route table IDs and fwmarks allocated from 200 upward; never below 200; collision-checked against live system.
 - No file exceeds ~500 lines; split into subpackages before hitting the limit.
+- `routing.Manager.ListGroups` returns groups with remote list references **expanded** into concrete selectors and drives all runtime state; `ListGroupsRaw` returns them unexpanded and is used only by the group editor API and backup export.

@@ -198,3 +198,26 @@ func listRuleDomains(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int6
 	}
 	return domains, wildcards, nil
 }
+
+func listRuleRemoteLists(ctx context.Context, db *sql.DB, ruleIDs []int64) (map[int64][]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT rule_id, name
+		FROM routing_rule_remote_lists
+		ORDER BY rule_id ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]string)
+	for rows.Next() {
+		var ruleID int64
+		var name string
+		if err := rows.Scan(&ruleID, &name); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], name)
+	}
+	return result, rows.Err()
+}

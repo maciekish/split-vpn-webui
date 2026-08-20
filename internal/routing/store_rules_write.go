@@ -115,6 +115,13 @@ func replaceRulesTx(ctx context.Context, tx *sql.Tx, groupID int64, rules []Rout
 				return err
 			}
 		}
+		for _, listName := range rule.RemoteLists {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO routing_rule_remote_lists (rule_id, name) VALUES (?, ?)
+			`, ruleID, listName); err != nil {
+				return err
+			}
+		}
 		if err := insertRuleRawSelectorsTx(ctx, tx, ruleID, rule.RawSelectors); err != nil {
 			return err
 		}

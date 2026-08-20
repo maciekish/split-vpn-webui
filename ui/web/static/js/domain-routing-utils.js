@@ -71,7 +71,8 @@
       rule.destinationAsns.length > 0 ||
       rule.excludedDestinationAsns.length > 0 ||
       rule.domains.length > 0 ||
-      rule.wildcardDomains.length > 0
+      rule.wildcardDomains.length > 0 ||
+      (rule.remoteLists || []).length > 0
     );
   }
 
@@ -123,7 +124,8 @@
       fieldHasAnyLine(raw.destinationAsns) ||
       fieldHasAnyLine(raw.excludedDestinationAsns) ||
       fieldHasAnyLine(raw.domains) ||
-      fieldHasAnyLine(raw.wildcardDomains)
+      fieldHasAnyLine(raw.wildcardDomains) ||
+      fieldHasAnyLine(raw.remoteLists)
     );
   }
 

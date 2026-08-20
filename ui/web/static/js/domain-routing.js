@@ -57,6 +57,7 @@
 
   const escapeHTML = helper.escapeHTML;
   const sourceMACDeviceDatalistID = 'routing-source-mac-devices';
+  const remoteListDatalistID = 'routing-remote-list-names';
   const asnPreviewController = asnPreviewFactory
     ? asnPreviewFactory({
       modal: asnPreviewModal,
@@ -71,6 +72,7 @@
     groups: [],
     vpns: [],
     devices: [],
+    remoteLists: [],
     editingGroupID: null,
     pendingDeleteID: null,
     nextRuleID: 1,
@@ -82,6 +84,7 @@
     helper,
     showStatus,
     sourceMACDeviceDatalistID,
+    remoteListDatalistID,
     onPreviewASN: ({ title, asns }) => {
       if (!asnPreviewController || typeof asnPreviewController.open !== 'function') {
         showStatus('ASN preview is unavailable in this UI build.', true);
@@ -167,6 +170,14 @@
       await Promise.all([loadVPNs(), loadDomainGroups(), loadDevices()]);
     });
   }
+
+  document.addEventListener('splitvpn:remote-lists', (event) => {
+    const lists = Array.isArray(event.detail?.lists) ? event.detail.lists : [];
+    // Disabled lists stay referenceable — they just contribute no entries — so
+    // they remain pickable, labelled as disabled.
+    state.remoteLists = lists.filter((list) => list && list.name);
+    rulesController.refreshRemoteListDatalist();
+  });
 
   async function initialize() {
     try {
@@ -331,6 +342,9 @@
         }
         if (rule.wildcardDomains.length) {
           tokens.push(`wild:${rule.wildcardDomains.length}`);
+        }
+        if ((rule.remoteLists || []).length) {
+          tokens.push(`list:${rule.remoteLists.length}`);
         }
         return `<span class="domain-group-domain">R${index + 1} ${escapeHTML(tokens.join(' '))}</span>`;
       })

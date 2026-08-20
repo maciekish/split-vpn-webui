@@ -56,6 +56,7 @@ type RoutingRule struct {
 	ExcludeMulticast         *bool             `json:"excludeMulticast,omitempty"`
 	Domains                  []string          `json:"domains,omitempty"`
 	WildcardDomains          []string          `json:"wildcardDomains,omitempty"`
+	RemoteLists              []string          `json:"remoteLists,omitempty"`
 	RawSelectors             *RuleRawSelectors `json:"rawSelectors,omitempty"`
 }
 
@@ -73,6 +74,7 @@ type RuleRawSelectors struct {
 	ExcludedDestinationASNs  []string `json:"excludedDestinationAsns,omitempty"`
 	Domains                  []string `json:"domains,omitempty"`
 	WildcardDomains          []string `json:"wildcardDomains,omitempty"`
+	RemoteLists              []string `json:"remoteLists,omitempty"`
 }
 
 // PortRange matches one destination port/range for a specific L4 protocol.
@@ -238,6 +240,11 @@ func normalizeRule(raw RoutingRule, idx int) (RoutingRule, error) {
 	}
 	wildcards := selectorValuesFromRaw(rawSelectors.WildcardDomains)
 	rule.WildcardDomains, err = normalizeDomains(wildcards, true)
+	if err != nil {
+		return RoutingRule{}, err
+	}
+	remoteLists := selectorValuesFromRaw(rawSelectors.RemoteLists)
+	rule.RemoteLists, err = normalizeRemoteListNames(remoteLists)
 	if err != nil {
 		return RoutingRule{}, err
 	}

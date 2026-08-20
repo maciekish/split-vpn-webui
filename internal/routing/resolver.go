@@ -284,7 +284,7 @@ func (s *ResolverScheduler) executeRun(ctx context.Context, current settings.Set
 func (s *ResolverScheduler) resolveSelectors(ctx context.Context, current settings.Settings) (resolverStats, error) {
 	enabled := resolverProviderFlagsFromSettings(current)
 	resolvers := s.resolversForRun(current, enabled)
-	groups, err := s.manager.store.List(ctx)
+	groups, err := s.manager.ListGroups(ctx)
 	if err != nil {
 		return resolverStats{}, err
 	}

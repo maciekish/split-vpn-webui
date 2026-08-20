@@ -203,6 +203,54 @@
     <div class="col-12">
       <div class="card shadow-sm">
         <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold"><i class="bi bi-cloud-download me-2"></i>Remote Lists</span>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-success btn-sm" id="refresh-all-remote-lists">
+              <i class="bi bi-arrow-repeat me-1"></i>Refresh All
+            </button>
+            <button class="btn btn-outline-primary btn-sm" id="open-add-remote-list">
+              <i class="bi bi-plus-circle me-1"></i>Add List
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="alert d-none py-2 small mb-3" id="remote-lists-status" role="status"></div>
+          <div class="small text-body-secondary mb-3">
+            Pull CIDRs, ASNs or domains from a published text file (for example
+            <code>https://core.telegram.org/resources/cidr.txt</code>) and reference the list by name from a
+            policy rule's <em>Remote Lists</em> box. Each list refreshes on its own interval; routing is only
+            reapplied when the fetched content actually changed. Domain and wildcard lists are capped lower than
+            CIDR/ASN lists because every entry also becomes a resolver and pre-warm lookup.
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" id="remote-lists-table">
+              <thead class="table-light">
+                <tr>
+                  <th>Name</th>
+                  <th>Kind</th>
+                  <th>Source</th>
+                  <th>Interval</th>
+                  <th class="text-end">Entries</th>
+                  <th>Last Refresh</th>
+                  <th>Status</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="text-body-secondary small d-none mt-2" id="remote-lists-empty">
+            No remote lists configured yet.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 mt-1">
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
           <span class="fw-semibold"><i class="bi bi-lightning-charge me-2"></i>DNS Pre-Warm</span>
           <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-danger btn-sm" id="clear-prewarm-cache">
@@ -304,6 +352,7 @@
 <script src="/static/js/domain-routing-asn-preview.js"></script>
 <script src="/static/js/domain-routing-rules.js"></script>
 <script src="/static/js/domain-routing.js"></script>
+<script src="/static/js/remote-lists.js"></script>
 <script src="/static/js/routing-resolver.js"></script>
 <script src="/static/js/prewarm-auth.js"></script>
 </body>

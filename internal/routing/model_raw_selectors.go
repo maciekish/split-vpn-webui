@@ -20,6 +20,7 @@ func (raw RuleRawSelectors) hasAnyLine() bool {
 		raw.ExcludedDestinationASNs,
 		raw.Domains,
 		raw.WildcardDomains,
+		raw.RemoteLists,
 	} {
 		for _, line := range list {
 			if strings.TrimSpace(line) != "" {
@@ -47,6 +48,7 @@ func normalizeRuleRawSelectors(in *RuleRawSelectors) RuleRawSelectors {
 		ExcludedDestinationASNs:  normalizeRawLines(in.ExcludedDestinationASNs),
 		Domains:                  normalizeRawLines(in.Domains),
 		WildcardDomains:          normalizeRawLines(in.WildcardDomains),
+		RemoteLists:              normalizeRawLines(in.RemoteLists),
 	}
 }
 
@@ -87,6 +89,9 @@ func hydrateRuleRawSelectorsFromRule(rawSelectors RuleRawSelectors, rule Routing
 	if len(rawSelectors.WildcardDomains) == 0 {
 		rawSelectors.WildcardDomains = cloneSelectorLines(rule.WildcardDomains)
 	}
+	if len(rawSelectors.RemoteLists) == 0 {
+		rawSelectors.RemoteLists = cloneSelectorLines(rule.RemoteLists)
+	}
 	return rawSelectors
 }
 
@@ -126,6 +131,9 @@ func finalizeRuleRawSelectors(raw RuleRawSelectors, rule RoutingRule) RuleRawSel
 	}
 	if len(raw.WildcardDomains) == 0 {
 		raw.WildcardDomains = cloneSelectorLines(rule.WildcardDomains)
+	}
+	if len(raw.RemoteLists) == 0 {
+		raw.RemoteLists = cloneSelectorLines(rule.RemoteLists)
 	}
 	return raw
 }

@@ -153,6 +153,44 @@ CREATE TABLE IF NOT EXISTS routing_rule_selector_lines (
 CREATE INDEX IF NOT EXISTS idx_routing_rule_selector_lines_rule
     ON routing_rule_selector_lines (rule_id, selector, position, id);
 
+CREATE TABLE IF NOT EXISTS remote_lists (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                     TEXT    NOT NULL COLLATE NOCASE UNIQUE,
+    url                      TEXT    NOT NULL,
+    kind                     TEXT    NOT NULL,
+    refresh_interval_seconds INTEGER NOT NULL DEFAULT 21600,
+    enabled                  INTEGER NOT NULL DEFAULT 1,
+    etag                     TEXT    NOT NULL DEFAULT '',
+    last_modified            TEXT    NOT NULL DEFAULT '',
+    content_hash             TEXT    NOT NULL DEFAULT '',
+    entry_count              INTEGER NOT NULL DEFAULT 0,
+    skipped_count            INTEGER NOT NULL DEFAULT 0,
+    last_fetch_at            INTEGER NOT NULL DEFAULT 0,
+    last_success_at          INTEGER NOT NULL DEFAULT 0,
+    last_changed_at          INTEGER NOT NULL DEFAULT 0,
+    last_error               TEXT    NOT NULL DEFAULT '',
+    created_at               INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_at               INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS remote_list_entries (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    list_id INTEGER NOT NULL REFERENCES remote_lists(id) ON DELETE CASCADE,
+    value   TEXT    NOT NULL,
+    UNIQUE(list_id, value)
+);
+CREATE INDEX IF NOT EXISTS idx_remote_list_entries_list
+    ON remote_list_entries (list_id);
+
+CREATE TABLE IF NOT EXISTS routing_rule_remote_lists (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER NOT NULL REFERENCES routing_rules(id) ON DELETE CASCADE,
+    name    TEXT    NOT NULL,
+    UNIQUE(rule_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_routing_rule_remote_lists_rule
+    ON routing_rule_remote_lists (rule_id);
+
 CREATE TABLE IF NOT EXISTS resolver_cache (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     selector_type TEXT    NOT NULL,

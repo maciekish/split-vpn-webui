@@ -38,6 +38,9 @@ type Manager struct {
 	rules     RuleApplier
 	vpnLister VPNLister
 	mu        sync.Mutex
+
+	remoteMu    sync.RWMutex
+	remoteLists RemoteListProvider
 }
 
 // NewManager creates a routing manager with concrete dependencies.
@@ -76,8 +79,78 @@ func NewManagerWithDeps(store *Store, ipset IPSetOperator, dnsmasq DNSManager, r
 	return &Manager{store: store, ipset: ipset, dnsmasq: dnsmasq, rules: rules, vpnLister: vpnLister}, nil
 }
 
+// SetRemoteListProvider registers the source of remote list contents. Rules
+// referencing a remote list are expanded with its entries on every read that
+// drives runtime routing state.
+func (m *Manager) SetRemoteListProvider(provider RemoteListProvider) {
+	m.remoteMu.Lock()
+	defer m.remoteMu.Unlock()
+	m.remoteLists = provider
+}
+
+func (m *Manager) remoteListProvider() RemoteListProvider {
+	m.remoteMu.RLock()
+	defer m.remoteMu.RUnlock()
+	return m.remoteLists
+}
+
+// ListGroups returns persisted groups with remote list references expanded into
+// concrete selectors.
 func (m *Manager) ListGroups(ctx context.Context) ([]DomainGroup, error) {
+	groups, err := m.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.expandGroups(ctx, groups)
+}
+
+// ListGroupsRaw returns persisted groups exactly as stored, without remote list
+// expansion. Use it for editing and backup, never for applying routing state.
+func (m *Manager) ListGroupsRaw(ctx context.Context) ([]DomainGroup, error) {
 	return m.store.List(ctx)
+}
+
+// RemoteListReferences returns the names of groups whose rules reference the
+// given remote list.
+func (m *Manager) RemoteListReferences(ctx context.Context, listName string) ([]string, error) {
+	target := strings.ToLower(strings.TrimSpace(listName))
+	if target == "" {
+		return nil, nil
+	}
+	groups, err := m.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{})
+	names := make([]string, 0)
+	for _, group := range groups {
+		for _, rule := range group.Rules {
+			for _, name := range rule.RemoteLists {
+				if strings.ToLower(strings.TrimSpace(name)) != target {
+					continue
+				}
+				if _, exists := seen[group.Name]; exists {
+					continue
+				}
+				seen[group.Name] = struct{}{}
+				names = append(names, group.Name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func (m *Manager) expandGroups(ctx context.Context, groups []DomainGroup) ([]DomainGroup, error) {
+	provider := m.remoteListProvider()
+	if provider == nil {
+		return groups, nil
+	}
+	contents, err := provider.RemoteListContents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return expandGroupsWithRemoteLists(groups, contents), nil
 }
 
 func (m *Manager) LoadResolverSnapshot(ctx context.Context) (map[ResolverSelector]ResolverValues, error) {
@@ -138,6 +211,9 @@ func (m *Manager) CreateGroup(ctx context.Context, group DomainGroup) (*DomainGr
 	if err := m.validateEgressVPN(group.EgressVPN); err != nil {
 		return nil, err
 	}
+	if err := m.validateRemoteLists(ctx, group); err != nil {
+		return nil, err
+	}
 
 	created, err := m.store.Create(ctx, group)
 	if err != nil {
@@ -154,6 +230,9 @@ func (m *Manager) UpdateGroup(ctx context.Context, id int64, group DomainGroup) 
 	defer m.mu.Unlock()
 
 	if err := m.validateEgressVPN(group.EgressVPN); err != nil {
+		return nil, err
+	}
+	if err := m.validateRemoteLists(ctx, group); err != nil {
 		return nil, err
 	}
 
@@ -208,7 +287,7 @@ func (m *Manager) ReplaceState(
 }
 
 func (m *Manager) applyLocked(ctx context.Context) error {
-	groups, err := m.store.List(ctx)
+	groups, err := m.ListGroups(ctx)
 	if err != nil {
 		return err
 	}
@@ -323,12 +402,8 @@ func (m *Manager) buildBinding(
 	pair := RuleSetNames(group.Name, ruleIndex)
 	needsSource := len(rule.SourceCIDRs) > 0
 	needsExcludedSource := len(rule.ExcludedSourceCIDRs) > 0
-	needsDestination := len(rule.DestinationCIDRs) > 0 ||
-		len(rule.DestinationASNs) > 0 ||
-		len(rule.Domains) > 0 ||
-		len(rule.WildcardDomains) > 0
-	needsExcludedDestination := len(rule.ExcludedDestinationCIDRs) > 0 ||
-		len(rule.ExcludedDestinationASNs) > 0
+	needsDestination := ruleNeedsDestinationSet(rule)
+	needsExcludedDestination := ruleNeedsExcludedDestinationSet(rule)
 
 	if needsSource {
 		sourceV4, sourceV6 := splitCIDRsByFamily(rule.SourceCIDRs)
@@ -398,6 +473,32 @@ func (m *Manager) cleanupStaleSets(active map[string]struct{}) error {
 		}
 		if err := m.ipset.DestroySet(setName); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validateRemoteLists(ctx context.Context, group DomainGroup) error {
+	referenced := make([]string, 0)
+	for _, rule := range group.Rules {
+		referenced = append(referenced, rule.RemoteLists...)
+	}
+	if len(referenced) == 0 {
+		return nil
+	}
+	provider := m.remoteListProvider()
+	if provider == nil {
+		return fmt.Errorf("%w: remote lists are unavailable", ErrGroupValidation)
+	}
+	// Validated against every configured list, not just the enabled ones: a
+	// disabled list is a valid reference that simply contributes no entries.
+	names, err := provider.RemoteListNames(ctx)
+	if err != nil {
+		return err
+	}
+	for _, name := range referenced {
+		if _, ok := names[strings.ToLower(strings.TrimSpace(name))]; !ok {
+			return fmt.Errorf("%w: remote list %q not found", ErrGroupValidation, name)
 		}
 	}
 	return nil

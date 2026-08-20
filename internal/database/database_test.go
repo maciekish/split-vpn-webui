@@ -1,6 +1,7 @@
 package database
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -135,5 +136,48 @@ func TestCleanup_RemovesRowsOlderThanSevenDays(t *testing.T) {
 	}
 	if ts != recentTs {
 		t.Fatalf("expected recent row to remain (%d), got %d", recentTs, ts)
+	}
+}
+
+// Upgrading an existing install must add the remote list tables without
+// touching the data already in the database.
+func TestMigrateAddsRemoteListTablesToExistingDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "upgrade.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO domain_groups (name, egress_vpn) VALUES ('Existing', 'wg0')`); err != nil {
+		t.Fatalf("seed group: %v", err)
+	}
+	// Simulate a database created before this feature existed.
+	for _, table := range []string{"routing_rule_remote_lists", "remote_list_entries", "remote_lists"} {
+		if _, err := db.Exec("DROP TABLE " + table); err != nil {
+			t.Fatalf("drop %s: %v", table, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	upgraded, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer upgraded.Close()
+
+	for _, table := range []string{"remote_lists", "remote_list_entries", "routing_rule_remote_lists"} {
+		var name string
+		row := upgraded.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table)
+		if err := row.Scan(&name); err != nil {
+			t.Fatalf("table %s was not created on upgrade: %v", table, err)
+		}
+	}
+	var groups int
+	if err := upgraded.QueryRow(`SELECT COUNT(*) FROM domain_groups`).Scan(&groups); err != nil {
+		t.Fatalf("count groups: %v", err)
+	}
+	if groups != 1 {
+		t.Fatalf("upgrade lost existing data: %d groups", groups)
 	}
 }

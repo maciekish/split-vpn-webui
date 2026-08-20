@@ -7,10 +7,18 @@
         helper,
         showStatus,
         sourceMACDeviceDatalistID,
+        remoteListDatalistID,
         onPreviewASN,
       } = ctx || {};
 
-      if (!rulesList || !state || !helper || typeof showStatus !== 'function' || !sourceMACDeviceDatalistID) {
+      if (
+        !rulesList ||
+        !state ||
+        !helper ||
+        typeof showStatus !== 'function' ||
+        !sourceMACDeviceDatalistID ||
+        !remoteListDatalistID
+      ) {
         return null;
       }
 
@@ -40,6 +48,7 @@
           const excludedDestinationAsns = parseSelectorField(rawValueFrom(card, '.js-rule-asn-excluded'));
           const domains = parseSelectorField(rawValueFrom(card, '.js-rule-domains'));
           const wildcardDomains = parseSelectorField(rawValueFrom(card, '.js-rule-wildcards'));
+          const remoteLists = parseSelectorField(rawValueFrom(card, '.js-rule-remote-lists'));
           const excludeMulticast = !!card.querySelector('.js-rule-exclude-multicast')?.checked;
           const rule = {
             name: valueFrom(card, '.js-rule-name'),
@@ -56,6 +65,7 @@
             excludeMulticast,
             domains: domains.activeValues,
             wildcardDomains: wildcardDomains.activeValues,
+            remoteLists: remoteLists.activeValues,
             rawSelectors: {
               sourceInterfaces: sourceInterfaces.rawLines,
               sourceCidrs: sourceCidrs.rawLines,
@@ -69,6 +79,7 @@
               excludedDestinationAsns: excludedDestinationAsns.rawLines,
               domains: domains.rawLines,
               wildcardDomains: wildcardDomains.rawLines,
+              remoteLists: remoteLists.rawLines,
             },
           };
           if (ruleHasEditableContent(rule)) {
@@ -95,6 +106,7 @@
             const excludeMulticast = typeof rule.excludeMulticast === 'boolean' ? rule.excludeMulticast : true;
             const domains = Array.isArray(rule.domains) ? rule.domains : [];
             const wildcardDomains = Array.isArray(rule.wildcardDomains) ? rule.wildcardDomains : [];
+            const remoteLists = Array.isArray(rule.remoteLists) ? rule.remoteLists : [];
             return {
               name: rule.name || `Rule ${index + 1}`,
               sourceInterfaces,
@@ -110,6 +122,7 @@
               excludeMulticast,
               domains,
               wildcardDomains,
+              remoteLists,
               rawSelectors: {
                 sourceInterfaces: normalizeRawLinesOrFallback(raw.sourceInterfaces, sourceInterfaces),
                 sourceCidrs: normalizeRawLinesOrFallback(raw.sourceCidrs, sourceCidrs),
@@ -129,6 +142,7 @@
                 excludedDestinationAsns: normalizeRawLinesOrFallback(raw.excludedDestinationAsns, excludedDestinationAsns),
                 domains: normalizeRawLinesOrFallback(raw.domains, domains),
                 wildcardDomains: normalizeRawLinesOrFallback(raw.wildcardDomains, wildcardDomains),
+                remoteLists: normalizeRawLinesOrFallback(raw.remoteLists, remoteLists),
               },
             };
           });
@@ -152,6 +166,7 @@
           excludeMulticast: true,
           domains: legacyDomains.filter((entry) => !String(entry).startsWith('*.' )),
           wildcardDomains: legacyDomains.filter((entry) => String(entry).startsWith('*.')),
+          remoteLists: [],
           rawSelectors: {
             sourceInterfaces: [],
             sourceCidrs: [],
@@ -165,6 +180,7 @@
             excludedDestinationAsns: [],
             domains: legacyDomains.filter((entry) => !String(entry).startsWith('*.' )),
             wildcardDomains: legacyDomains.filter((entry) => String(entry).startsWith('*.')),
+            remoteLists: [],
           },
         }];
       }
@@ -197,6 +213,7 @@
           excludeMulticast: true,
           domains: [],
           wildcardDomains: [],
+          remoteLists: [],
           rawSelectors: {
             sourceInterfaces: [],
             sourceCidrs: [],
@@ -210,6 +227,7 @@
             excludedDestinationAsns: [],
             domains: [],
             wildcardDomains: [],
+            remoteLists: [],
           },
         };
         const raw = payload.rawSelectors || {};
@@ -225,8 +243,10 @@
         const excludedDestinationAsnsText = selectorText(raw.excludedDestinationAsns, payload.excludedDestinationAsns || []);
         const domainsText = selectorText(raw.domains, payload.domains || []);
         const wildcardDomainsText = selectorText(raw.wildcardDomains, payload.wildcardDomains || []);
+        const remoteListsText = selectorText(raw.remoteLists, payload.remoteLists || []);
         const excludeMulticast = typeof payload.excludeMulticast === 'boolean' ? payload.excludeMulticast : true;
         const pickerInputID = `source-mac-picker-${ruleID}`;
+        const remoteListPickerID = `remote-list-picker-${ruleID}`;
         const card = document.createElement('div');
         card.className = 'routing-rule-card border rounded p-3 mb-3';
         card.setAttribute('data-rule-id', String(ruleID));
@@ -308,6 +328,16 @@
           <textarea class="form-control form-control-sm font-monospace js-rule-wildcards" rows="3" placeholder="*.apple.com&#10;#*.example.net">${escapeHTML(wildcardDomainsText)}</textarea>
         </div>
         <div class="col-12">
+          <label class="form-label small text-body-secondary mb-1">Remote Lists</label>
+          <div class="input-group input-group-sm mb-2">
+            <input class="form-control js-remote-list-picker" type="text" list="${remoteListDatalistID}" id="${remoteListPickerID}" placeholder="Search configured remote lists">
+            <button class="btn btn-outline-primary" type="button" data-action="remote-list-add" title="Add selected remote list">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+          </div>
+          <textarea class="form-control form-control-sm font-monospace js-rule-remote-lists" rows="3" placeholder="telegram&#10;#netflix-asns">${escapeHTML(remoteListsText)}</textarea>
+        </div>
+        <div class="col-12">
           <div class="small text-body-secondary">
             Comments are supported in all selector boxes. Anything after <code>#</code> on a line is ignored for matching but saved as entered.
           </div>
@@ -321,7 +351,9 @@
       </div>`;
         rulesList.appendChild(card);
         attachSourceMACPicker(card);
+        attachRemoteListPicker(card);
         refreshSourceMACDeviceDatalist();
+        refreshRemoteListDatalist();
       }
 
       function selectorText(rawLines, fallbackValues) {
@@ -369,6 +401,72 @@
           option.setAttribute('data-search', device.searchText || '');
           datalist.appendChild(option);
         });
+      }
+
+      function refreshRemoteListDatalist() {
+        let datalist = document.getElementById(remoteListDatalistID);
+        if (!datalist) {
+          datalist = document.createElement('datalist');
+          datalist.id = remoteListDatalistID;
+          document.body.appendChild(datalist);
+        }
+        datalist.innerHTML = '';
+        (state.remoteLists || []).forEach((list) => {
+          const option = document.createElement('option');
+          option.value = String(list.name || '');
+          const parts = [String(list.kind || ''), `${Number(list.entryCount || 0)} entries`];
+          if (list.enabled === false) {
+            parts.push('disabled');
+          }
+          option.label = parts.join(' • ');
+          datalist.appendChild(option);
+        });
+      }
+
+      function attachRemoteListPicker(card) {
+        const picker = card.querySelector('.js-remote-list-picker');
+        if (!picker) {
+          return;
+        }
+        picker.setAttribute('list', remoteListDatalistID);
+        picker.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter') {
+            return;
+          }
+          event.preventDefault();
+          addRemoteListFromPicker(card);
+        });
+      }
+
+      function addRemoteListFromPicker(card) {
+        const picker = card.querySelector('.js-remote-list-picker');
+        const textarea = card.querySelector('.js-rule-remote-lists');
+        if (!picker || !textarea) {
+          return;
+        }
+        const candidate = String(picker.value || '').trim();
+        if (!candidate) {
+          return;
+        }
+        const known = (state.remoteLists || []).some(
+          (list) => String(list.name || '').toLowerCase() === candidate.toLowerCase(),
+        );
+        if (!known) {
+          showStatus(`Remote list "${candidate}" is not configured.`, true);
+          return;
+        }
+        const existing = splitRawLines(textarea.value || '');
+        const alreadyExists = existing.some(
+          (line) => helper.activeSelectorValue(line).toLowerCase() === candidate.toLowerCase(),
+        );
+        if (!alreadyExists) {
+          if (textarea.value && !textarea.value.endsWith('\n')) {
+            textarea.value += '\n';
+          }
+          textarea.value += candidate;
+        }
+        picker.value = '';
+        textarea.focus();
       }
 
       function attachSourceMACPicker(card) {
@@ -460,6 +558,10 @@
           addSourceMACFromPicker(card);
           return true;
         }
+        if (action === 'remote-list-add') {
+          addRemoteListFromPicker(card);
+          return true;
+        }
         if (action === 'preview-asn') {
           if (typeof onPreviewASN !== 'function') {
             showStatus('ASN preview is unavailable.', true);
@@ -481,6 +583,7 @@
         resetRules,
         appendRuleCard,
         refreshSourceMACDeviceDatalist,
+        refreshRemoteListDatalist,
         handleAction,
       };
     },

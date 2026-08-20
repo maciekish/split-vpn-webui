@@ -18,6 +18,7 @@ import (
 	"split-vpn-webui/internal/diaglog"
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/prewarm"
+	"split-vpn-webui/internal/remotelist"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/stats"
@@ -55,6 +56,7 @@ type Server struct {
 	vpnManager     *vpn.Manager
 	routingManager *routing.Manager
 	resolver       *routing.ResolverScheduler
+	remoteLists    *remotelist.Manager
 	prewarm        *prewarm.Scheduler
 	systemd        systemd.ServiceManager
 	stats          *stats.Collector
@@ -88,6 +90,7 @@ func New(
 	vpnManager *vpn.Manager,
 	routingManager *routing.Manager,
 	resolverScheduler *routing.ResolverScheduler,
+	remoteListManager *remotelist.Manager,
 	prewarmScheduler *prewarm.Scheduler,
 	systemdManager systemd.ServiceManager,
 	statsCollector *stats.Collector,
@@ -108,6 +111,7 @@ func New(
 		vpnManager:        vpnManager,
 		routingManager:    routingManager,
 		resolver:          resolverScheduler,
+		remoteLists:       remoteListManager,
 		prewarm:           prewarmScheduler,
 		systemd:           systemdManager,
 		stats:             statsCollector,
@@ -182,6 +186,13 @@ func (s *Server) Router() (http.Handler, error) {
 			api.Get("/resolver/status", s.handleResolverStatus)
 			api.Post("/resolver/run", s.handleResolverRun)
 			api.Post("/resolver/clear-run", s.handleResolverClearRun)
+			api.Get("/remote-lists", s.handleListRemoteLists)
+			api.Post("/remote-lists", s.handleCreateRemoteList)
+			api.Post("/remote-lists/refresh", s.handleRefreshAllRemoteLists)
+			api.Get("/remote-lists/{id}/entries", s.handleGetRemoteListEntries)
+			api.Put("/remote-lists/{id}", s.handleUpdateRemoteList)
+			api.Delete("/remote-lists/{id}", s.handleDeleteRemoteList)
+			api.Post("/remote-lists/{id}/refresh", s.handleRefreshRemoteList)
 			api.Get("/prewarm/status", s.handlePrewarmStatus)
 			api.Post("/prewarm/run", s.handlePrewarmRun)
 			api.Post("/prewarm/clear-run", s.handlePrewarmClearRun)

@@ -35,6 +35,7 @@ type ruleUpsertPayload struct {
 	ExcludeMulticast         *bool                   `json:"excludeMulticast,omitempty"`
 	Domains                  []string                `json:"domains,omitempty"`
 	WildcardDomains          []string                `json:"wildcardDomains,omitempty"`
+	RemoteLists              []string                `json:"remoteLists,omitempty"`
 	RawSelectors             ruleRawSelectorsPayload `json:"rawSelectors,omitempty"`
 }
 
@@ -51,6 +52,7 @@ type ruleRawSelectorsPayload struct {
 	ExcludedDestinationASNs  []string `json:"excludedDestinationAsns,omitempty"`
 	Domains                  []string `json:"domains,omitempty"`
 	WildcardDomains          []string `json:"wildcardDomains,omitempty"`
+	RemoteLists              []string `json:"remoteLists,omitempty"`
 }
 
 type portUpsertPayload struct {
@@ -64,7 +66,7 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "routing manager unavailable"})
 		return
 	}
-	groups, err := s.routingManager.ListGroups(r.Context())
+	groups, err := s.routingManager.ListGroupsRaw(r.Context())
 	if err != nil {
 		writeRoutingError(w, err)
 		return
@@ -189,6 +191,7 @@ func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 			ExcludeMulticast:         rule.ExcludeMulticast,
 			Domains:                  append([]string(nil), rule.Domains...),
 			WildcardDomains:          append([]string(nil), rule.WildcardDomains...),
+			RemoteLists:              append([]string(nil), rule.RemoteLists...),
 			RawSelectors: &routing.RuleRawSelectors{
 				SourceInterfaces:         append([]string(nil), rule.RawSelectors.SourceInterfaces...),
 				SourceCIDRs:              append([]string(nil), rule.RawSelectors.SourceCIDRs...),
@@ -202,6 +205,7 @@ func decodeGroupPayload(r *http.Request) (routing.DomainGroup, error) {
 				ExcludedDestinationASNs:  append([]string(nil), rule.RawSelectors.ExcludedDestinationASNs...),
 				Domains:                  append([]string(nil), rule.RawSelectors.Domains...),
 				WildcardDomains:          append([]string(nil), rule.RawSelectors.WildcardDomains...),
+				RemoteLists:              append([]string(nil), rule.RawSelectors.RemoteLists...),
 			},
 		})
 	}

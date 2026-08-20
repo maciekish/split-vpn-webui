@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"split-vpn-webui/internal/config"
+	"split-vpn-webui/internal/remotelist"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/systemd"
 )
@@ -294,5 +296,74 @@ func TestHandleUpdateStatusWithoutUpdater(t *testing.T) {
 	s.handleUpdateStatus(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestDecodeGroupPayloadKeepsRemoteListReferences(t *testing.T) {
+	body := `{"name":"Messaging","egressVpn":"sgp.contoso.com","rules":[{"name":"Rule 1",` +
+		`"rawSelectors":{"remoteLists":["telegram#messaging","#disabled"]}}]}`
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(body))
+
+	group, err := decodeGroupPayload(request)
+	if err != nil {
+		t.Fatalf("decodeGroupPayload failed: %v", err)
+	}
+	if len(group.Rules) != 1 {
+		t.Fatalf("expected one rule, got %d", len(group.Rules))
+	}
+	rule := group.Rules[0]
+	if len(rule.RemoteLists) != 1 || rule.RemoteLists[0] != "telegram" {
+		t.Fatalf("unexpected remote lists: %v", rule.RemoteLists)
+	}
+	if rule.RawSelectors == nil || len(rule.RawSelectors.RemoteLists) != 2 {
+		t.Fatalf("raw remote list lines were dropped: %+v", rule.RawSelectors)
+	}
+}
+
+func TestDecodeGroupPayloadRejectsInvalidRemoteListName(t *testing.T) {
+	body := `{"name":"Messaging","egressVpn":"sgp.contoso.com","rules":[{"name":"Rule 1",` +
+		`"rawSelectors":{"remoteLists":["not a name"]}}]}`
+	request := httptest.NewRequest("POST", "/api/groups", strings.NewReader(body))
+
+	if _, err := decodeGroupPayload(request); !errors.Is(err, routing.ErrGroupValidation) {
+		t.Fatalf("expected ErrGroupValidation, got %v", err)
+	}
+}
+
+func TestWriteRemoteListErrorMapsStatusCodes(t *testing.T) {
+	tests := []struct {
+		err  error
+		want int
+	}{
+		{err: fmt.Errorf("%w: bad url", remotelist.ErrValidation), want: http.StatusBadRequest},
+		{err: remotelist.ErrNotFound, want: http.StatusNotFound},
+		{err: fmt.Errorf("%w: in use", remotelist.ErrReferenced), want: http.StatusConflict},
+		{err: errors.New("boom"), want: http.StatusInternalServerError},
+	}
+	for _, test := range tests {
+		recorder := httptest.NewRecorder()
+		writeRemoteListError(recorder, test.err)
+		if recorder.Code != test.want {
+			t.Fatalf("status for %v = %d, want %d", test.err, recorder.Code, test.want)
+		}
+		var payload map[string]string
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("response is not JSON: %v", err)
+		}
+		if payload["error"] == "" {
+			t.Fatalf("expected an error field for %v", test.err)
+		}
+	}
+}
+
+func TestParseRemoteListIDRejectsInvalidValues(t *testing.T) {
+	for _, raw := range []string{"", "0", "-1", "abc"} {
+		if _, err := parseRemoteListID(raw); err == nil {
+			t.Fatalf("expected error for %q", raw)
+		}
+	}
+	id, err := parseRemoteListID(" 42 ")
+	if err != nil || id != 42 {
+		t.Fatalf("parseRemoteListID(42) = %d, %v", id, err)
 	}
 }

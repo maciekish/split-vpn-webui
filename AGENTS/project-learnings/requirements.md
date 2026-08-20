@@ -40,6 +40,7 @@ Routing Groups have one egress VPN and one or more rules. Rules are ORed within 
 - Destination ASN (e.g. `AS13335`)
 - Domains (exact FQDN)
 - Wildcard domains (e.g. `*.apple.com`)
+- Remote lists (named published-list references; see §5a)
 - Excluded source/destination CIDRs, ports, ASNs (negation)
 - Exclude multicast (default on)
 
@@ -50,6 +51,20 @@ Routing Groups have one egress VPN and one or more rules. Rules are ORed within 
 - `ip rule` + `ip -6 rule` to route fwmark traffic to VPN route table
 - MASQUERADE in nat POSTROUTING for each VPN
 - All changes applied atomically; `Apply()` is idempotent
+
+## 5a. Remote Lists
+
+Selector values can be pulled from a published plain-text URL (e.g. `https://core.telegram.org/resources/cidr.txt`).
+
+A remote list is `name + url + kind + refresh interval + enabled`, where `kind` is one of `cidr`, `asn`, `domain`, `wildcard` and decides which rule selector the entries feed. Rules reference a list by name in their **Remote Lists** selector box; at apply time the entries are merged into the rule's destination CIDR/ASN/domain/wildcard selectors. Persisted rules keep only the reference, so the editor and backups never contain expanded entries.
+
+Refresh is per-list and self-scheduled (min 5 min, max 30 days, default 6 h); a failing list retries on a 15-minute window instead of its full interval. Fetches are conditional (ETag / If-Modified-Since) and the parsed entry set is fingerprinted, so an unchanged source triggers **no** routing side effects. When content does change, `routing.Apply()` reruns (ipsets, dnsmasq, iptables) and a resolver pass is triggered for `asn`/`domain`/`wildcard` lists.
+
+Safety: a rule referencing a list that is empty, disabled or not yet fetched still gets an (empty) destination ipset, so it matches nothing rather than diverting all of the rule's source traffic. A failed fetch keeps the previously cached entries, and a 200 response that parses to nothing usable (captive portal, CDN error page, truncated transfer) is treated as a failure for the same reason. List names are unique case-insensitively, because rule references and the contents map are keyed case-insensitively. Renaming or deleting a list that a rule references is rejected (409); disabling it is allowed and is the intended "temporarily off" switch.
+
+Bounds: 8 MiB body; entry caps are per kind — 65 536 for `cidr`/`asn` (the ipset `hash:net` default capacity), 5 000 for `domain` and 250 for `wildcard`, because each domain becomes a resolver selector plus one pre-warm DNS query per active VPN interface, and each wildcard additionally triggers certificate-transparency subdomain discovery. Unparsable lines are skipped and surfaced as a per-list skipped count.
+
+Remote-list domains deliberately flow into the resolver and the pre-warmer exactly like hand-entered domains — the per-kind caps keep that equivalent in cost to what the Domains box already allows.
 
 ## 5. Resolver & Pre-Warm Workers
 

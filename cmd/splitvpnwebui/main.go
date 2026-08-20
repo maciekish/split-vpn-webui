@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -21,6 +22,7 @@ import (
 	"split-vpn-webui/internal/diaglog"
 	"split-vpn-webui/internal/latency"
 	"split-vpn-webui/internal/prewarm"
+	"split-vpn-webui/internal/remotelist"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/server"
 	"split-vpn-webui/internal/settings"
@@ -139,10 +141,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize routing manager: %v", err)
 	}
+	remoteListManager, err := remotelist.NewManager(db)
+	if err != nil {
+		log.Fatalf("failed to initialize remote list manager: %v", err)
+	}
+	routingManager.SetRemoteListProvider(remoteListManager)
 	if err := routingManager.Apply(context.Background()); err != nil {
 		log.Printf("warning: failed to apply routing state on startup: %v", err)
 	}
-	backupManager, err := backup.NewManager(cfgManager, settingsManager, vpnManager, routingManager, systemdManager)
+	backupManager, err := backup.NewManager(
+		cfgManager,
+		settingsManager,
+		vpnManager,
+		routingManager,
+		remoteListManager,
+		systemdManager,
+	)
 	if err != nil {
 		log.Fatalf("failed to initialize backup manager: %v", err)
 	}
@@ -150,6 +164,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize resolver scheduler: %v", err)
 	}
+	// A remote list whose content actually changed must reapply ipsets, dnsmasq
+	// and iptables; domain/ASN lists additionally need a resolver pass so their
+	// new selectors get resolved to prefixes.
+	remoteListManager.SetChangeHandler(func(ctx context.Context, changed []remotelist.RefreshResult) {
+		if err := routingManager.Apply(ctx); err != nil {
+			log.Printf("warning: failed to apply routing state after remote list change: %v", err)
+		}
+		if !remoteListChangeNeedsResolver(changed) {
+			return
+		}
+		if err := resolverScheduler.TriggerNow(); err != nil && !errors.Is(err, routing.ErrResolverRunInProgress) {
+			log.Printf("warning: failed to trigger resolver after remote list change: %v", err)
+		}
+	})
 	prewarmScheduler, err := prewarm.NewScheduler(db, settingsManager, routingManager, vpnManager, nil)
 	if err != nil {
 		log.Fatalf("failed to initialize prewarm scheduler: %v", err)
@@ -180,6 +208,7 @@ func main() {
 		vpnManager,
 		routingManager,
 		resolverScheduler,
+		remoteListManager,
 		prewarmScheduler,
 		systemdManager,
 		collector,
@@ -208,6 +237,14 @@ func main() {
 	defer func() {
 		if err := prewarmScheduler.Stop(); err != nil {
 			log.Printf("prewarm scheduler stop warning: %v", err)
+		}
+	}()
+	if err := remoteListManager.Start(); err != nil {
+		log.Fatalf("failed to start remote list scheduler: %v", err)
+	}
+	defer func() {
+		if err := remoteListManager.Stop(); err != nil {
+			log.Printf("remote list scheduler stop warning: %v", err)
 		}
 	}()
 
@@ -255,6 +292,18 @@ func main() {
 	if err := collector.Persist(db); err != nil {
 		log.Printf("warning: failed to persist stats history: %v", err)
 	}
+}
+
+// remoteListChangeNeedsResolver reports whether any changed list feeds a
+// selector that must be resolved to prefixes before it can populate an ipset.
+func remoteListChangeNeedsResolver(changed []remotelist.RefreshResult) bool {
+	for _, item := range changed {
+		switch item.Kind {
+		case remotelist.KindASN, remotelist.KindDomain, remotelist.KindWildcard:
+			return true
+		}
+	}
+	return false
 }
 
 func resolveListenAddress(defaultAddr, listenInterface string) string {

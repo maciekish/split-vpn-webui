@@ -27,7 +27,18 @@ type Snapshot struct {
 	Settings         settings.Settings     `json:"settings"`
 	VPNs             []VPNRecord           `json:"vpns"`
 	Groups           []GroupRecord         `json:"groups"`
+	RemoteLists      []RemoteListRecord    `json:"remoteLists,omitempty"`
 	ResolverSnapshot []ResolverCacheRecord `json:"resolverSnapshot,omitempty"`
+}
+
+// RemoteListRecord stores one remote selector list definition. Fetched entries
+// are deliberately not exported; they are re-downloaded after restore.
+type RemoteListRecord struct {
+	Name                   string `json:"name"`
+	URL                    string `json:"url"`
+	Kind                   string `json:"kind"`
+	RefreshIntervalSeconds int    `json:"refreshIntervalSeconds"`
+	Enabled                bool   `json:"enabled"`
 }
 
 // VPNRecord stores one VPN profile in source payload form.
@@ -60,6 +71,7 @@ type RuleRecord struct {
 	DestinationASNs  []string     `json:"destinationAsns,omitempty"`
 	Domains          []string     `json:"domains,omitempty"`
 	WildcardDomains  []string     `json:"wildcardDomains,omitempty"`
+	RemoteLists      []string     `json:"remoteLists,omitempty"`
 }
 
 // PortRecord stores one destination port/range selector.

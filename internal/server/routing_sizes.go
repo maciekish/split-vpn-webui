@@ -25,7 +25,9 @@ func (s *Server) collectRoutingSizes(ctx context.Context) (map[string]vpnRouting
 	if s.routingManager == nil {
 		return map[string]vpnRoutingSizes{}, nil
 	}
-	groups, err := s.routingManager.ListGroups(ctx)
+	// Set sizes are read straight from ipset, so the raw (unexpanded) rules are
+	// enough here and avoid re-deriving remote list entries on every broadcast.
+	groups, err := s.routingManager.ListGroupsRaw(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +83,8 @@ func ruleNeedsDestinationSet(rule routing.RoutingRule) bool {
 	return len(rule.DestinationCIDRs) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
-		len(rule.WildcardDomains) > 0
+		len(rule.WildcardDomains) > 0 ||
+		len(rule.RemoteLists) > 0
 }
 
 func ruleNeedsExcludedDestinationSet(rule routing.RoutingRule) bool {

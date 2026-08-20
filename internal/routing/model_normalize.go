@@ -186,6 +186,30 @@ func normalizeDomains(raw []string, wildcard bool) ([]string, error) {
 	return domains, nil
 }
 
+func normalizeRemoteListNames(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		if !groupNamePattern.MatchString(trimmed) {
+			return nil, fmt.Errorf("%w: invalid remote list name %q", ErrGroupValidation, entry)
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out, nil
+}
+
 func ruleHasSelectors(rule RoutingRule) bool {
 	return len(rule.SourceInterfaces) > 0 ||
 		len(rule.SourceCIDRs) > 0 ||
@@ -198,7 +222,8 @@ func ruleHasSelectors(rule RoutingRule) bool {
 		len(rule.DestinationASNs) > 0 ||
 		len(rule.ExcludedDestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
-		len(rule.WildcardDomains) > 0
+		len(rule.WildcardDomains) > 0 ||
+		len(rule.RemoteLists) > 0
 }
 
 // RuleExcludeMulticastEnabled returns whether multicast traffic should be excluded for a rule.

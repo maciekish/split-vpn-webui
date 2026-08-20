@@ -35,7 +35,7 @@ func (m *Manager) applyCachedDestinationSetsLocked(ctx context.Context) error {
 		return err
 	}
 
-	groups, err := m.store.List(ctx)
+	groups, err := m.ListGroups(ctx)
 	if err != nil {
 		return err
 	}
@@ -213,11 +213,15 @@ func mergeResolvedDestinationExclusions(rule RoutingRule, resolved map[ResolverS
 	return destEntries
 }
 
+// ruleNeedsDestinationSet also returns true for a rule that only references a
+// remote list. An empty destination set matches nothing, which keeps a rule
+// fail-closed while its list has not been fetched yet.
 func ruleNeedsDestinationSet(rule RoutingRule) bool {
 	return len(rule.DestinationCIDRs) > 0 ||
 		len(rule.DestinationASNs) > 0 ||
 		len(rule.Domains) > 0 ||
-		len(rule.WildcardDomains) > 0
+		len(rule.WildcardDomains) > 0 ||
+		len(rule.RemoteLists) > 0
 }
 
 func ruleNeedsExcludedDestinationSet(rule RoutingRule) bool {

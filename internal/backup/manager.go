@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"split-vpn-webui/internal/config"
+	"split-vpn-webui/internal/remotelist"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/systemd"
@@ -36,9 +37,14 @@ type vpnStore interface {
 }
 
 type routingStore interface {
-	ListGroups(ctx context.Context) ([]routing.DomainGroup, error)
+	ListGroupsRaw(ctx context.Context) ([]routing.DomainGroup, error)
 	LoadResolverSnapshot(ctx context.Context) (map[routing.ResolverSelector]routing.ResolverValues, error)
 	ReplaceState(ctx context.Context, groups []routing.DomainGroup, snapshot map[routing.ResolverSelector]routing.ResolverValues) error
+}
+
+type remoteListStore interface {
+	List(ctx context.Context) ([]remotelist.List, error)
+	ReplaceAll(ctx context.Context, lists []remotelist.UpsertRequest) error
 }
 
 type systemdStore interface {
@@ -51,6 +57,7 @@ type Manager struct {
 	settings settingsStore
 	vpns     vpnStore
 	routing  routingStore
+	remote   remoteListStore
 	systemd  systemdStore
 
 	now func() time.Time
@@ -63,6 +70,7 @@ func NewManager(
 	settingsManager *settings.Manager,
 	vpnManager *vpn.Manager,
 	routingManager *routing.Manager,
+	remoteListManager *remotelist.Manager,
 	systemdManager systemd.ServiceManager,
 ) (*Manager, error) {
 	if configManager == nil {
@@ -77,11 +85,15 @@ func NewManager(
 	if routingManager == nil {
 		return nil, fmt.Errorf("routing manager is required")
 	}
+	if remoteListManager == nil {
+		return nil, fmt.Errorf("remote list manager is required")
+	}
 	return &Manager{
 		config:   configManager,
 		settings: settingsManager,
 		vpns:     vpnManager,
 		routing:  routingManager,
+		remote:   remoteListManager,
 		systemd:  systemdManager,
 		now:      time.Now,
 	}, nil
@@ -132,11 +144,15 @@ func (m *Manager) exportLocked(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	groups, err := m.routing.ListGroups(ctx)
+	groups, err := m.routing.ListGroupsRaw(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	resolverSnapshot, err := m.routing.LoadResolverSnapshot(ctx)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	remoteLists, err := m.remote.List(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -169,6 +185,18 @@ func (m *Manager) exportLocked(ctx context.Context) (Snapshot, error) {
 		return resolverRecords[i].Key < resolverRecords[j].Key
 	})
 
+	remoteListRecords := make([]RemoteListRecord, 0, len(remoteLists))
+	for _, list := range remoteLists {
+		remoteListRecords = append(remoteListRecords, RemoteListRecord{
+			Name:                   list.Name,
+			URL:                    list.URL,
+			Kind:                   list.Kind,
+			RefreshIntervalSeconds: list.RefreshIntervalSeconds,
+			Enabled:                list.Enabled,
+		})
+	}
+	sort.Slice(remoteListRecords, func(i, j int) bool { return remoteListRecords[i].Name < remoteListRecords[j].Name })
+
 	return Snapshot{
 		Format:           FormatName,
 		Version:          CurrentVersion,
@@ -176,6 +204,7 @@ func (m *Manager) exportLocked(ctx context.Context) (Snapshot, error) {
 		Settings:         settingsValue,
 		VPNs:             vpnRecords,
 		Groups:           groupRecords,
+		RemoteLists:      remoteListRecords,
 		ResolverSnapshot: resolverRecords,
 	}, nil
 }
@@ -279,6 +308,24 @@ func (m *Manager) applyLocked(ctx context.Context, snapshot Snapshot) (ImportRes
 		}
 	}
 
+	remoteListRequests := make([]remotelist.UpsertRequest, 0, len(normalized.RemoteLists))
+	for _, list := range normalized.RemoteLists {
+		enabled := list.Enabled
+		remoteListRequests = append(remoteListRequests, remotelist.UpsertRequest{
+			Name:                   list.Name,
+			URL:                    list.URL,
+			Kind:                   list.Kind,
+			RefreshIntervalSeconds: list.RefreshIntervalSeconds,
+			Enabled:                &enabled,
+		})
+	}
+	if err := m.remote.ReplaceAll(ctx, remoteListRequests); err != nil {
+		return ImportResult{Warnings: warnings}, err
+	}
+	// A rule pointing at a list the snapshot does not carry restores fine but
+	// stays permanently fail-closed, so surface it rather than leave it silent.
+	warnings = append(warnings, danglingRemoteListWarnings(normalized)...)
+
 	groupState := make([]routing.DomainGroup, 0, len(normalized.Groups))
 	for _, group := range normalized.Groups {
 		groupState = append(groupState, groupToRouting(group))
@@ -291,6 +338,39 @@ func (m *Manager) applyLocked(ctx context.Context, snapshot Snapshot) (ImportRes
 		return ImportResult{Warnings: warnings}, err
 	}
 	return ImportResult{Warnings: warnings}, nil
+}
+
+func danglingRemoteListWarnings(snapshot Snapshot) []string {
+	known := make(map[string]struct{}, len(snapshot.RemoteLists))
+	for _, list := range snapshot.RemoteLists {
+		known[strings.ToLower(strings.TrimSpace(list.Name))] = struct{}{}
+	}
+	reported := make(map[string]struct{})
+	warnings := make([]string, 0)
+	for _, group := range snapshot.Groups {
+		for _, rule := range group.Rules {
+			for _, name := range rule.RemoteLists {
+				key := strings.ToLower(strings.TrimSpace(name))
+				if key == "" {
+					continue
+				}
+				if _, ok := known[key]; ok {
+					continue
+				}
+				if _, seen := reported[key]; seen {
+					continue
+				}
+				reported[key] = struct{}{}
+				warnings = append(warnings, fmt.Sprintf(
+					"group %q references remote list %q, which is not in this backup; its rules will match nothing until the list is recreated",
+					group.Name,
+					name,
+				))
+			}
+		}
+	}
+	sort.Strings(warnings)
+	return warnings
 }
 
 func normalizeSnapshot(raw Snapshot) (Snapshot, error) {
@@ -355,6 +435,30 @@ func normalizeSnapshot(raw Snapshot) (Snapshot, error) {
 	}
 	sort.Slice(snapshot.Groups, func(i, j int) bool { return snapshot.Groups[i].Name < snapshot.Groups[j].Name })
 
+	seenListNames := make(map[string]struct{}, len(snapshot.RemoteLists))
+	for i := range snapshot.RemoteLists {
+		list := &snapshot.RemoteLists[i]
+		normalizedList, err := remotelist.NormalizeUpsert(remotelist.UpsertRequest{
+			Name:                   list.Name,
+			URL:                    list.URL,
+			Kind:                   list.Kind,
+			RefreshIntervalSeconds: list.RefreshIntervalSeconds,
+		})
+		if err != nil {
+			return Snapshot{}, fmt.Errorf("%w: invalid remote list %q: %v", ErrInvalidSnapshot, list.Name, err)
+		}
+		key := strings.ToLower(normalizedList.Name)
+		if _, exists := seenListNames[key]; exists {
+			return Snapshot{}, fmt.Errorf("%w: duplicate remote list name %q", ErrInvalidSnapshot, list.Name)
+		}
+		seenListNames[key] = struct{}{}
+		list.Name = normalizedList.Name
+		list.URL = normalizedList.URL
+		list.Kind = normalizedList.Kind
+		list.RefreshIntervalSeconds = normalizedList.RefreshIntervalSeconds
+	}
+	sort.Slice(snapshot.RemoteLists, func(i, j int) bool { return snapshot.RemoteLists[i].Name < snapshot.RemoteLists[j].Name })
+
 	for i := range snapshot.ResolverSnapshot {
 		entry := &snapshot.ResolverSnapshot[i]
 		entry.Type = strings.ToLower(strings.TrimSpace(entry.Type))
@@ -401,6 +505,7 @@ func groupToRecord(group routing.DomainGroup) GroupRecord {
 			DestinationASNs:  append([]string(nil), rule.DestinationASNs...),
 			Domains:          append([]string(nil), rule.Domains...),
 			WildcardDomains:  append([]string(nil), rule.WildcardDomains...),
+			RemoteLists:      append([]string(nil), rule.RemoteLists...),
 		})
 	}
 	return GroupRecord{
@@ -431,6 +536,7 @@ func groupToRouting(group GroupRecord) routing.DomainGroup {
 			DestinationASNs:  append([]string(nil), rule.DestinationASNs...),
 			Domains:          append([]string(nil), rule.Domains...),
 			WildcardDomains:  append([]string(nil), rule.WildcardDomains...),
+			RemoteLists:      append([]string(nil), rule.RemoteLists...),
 		})
 	}
 	return routing.DomainGroup{

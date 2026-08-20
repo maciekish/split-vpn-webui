@@ -18,6 +18,7 @@ const (
 	selectorExcludedDestinationASNs  = "excluded_destination_asns"
 	selectorDomains                  = "domains"
 	selectorWildcardDomains          = "wildcard_domains"
+	selectorRemoteLists              = "remote_lists"
 )
 
 func insertRuleRawSelectorsTx(ctx context.Context, tx *sql.Tx, ruleID int64, raw *RuleRawSelectors) error {
@@ -35,6 +36,7 @@ func insertRuleRawSelectorsTx(ctx context.Context, tx *sql.Tx, ruleID int64, raw
 		selectorExcludedDestinationASNs:  normalized.ExcludedDestinationASNs,
 		selectorDomains:                  normalized.Domains,
 		selectorWildcardDomains:          normalized.WildcardDomains,
+		selectorRemoteLists:              normalized.RemoteLists,
 	}
 	for selector, lines := range linesBySelector {
 		for position, line := range lines {
@@ -94,6 +96,8 @@ func listRuleRawSelectors(ctx context.Context, db *sql.DB, ruleIDs []int64) (map
 			raw.Domains = append(raw.Domains, line)
 		case selectorWildcardDomains:
 			raw.WildcardDomains = append(raw.WildcardDomains, line)
+		case selectorRemoteLists:
+			raw.RemoteLists = append(raw.RemoteLists, line)
 		}
 		result[ruleID] = raw
 	}

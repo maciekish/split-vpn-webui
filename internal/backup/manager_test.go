@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"split-vpn-webui/internal/remotelist"
 	"split-vpn-webui/internal/routing"
 	"split-vpn-webui/internal/settings"
 	"split-vpn-webui/internal/vpn"
@@ -54,6 +56,7 @@ func TestExportIncludesSourcePayloadAndSupportingFiles(t *testing.T) {
 				},
 			},
 		},
+		remote: &mockRemoteListStore{},
 		routing: &mockRoutingStore{
 			groups: []routing.DomainGroup{
 				{
@@ -112,6 +115,7 @@ func TestImportRejectsInvalidSnapshotFormat(t *testing.T) {
 		settings: &mockSettingsStore{},
 		vpns:     &mockVPNStore{profiles: map[string]*vpn.VPNProfile{}},
 		routing:  &mockRoutingStore{},
+		remote:   &mockRemoteListStore{},
 		now:      time.Now,
 	}
 	_, err := manager.Import(context.Background(), Snapshot{
@@ -161,6 +165,7 @@ func TestImportRecreatesViaAPIAndRestoresState(t *testing.T) {
 		settings: settingsStore,
 		vpns:     vpnStore,
 		routing:  routingStore,
+		remote:   &mockRemoteListStore{},
 		systemd:  systemdStore,
 		now:      time.Now,
 	}
@@ -332,7 +337,7 @@ type replaceCall struct {
 	snapshot map[routing.ResolverSelector]routing.ResolverValues
 }
 
-func (m *mockRoutingStore) ListGroups(ctx context.Context) ([]routing.DomainGroup, error) {
+func (m *mockRoutingStore) ListGroupsRaw(ctx context.Context) ([]routing.DomainGroup, error) {
 	out := make([]routing.DomainGroup, 0, len(m.groups))
 	for _, group := range m.groups {
 		out = append(out, group)
@@ -380,4 +385,119 @@ type mockSystemdStore struct {
 func (m *mockSystemdStore) Stop(unitName string) error {
 	m.stopped = append(m.stopped, unitName)
 	return nil
+}
+
+type mockRemoteListStore struct {
+	lists    []remotelist.List
+	replaced [][]remotelist.UpsertRequest
+}
+
+func (m *mockRemoteListStore) List(ctx context.Context) ([]remotelist.List, error) {
+	return append([]remotelist.List(nil), m.lists...), nil
+}
+
+func (m *mockRemoteListStore) ReplaceAll(ctx context.Context, lists []remotelist.UpsertRequest) error {
+	m.replaced = append(m.replaced, append([]remotelist.UpsertRequest(nil), lists...))
+	return nil
+}
+
+func TestExportImportRoundTripsRemoteLists(t *testing.T) {
+	remoteStore := &mockRemoteListStore{lists: []remotelist.List{{
+		ID:                     1,
+		Name:                   "telegram",
+		URL:                    "https://core.telegram.org/resources/cidr.txt",
+		Kind:                   remotelist.KindCIDR,
+		RefreshIntervalSeconds: 3600,
+		Enabled:                true,
+	}}}
+	routingStore := &mockRoutingStore{
+		groups: []routing.DomainGroup{{
+			Name:      "Messaging",
+			EgressVPN: "alpha",
+			Rules: []routing.RoutingRule{
+				{Name: "Rule 1", RemoteLists: []string{"telegram"}},
+			},
+		}},
+	}
+	manager := &Manager{
+		config:   &mockConfigStore{basePath: t.TempDir(), autostart: map[string]bool{}, setHistory: make([]autostartChange, 0)},
+		settings: &mockSettingsStore{},
+		vpns: &mockVPNStore{profiles: map[string]*vpn.VPNProfile{"alpha": {
+			Name:      "alpha",
+			Type:      "wireguard",
+			RawConfig: "[Interface]\nPrivateKey = key\n",
+		}}},
+		routing: routingStore,
+		remote:  remoteStore,
+		systemd: &mockSystemdStore{},
+		now:     time.Now,
+	}
+
+	exported, err := manager.Export(context.Background())
+	if err != nil {
+		t.Fatalf("export failed: %v", err)
+	}
+	if len(exported.RemoteLists) != 1 || exported.RemoteLists[0].Name != "telegram" {
+		t.Fatalf("remote lists were not exported: %+v", exported.RemoteLists)
+	}
+	if len(exported.Groups) != 1 || len(exported.Groups[0].Rules) != 1 {
+		t.Fatalf("unexpected exported groups: %+v", exported.Groups)
+	}
+	if got := exported.Groups[0].Rules[0].RemoteLists; len(got) != 1 || got[0] != "telegram" {
+		t.Fatalf("rule remote list reference was dropped: %v", got)
+	}
+
+	if _, err := manager.Import(context.Background(), exported); err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if len(remoteStore.replaced) == 0 {
+		t.Fatalf("import did not restore remote list definitions")
+	}
+	restored := remoteStore.replaced[len(remoteStore.replaced)-1]
+	if len(restored) != 1 || restored[0].Name != "telegram" || restored[0].Kind != remotelist.KindCIDR {
+		t.Fatalf("restored remote lists = %+v", restored)
+	}
+	if len(routingStore.replaceHistory) == 0 {
+		t.Fatalf("import did not restore groups")
+	}
+	lastGroups := routingStore.replaceHistory[len(routingStore.replaceHistory)-1].groups
+	if len(lastGroups) != 1 || len(lastGroups[0].Rules) != 1 {
+		t.Fatalf("restored groups = %+v", lastGroups)
+	}
+	if got := lastGroups[0].Rules[0].RemoteLists; len(got) != 1 || got[0] != "telegram" {
+		t.Fatalf("restored rule lost its remote list reference: %v", got)
+	}
+}
+
+func TestNormalizeSnapshotRejectsInvalidRemoteList(t *testing.T) {
+	_, err := normalizeSnapshot(Snapshot{
+		Format:      FormatName,
+		Version:     CurrentVersion,
+		RemoteLists: []RemoteListRecord{{Name: "ok", URL: "ftp://example.com/a.txt", Kind: remotelist.KindCIDR}},
+	})
+	if !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("expected ErrInvalidSnapshot, got %v", err)
+	}
+}
+
+func TestDanglingRemoteListWarnings(t *testing.T) {
+	warnings := danglingRemoteListWarnings(Snapshot{
+		RemoteLists: []RemoteListRecord{{Name: "telegram"}},
+		Groups: []GroupRecord{{
+			Name: "Messaging",
+			Rules: []RuleRecord{
+				{RemoteLists: []string{"Telegram"}},
+				{RemoteLists: []string{"missing", "missing"}},
+			},
+		}},
+	})
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want exactly one", warnings)
+	}
+	if !strings.Contains(warnings[0], `"missing"`) {
+		t.Fatalf("warning does not name the dangling list: %q", warnings[0])
+	}
+	if strings.Contains(warnings[0], "Telegram") {
+		t.Fatalf("a case-insensitive match was reported as dangling: %q", warnings[0])
+	}
 }

@@ -15,6 +15,12 @@ The app is self-contained and does not depend on `peacey/split-vpn` scripts at r
   - destination ASN (resolved to prefixes)
   - exact domains
   - wildcard domains (`*.example.com`) with public subdomain discovery
+  - remote lists pulled from published text files
+- Pull selectors from published lists:
+  - point a list at a plain-text URL (for example `https://core.telegram.org/resources/cidr.txt`)
+  - declare its contents as CIDRs, ASNs, domains or wildcard domains
+  - per-list refresh interval, with conditional (ETag / If-Modified-Since) fetches
+  - routing is only reapplied when the fetched content actually changed
 - Keep dynamic selectors fresh at runtime:
   - periodic resolver refresh (domain/ASN/wildcard)
   - manual resolver run from UI/API

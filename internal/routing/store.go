@@ -356,6 +356,10 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 	if err != nil {
 		return nil, err
 	}
+	remoteListsByRule, err := listRuleRemoteLists(ctx, s.db, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
 	rawSelectorsByRule, err := listRuleRawSelectors(ctx, s.db, ruleIDs)
 	if err != nil {
 		return nil, err
@@ -375,6 +379,7 @@ func (s *Store) listRulesForGroups(ctx context.Context) (map[int64][]RoutingRule
 		rule.ExcludedDestinationASNs = append([]string(nil), excludedASNByRule[entry.ruleID]...)
 		rule.Domains = append([]string(nil), domainsByRule[entry.ruleID]...)
 		rule.WildcardDomains = append([]string(nil), wildcardsByRule[entry.ruleID]...)
+		rule.RemoteLists = append([]string(nil), remoteListsByRule[entry.ruleID]...)
 		rawSelectors := rawSelectorsByRule[entry.ruleID]
 		rawSelectors = hydrateRuleRawSelectorsFromRule(rawSelectors, rule)
 		rawSelectors = finalizeRuleRawSelectors(rawSelectors, rule)
